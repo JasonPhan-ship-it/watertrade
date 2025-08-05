@@ -8,13 +8,14 @@ export default authMiddleware({
   ignoredRoutes: ["/api/health"],
 });
 
+// ✅ Merge matchers and runtime into a single config export
 export const config = {
-  // Protects all routes, including api/trpc.
-  // See https://clerk.com/docs/references/nextjs/auth-middleware
-  // for more information about configuring your Middleware
-  matcher: ["/((?!.+\\.[\\w]+$|_next).*)", "/", "/(api|trpc)(.*)"],
-}; 
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
-  runtime: 'nodejs',
+  matcher: [
+    "/((?!.+\\.[\\w]+$|_next).*)",
+    "/",
+    "/(api|trpc)(.*)",
+    "/((?!_next/static|_next/image|favicon.ico).*)"
+  ],
+  runtime: "nodejs",
 };
+
