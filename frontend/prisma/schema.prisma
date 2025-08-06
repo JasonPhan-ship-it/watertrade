@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Listing {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   // "SALE" or "BUY_REQUEST"
+  title       String
+  description String
+  quantity    Float
+  unit        String   // e.g. "ACRE_FEET", "GALLONS"
+  price       Float
+  district    String   // e.g. "CENTRAL_VALLEY"
+  contact     String
+  createdAt   DateTime @default(now())
+}
