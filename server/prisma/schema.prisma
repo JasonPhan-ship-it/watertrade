@@ -1,88 +1,55 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-generator client {
-  provider = "prisma-client-js"
-}
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  clerkId   String   @unique
-  email     String   @unique
-  firstName String?
-  lastName  String?
-  district  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  listings Listings[]
-  tradesAsBuyer   Trade[] @relation("Buyer")
-  tradesAsSeller  Trade[] @relation("Seller")
-
-  @@map("users")
+generator client {
+  provider = "prisma-client-js"
 }
 
-model Listings {
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      String   @default("farmer")
+  listings  Listing[]
+  bids      Bid[]
+  trades    Trade[]   @relation("TradeParticipants")
+  createdAt DateTime @default(now())
+}
+
+model Listing {
   id          String   @id @default(cuid())
   title       String
   description String
-  type        ListingType
   quantity    Float
-  unit        String
   price       Float
-  district    String
-  status      ListingStatus @default(ACTIVE)
-  userId      String
+  status      String   @default("active")
+  seller      User     @relation(fields: [sellerId], references: [id])
+  sellerId    String
+  bids        Bid[]
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+}
 
-  // Relations
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  trades Trade[]
-
-  @@map("listings")
+model Bid {
+  id        String   @id @default(cuid())
+  amount    Float
+  bidder    User     @relation(fields: [bidderId], references: [id])
+  bidderId  String
+  listing   Listing  @relation(fields: [listingId], references: [id])
+  listingId String
+  createdAt DateTime @default(now())
 }
 
 model Trade {
-  id        String      @id @default(cuid())
-  listingId String
-  buyerId   String
-  sellerId  String
-  quantity  Float
-  price     Float
-  status    TradeStatus @default(PENDING)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-
-  // Relations
-  listing Listings @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  buyer   User     @relation("Buyer", fields: [buyerId], references: [id], onDelete: Cascade)
-  seller  User     @relation("Seller", fields: [sellerId], references: [id], onDelete: Cascade)
-
-  @@map("trades")
+  id         String   @id @default(cuid())
+  listing    Listing  @relation(fields: [listingId], references: [id])
+  listingId  String
+  buyer      User     @relation("TradeParticipants", fields: [buyerId], references: [id])
+  buyerId    String
+  seller     User     @relation("TradeParticipants", fields: [sellerId], references: [id])
+  sellerId   String
+  quantity   Float
+  price      Float
+  createdAt  DateTime @default(now())
 }
-
-enum ListingType {
-  SALE
-  BUY_REQUEST
-}
-
-enum ListingStatus {
-  ACTIVE
-  SOLD
-  CANCELLED
-  EXPIRED
-}
-
-enum TradeStatus {
-  PENDING
-  COMPLETED
-  CANCELLED
-  DISPUTED
-} 
