@@ -14,9 +14,9 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "baseUrl": ".",                          // 👈 Enables `@` alias
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]                         // 👈 Define `@/` as root
+      "@/*": ["./*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
