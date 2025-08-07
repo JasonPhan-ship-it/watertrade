@@ -17,7 +17,7 @@ export default function CreateListingPage() {
   const [form, setForm] = useState({
     title: '',
     description: '',
-    category: '',
+    category: undefined, // ✅ use undefined, not an empty string
   })
 
   const handleChange = (field: string, value: string) => {
