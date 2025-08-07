@@ -1,7 +1,5 @@
 {
   "buildCommand": "npm install --legacy-peer-deps && npm run build",
-  "outputDirectory": "frontend/.next",
-  "framework": "nextjs",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD",
-  "installCommand": "npm install --legacy-peer-deps"
+  "outputDirectory": ".next",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD"
 }
