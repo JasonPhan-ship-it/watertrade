@@ -1,17 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { Card, CardContent } from '../../components/ui/card'
-import { Button } from '../../components/ui/button'
-import { Input } from '../../components/ui/input'
-import { Label } from '../../components/ui/label'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
-} from '../../components/ui/select'
+} from '@/components/ui/select'
 
 export default function CreateListingPage() {
   const [form, setForm] = useState({
