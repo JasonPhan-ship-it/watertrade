@@ -58,7 +58,7 @@ export default function CreateListingPage() {
             <div>
               <Label htmlFor="category">Category</Label>
               <Select
-                value={form.category}
+                value={form.category || undefined} 
                 onValueChange={(value) => handleChange('category', value)}
               >
                 <SelectTrigger id="category">
