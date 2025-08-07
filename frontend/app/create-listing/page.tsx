@@ -14,11 +14,15 @@ import {
 } from '@/components/ui/select'
 
 export default function CreateListingPage() {
-  const [form, setForm] = useState({
-    title: '',
-    description: '',
-    category: undefined, // ✅ use undefined, not an empty string
-  })
+  const [form, setForm] = useState<{
+  title: string
+  description: string
+  category?: string
+}>({
+  title: '',
+  description: '',
+  category: undefined,
+})
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
