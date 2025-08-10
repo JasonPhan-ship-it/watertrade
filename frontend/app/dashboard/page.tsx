@@ -1,33 +1,27 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import { ClerkProvider } from '@clerk/nextjs'
+import Navigation from '@/components/Navigation'
+import './globals.css'
 
-export const dynamic = "force-static";
+const inter = Inter({ subsets: ['latin'] })
 
-export default async function DashboardPage() {
-  return (
-    <div className="mx-auto max-w-5xl p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Listings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-gray-600">No listings yet.</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-gray-600">No recent activity.</p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
+export const metadata: Metadata = {
+  title: 'Water Trading Platform',
+  description: 'A platform for farmers to buy and sell water and water credits',
 }
-    </div>
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ClerkProvider>
+      <html lang="en">
+        <body className={inter.className}>
+          <div className="min-h-screen bg-gradient-to-br from-water-50 to-earth-50">
+            <Navigation />
+            <main>{children}</main>
+          </div>
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }
-
