@@ -20,9 +20,6 @@ export default function Navigation() {
 
           {/* Links */}
           <div className="flex items-center gap-4">
-            <Link href="/" className="text-sm text-gray-700 hover:text-gray-900">
-              Home
-            </Link>
             <Link href="/dashboard" className="text-sm text-gray-700 hover:text-gray-900">
               Dashboard
             </Link>
