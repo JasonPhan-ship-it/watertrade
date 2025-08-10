@@ -1,83 +1,44 @@
-"use client";
-
 import * as React from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { Slot } from "@radix-ui/react-slot";
+import { cn } from "@/lib/utils";
 
-export default function CreateListingPage() {
-  const [loading, setLoading] = React.useState(false);
-  const [message, setMessage] = React.useState<string | null>(null);
-
-  async function onSubmit(formData: FormData) {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const payload = {
-        title: String(formData.get("title") || ""),
-        description: String(formData.get("description") || ""),
-        volumeAF: Number(formData.get("volumeAF") || 0),
-        pricePerAF: Number(formData.get("pricePerAF") || 0),
-        type: String(formData.get("type") || "sell"),
-      };
-      await api("/listings", { method: "POST", body: JSON.stringify(payload) });
-      setMessage("Listing created!");
-    } catch (e: any) {
-      setMessage(e.message || "Failed to create listing.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="mx-auto max-w-2xl p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Create Listing</CardTitle>
-        </CardHeader>
-        <form action={onSubmit} className="contents">
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
-              <Input id="title" name="title" placeholder="e.g., 50 AF transfer in Westlands" required />
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="volumeAF">Volume (AF)</Label>
-                <Input id="volumeAF" name="volumeAF" type="number" min={0} step="0.01" required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="pricePerAF">Price per AF ($)</Label>
-                <Input id="pricePerAF" name="pricePerAF" type="number" min={0} step="0.01" required />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="type">Type</Label>
-              <Select id="type" name="type" defaultValue="sell">
-                <option value="sell">Sell</option>
-                <option value="buy">Buy</option>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea id="description" name="description" placeholder="Add context, district, timing, terms..." />
-            </div>
-          </CardContent>
-          <CardFooter className="flex items-center gap-3">
-            <Button type="submit" disabled={loading}>
-              {loading ? "Submitting..." : "Create"}
-            </Button>
-            {message && <p className="text-sm text-gray-600">{message}</p>}
-          </CardFooter>
-        </form>
-      </Card>
-    </div>
-  );
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  asChild?: boolean;
+  variant?: "default" | "secondary" | "ghost" | "destructive" | "outline";
+  size?: "sm" | "md" | "lg";
 }
+
+const variants: Record<NonNullable<ButtonProps["variant"]>, string> = {
+  default: "bg-black text-white hover:opacity-90",
+  secondary: "bg-gray-200 text-gray-900 hover:bg-gray-300",
+  ghost: "bg-transparent hover:bg-gray-100",
+  destructive: "bg-red-600 text-white hover:bg-red-700",
+  outline: "border border-gray-300 hover:bg-gray-50",
+};
+
+const sizes: Record<NonNullable<ButtonProps["size"]>, string> = {
+  sm: "h-8 px-3 text-sm",
+  md: "h-10 px-4",
+  lg: "h-12 px-6 text-lg",
+};
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = "default", size = "md", asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button";
+    return (
+      <Comp
+        className={cn(
+          "inline-flex items-center justify-center rounded-2xl font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black disabled:opacity-50 disabled:pointer-events-none",
+          variants[variant],
+          sizes[size],
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+Button.displayName = "Button";
+
+export { Button };
