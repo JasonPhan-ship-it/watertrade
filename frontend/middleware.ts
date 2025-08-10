@@ -1,30 +1,24 @@
 // frontend/middleware.ts
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { authMiddleware } from "@clerk/nextjs";
 
 /**
- * Only these routes require authentication.
- * Everything else remains public.
+ * We don’t need to list public routes here because we’ll scope the middleware
+ * to protected paths via `config.matcher` below. Anything matched here and not
+ * listed as public will require auth automatically.
  */
-const isProtectedRoute = createRouteMatcher([
-  "/dashboard(.*)",
-  "/create-listing(.*)",
-]);
-
-export default clerkMiddleware((auth, req) => {
-  if (isProtectedRoute(req)) {
-    // If user isn't signed in, Clerk will redirect to /sign-in
-    auth().protect();
-  }
+export default authMiddleware({
+  // Keep APIs public (and skip auth logic entirely for them)
+  publicRoutes: ["/api/(.*)", "/sign-in(.*)", "/sign-up(.*)"],
+  ignoredRoutes: ["/api/(.*)"],
 });
 
 /**
- * Run the middleware on all "app" routes except Next internals and static files.
- * (We still only *enforce* auth for routes matched above.)
+ * Run the middleware ONLY on these paths. Since they are not in `publicRoutes`,
+ * Clerk will require authentication and redirect to /sign-in if needed.
  */
 export const config = {
   matcher: [
-    // Skip Next.js internals and static assets
-    "/((?!_next|.*\\..*).*)",
-    "/",
+    "/dashboard(.*)",
+    "/create-listing(.*)",
   ],
 };
