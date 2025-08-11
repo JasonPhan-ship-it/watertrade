@@ -142,13 +142,13 @@ export default function HomePage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-center">
-                            <button
-                              className="cursor-not-allowed rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-400"
-                              disabled
-                              title="Sign in to view details"
+                            <Link
+                              href={`/listings/${l.id}`}
+                              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                              title="View details"
                             >
                               View Details
-                            </button>
+                            </Link>
                           </td>
                         </tr>
                       ))}
