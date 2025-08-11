@@ -1,15 +1,20 @@
-import { PrismaClient } from '@prisma/client';
+// lib/prisma.ts
+import { PrismaClient } from "@prisma/client";
 
+const isProd = process.env.NODE_ENV === "production";
+
+// Prevent multiple instances in dev (Next.js hot reload)
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  prisma?: PrismaClient;
 };
 
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: ['query'],
+    // Verbose logs in dev; quieter in prod
+    log: isProd ? ["error", "warn"] : ["query", "error", "warn"],
   });
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+if (!isProd) globalForPrisma.prisma = prisma;
 
 export default prisma;
