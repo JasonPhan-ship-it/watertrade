@@ -1,3 +1,7 @@
+// ---------------------------------------------
+// Prisma Schema — WaterTrade
+// ---------------------------------------------
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,98 +11,142 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Listing {
-  id          String   @id @default(cuid())
-  userId      String
-  type        String   // "SALE" or "BUY_REQUEST"
-  title       String
-  description String
-  quantity    Float
-  unit        String   // e.g. "ACRE_FEET", "GALLONS"
-  price       Float
-  district    String   // e.g. "CENTRAL_VALLEY"
-  contact     String
-  createdAt   DateTime @default(now())
-}
+// ---------- Models ----------
+
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  name          String?
-  role          Role     @default(USER)
-  // Clerk ID if using Clerk
-  clerkId       String?  @unique
-  listings      Listing[]
-  transactions  Transaction[] @relation("UserTransactions")
+  id        String  @id @default(cuid())
+  email     String  @unique
+  name      String?
+  role      Role    @default(USER)
+
+  // Clerk (or other auth) external id
+  clerkId   String? @unique
+
+  // Relations
+  listings            Listing[]
+  buyerTransactions   Transaction[] @relation("BuyerTransactions")
+  sellerTransactions  Transaction[] @relation("SellerTransactions")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
 }
 
 model Listing {
   id           String   @id @default(cuid())
   district     String
   waterType    String
-  availability String     // e.g., "Feb–Apr 2025"
+  availability String          // e.g. "Feb–Apr 2025"
   acreFeet     Int
-  pricePerAF   Int        // USD per AF (cents or dollars, pick one and be consistent)
-  status       ListingStatus @default(ACTIVE)
-  seller       User?     @relation(fields: [sellerId], references: [id])
-  sellerId     String?
-  // optional auction settings
+  pricePerAF   Int             // store in cents
+  status       ListingStatus   @default(ACTIVE)
+
+  // Seller relation (optional for seed/bootstrapping)
+  seller     User?   @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  sellerId   String?
+
+  // Optional auction settings
   isAuction      Boolean  @default(false)
   auctionEndsAt  DateTime?
-  reservePrice   Int?     // per AF
-  bids           Bid[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  reservePrice   Int?            // per AF (cents)
+
+  bids        Bid[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, isAuction, auctionEndsAt])
+  @@index([district, waterType])
 }
 
 model Bid {
-  id            String   @id @default(cuid())
-  listing       Listing  @relation(fields: [listingId], references: [id])
-  listingId     String
-  bidder        User     @relation(fields: [bidderId], references: [id])
-  bidderId      String
-  pricePerAF    Int      // bid per AF
-  createdAt     DateTime @default(now())
+  id         String   @id @default(cuid())
+
+  listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listingId  String
+
+  bidder     User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  bidderId   String
+
+  pricePerAF Int      // bid price per AF (cents)
+  createdAt  DateTime @default(now())
+
+  @@index([listingId, createdAt])
+  @@index([bidderId, createdAt])
 }
 
 model Transaction {
-  id            String   @id @default(cuid())
-  type          TransactionType
-  status        TransactionStatus @default(INITIATED)
-  listing       Listing  @relation(fields: [listingId], references: [id])
-  listingId     String
-  seller        User     @relation("SellerTransactions", fields: [sellerId], references: [id])
-  sellerId      String
-  buyer         User     @relation("BuyerTransactions", fields: [buyerId], references: [id])
-  buyerId       String
-  acreFeet      Int
-  pricePerAF    Int
-  totalAmount   Int      // dollars or cents, be consistent with Stripe
+  id          String             @id @default(cuid())
+  type        TransactionType
+  status      TransactionStatus  @default(INITIATED)
+
+  listing     Listing    @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  listingId   String
+
+  seller      User       @relation("SellerTransactions", fields: [sellerId], references: [id], onDelete: Restrict)
+  sellerId    String
+
+  buyer       User       @relation("BuyerTransactions", fields: [buyerId], references: [id], onDelete: Restrict)
+  buyerId     String
+
+  acreFeet    Int
+  pricePerAF  Int        // cents
+  totalAmount Int        // cents (acreFeet * pricePerAF)
+
   paymentMethod PaymentMethod?
-  paymentId     String?  // Stripe paymentIntent id or Escrow.com id
+  paymentId      String?     // Stripe PI id or Escrow.com id
+
   complianceApprovedBy String?
   complianceApprovedAt DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  signatures    Signature[]
+
+  signatures Signature[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([listingId])
 }
 
 model Signature {
-  id              String @id @default(cuid())
-  transaction     Transaction @relation(fields: [transactionId], references: [id])
-  transactionId   String
-  party           Party // SELLER or BUYER
+  id                 String       @id @default(cuid())
+
+  transaction        Transaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  transactionId      String
+
+  party              Party        // SELLER or BUYER
   docusignEnvelopeId String?
-  status          SignatureStatus @default(PENDING)
-  completedAt     DateTime?
+  status             SignatureStatus @default(PENDING)
+  completedAt        DateTime?
+
+  @@index([transactionId, party])
 }
 
-enum Role { USER ADMIN }
+// ---------- Enums ----------
 
-enum Party { SELLER BUYER }
+enum Role {
+  USER
+  ADMIN
+}
 
-enum ListingStatus { ACTIVE UNDER_CONTRACT SOLD ARCHIVED }
+enum Party {
+  SELLER
+  BUYER
+}
 
-enum TransactionType { BUY_NOW OFFER AUCTION }
+enum ListingStatus {
+  ACTIVE
+  UNDER_CONTRACT
+  SOLD
+  ARCHIVED
+}
+
+enum TransactionType {
+  BUY_NOW
+  OFFER
+  AUCTION
+}
 
 enum TransactionStatus {
   INITIATED
@@ -112,6 +160,14 @@ enum TransactionStatus {
   CANCELLED
 }
 
-enum SignatureStatus { PENDING SENT COMPLETED DECLINED }
+enum SignatureStatus {
+  PENDING
+  SENT
+  COMPLETED
+  DECLINED
+}
 
-enum PaymentMethod { STRIPE ESCROW_COM }
+enum PaymentMethod {
+  STRIPE
+  ESCROW_COM
+}
