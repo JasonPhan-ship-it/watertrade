@@ -75,12 +75,14 @@ export default function HomePage() {
               workflow.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
+              {/* Primary CTA updated */}
               <Link
-                href="/dashboard"
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-indigo-600 px-5 text-sm font-medium text-white hover:bg-indigo-700"
+                href="/sign-up"
+                className="inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-medium text-white bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]"
               >
-                View Dashboard
+                Create Account
               </Link>
+
               <Link
                 href="/create-listing"
                 className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 px-5 text-sm font-medium text-slate-700 hover:bg-slate-50"
