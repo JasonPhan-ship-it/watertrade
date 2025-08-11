@@ -1,3 +1,4 @@
+// frontend/app/listings/[id]/page.tsx
 import prisma from "@/lib/prisma";
 import BuyNow from "./parts/BuyNow";
 import MakeOffer from "./parts/MakeOffer";
@@ -5,10 +6,14 @@ import AuctionBid from "./parts/AuctionBid";
 
 type Props = { params: { id: string } };
 
+export const dynamic = "force-dynamic";
+
 export default async function ListingDetails({ params }: Props) {
   const listing = await prisma.listing.findUnique({ where: { id: params.id } });
+
   if (!listing) {
-    return <div className="p-6">Listing not found</div>;
+    // For now, show a friendly message instead of a hard 404 so you can debug IDs.
+    return <div className="p-6">Listing not found for id: {params.id}</div>;
   }
 
   return (
