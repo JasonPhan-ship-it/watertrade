@@ -48,7 +48,7 @@ export default function Navigation() {
               </div>
             ) : (
               <SignInButton mode="modal" afterSignInUrl="/dashboard">
-                <Button className="bg-water-600 hover:bg-water-700">
+                <Button className="bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]">
                   <LogIn className="w-4 h-4 mr-2" />
                   Sign In
                 </Button>
