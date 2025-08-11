@@ -18,10 +18,10 @@ export default function Navigation() {
             <Image
               src="/brand.svg"       // <-- place your file in /public as brand.svg
               alt="Water Traders, LLC"
-              width={240}
-              height={40}
+              width={990}
+              height={180}
               priority
-              className="h-9 w-auto sm:h-10"  /* adjust size here */
+              className="h-28 w-auto sm:h-32 md:h-36"  /* adjust size here */
             />
           </Link>
 
