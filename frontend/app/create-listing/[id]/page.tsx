@@ -1,4 +1,4 @@
-import { prisma } from "@/src/server/prisma"; // adjust if your prisma helper lives elsewhere
+import prisma from "@/lib/prisma"; // Option B path
 import BuyNow from "./parts/BuyNow";
 import MakeOffer from "./parts/MakeOffer";
 import AuctionBid from "./parts/AuctionBid";
