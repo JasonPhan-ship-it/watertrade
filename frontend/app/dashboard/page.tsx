@@ -133,11 +133,12 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Hero / Filters (NO in-page header/nav anymore) */}
+      {/* Hero / Filters */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        <section className="rounded-3xl bg-gradient-to-r from-indigo-600 to-blue-500 p-6 text-white shadow-md">
+        {/* Brand banner color */}
+        <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
           <div className="text-2xl font-semibold tracking-tight">Active Water Sales</div>
-          <div className="mt-1 text-sm text-indigo-100">Westlands · San Luis · Panoche · Arvin Edison</div>
+          <div className="mt-1 text-sm text-white/80">Westlands · San Luis · Panoche · Arvin Edison</div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <select
@@ -146,10 +147,10 @@ export default function DashboardPage() {
                 setDistrict(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
+              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur placeholder-white/70 focus:bg-white/20 focus:ring-2 focus:ring-white/60"
             >
               {DISTRICTS.map((d) => (
-                <option key={d} value={d}>
+                <option key={d} value={d} className="text-slate-900">
                   {d}
                 </option>
               ))}
@@ -161,10 +162,10 @@ export default function DashboardPage() {
                 setWaterType(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
+              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur placeholder-white/70 focus:bg-white/20 focus:ring-2 focus:ring-white/60"
             >
               {WATER_TYPES.map((w) => (
-                <option key={w} value={w}>
+                <option key={w} value={w} className="text-slate-900">
                   {w}
                 </option>
               ))}
@@ -177,10 +178,10 @@ export default function DashboardPage() {
                   setWindowLabel(e.target.value);
                   setPage(1);
                 }}
-                className="h-10 flex-1 rounded-xl border border-white/30 bg-white/10 px-3 text-sm outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
+                className="h-10 flex-1 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur placeholder-white/70 focus:bg-white/20 focus:ring-2 focus:ring-white/60"
               >
                 {WINDOWS.map((w) => (
-                  <option key={w} value={w}>
+                  <option key={w} value={w} className="text-slate-900">
                     {w}
                   </option>
                 ))}
@@ -218,7 +219,7 @@ export default function DashboardPage() {
             <button
               onClick={() => setPremium((v) => !v)}
               className={`h-8 rounded-xl px-3 text-xs font-medium ${
-                premium ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                premium ? "bg-[#004434] text-white hover:bg-[#00392f]" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
               {premium ? "Disable" : "Enable"} Premium (Demo)
@@ -261,7 +262,10 @@ export default function DashboardPage() {
                         <Td align="right">${formatNumber(l.pricePerAf)}</Td>
                         <Td>{formatWindow(l.availabilityStart, l.availabilityEnd)}</Td>
                         <Td>
-                          <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">{l.waterType}</span>
+                          {/* Water type pill — lighter accent of #004434 with white text */}
+                          <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
+                            {l.waterType}
+                          </span>
                         </Td>
                         <Td align="center">
                           <Link
