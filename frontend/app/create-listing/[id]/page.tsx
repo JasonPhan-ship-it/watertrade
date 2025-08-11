@@ -1,4 +1,4 @@
-import prisma from "@/lib/prisma"; // Option B path
+import prisma from "@/lib/prisma";
 import BuyNow from "./parts/BuyNow";
 import MakeOffer from "./parts/MakeOffer";
 import AuctionBid from "./parts/AuctionBid";
