@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 /* ---------- Types ---------- */
 type Listing = {
@@ -97,8 +98,7 @@ export default function DashboardPage() {
     const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
     const avg =
       rows.length > 0
-        ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) /
-          100
+        ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100
         : 0;
 
     const nextWindow = (() => {
@@ -264,7 +264,13 @@ export default function DashboardPage() {
                           <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">{l.waterType}</span>
                         </Td>
                         <Td align="center">
-                          <button className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50">View Details</button>
+                          <Link
+                            href={`/listings/${l.id}`}
+                            className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            title="View details"
+                          >
+                            View Details
+                          </Link>
                         </Td>
                       </tr>
                     ))}
