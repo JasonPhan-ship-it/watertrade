@@ -7,10 +7,8 @@ export default function Footer() {
   return (
     <footer className="mt-16 bg-[#004434] text-white">
       <div className="container mx-auto px-4">
-        <div
-          className="pt-7 pb-10"
-          style={{ minHeight: 220 }}
-        >
+        {/* Taller footer; adjust minHeight/padding as desired */}
+        <div className="pt-8 pb-14" style={{ minHeight: 280 }}>
           {/* Top-left brand */}
           <div className="flex items-center gap-2">
             <Image
@@ -24,11 +22,9 @@ export default function Footer() {
             <span className="text-lg font-semibold">Water Traders</span>
           </div>
 
-          {/* Row: copyright (left) and links (right) on same baseline */}
-          <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-white/90">
-              © {year} Water Traders, LLC.
-            </p>
+          {/* Lower row: moved further down */}
+          <div className="mt-24 sm:mt-28 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-white/80">© {year} Water Traders, LLC.</p>
 
             <nav className="flex items-center gap-4 text-sm">
               <Link href="/privacy" className="text-white/90 hover:text-white">
