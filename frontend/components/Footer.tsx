@@ -7,22 +7,20 @@ export default function Footer() {
   return (
     <footer className="mt-16 bg-[#004434] text-white">
       <div className="container mx-auto px-4">
-        {/* Taller footer; adjust minHeight/padding as desired */}
         <div className="pt-8 pb-14" style={{ minHeight: 280 }}>
-          {/* Top-left brand */}
-          <div className="flex items-center gap-2">
+          {/* Top-left brand: image+text lockup */}
+          <div className="flex items-center">
             <Image
-              src="/logo-mark.svg"
-              alt="Water Traders"
-              width={36}
-              height={36}
-              className="shrink-0"
+              src="/8.svg"                // <-- put 8.svg in /public
+              alt="Water Traders, LLC"
+              width={220}
+              height={40}
               priority
+              className="h-10 w-auto"
             />
-            <span className="text-lg font-semibold">Water Traders</span>
           </div>
 
-          {/* Lower row: moved further down */}
+          {/* Lower row */}
           <div className="mt-24 sm:mt-28 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-white/80">© {year} Water Traders, LLC.</p>
 
