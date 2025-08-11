@@ -13,10 +13,10 @@ export default function Footer() {
             <Image
               src="/8.svg"                // <-- put 8.svg in /public
               alt="Water Traders, LLC"
-              width={352}
-              height={64}
+              width={990}
+              height={180}
               priority
-              className="h-16 w-auto sm:h-20"  // 64px tall, 80px on sm+
+              className="h-28 w-auto sm:h-32 md:h-36"  // 64px tall, 80px on sm+
             />
           </div>
 
