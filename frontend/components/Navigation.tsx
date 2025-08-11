@@ -15,7 +15,7 @@ export default function Navigation() {
           {/* Logo */}
           <Link href="/" className="flex items-center space-x-2">
             <Droplets className="w-5 h-5 text-water-600" />
-            <span className="font-semibold">WaterTrade</span>
+            <span className="font-semibold">Water Traders</span>
           </Link>
 
           {/* Links */}
