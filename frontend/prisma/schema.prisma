@@ -20,3 +20,98 @@ model Listing {
   contact     String
   createdAt   DateTime @default(now())
 }
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  role          Role     @default(USER)
+  // Clerk ID if using Clerk
+  clerkId       String?  @unique
+  listings      Listing[]
+  transactions  Transaction[] @relation("UserTransactions")
+}
+
+model Listing {
+  id           String   @id @default(cuid())
+  district     String
+  waterType    String
+  availability String     // e.g., "Feb–Apr 2025"
+  acreFeet     Int
+  pricePerAF   Int        // USD per AF (cents or dollars, pick one and be consistent)
+  status       ListingStatus @default(ACTIVE)
+  seller       User?     @relation(fields: [sellerId], references: [id])
+  sellerId     String?
+  // optional auction settings
+  isAuction      Boolean  @default(false)
+  auctionEndsAt  DateTime?
+  reservePrice   Int?     // per AF
+  bids           Bid[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Bid {
+  id            String   @id @default(cuid())
+  listing       Listing  @relation(fields: [listingId], references: [id])
+  listingId     String
+  bidder        User     @relation(fields: [bidderId], references: [id])
+  bidderId      String
+  pricePerAF    Int      // bid per AF
+  createdAt     DateTime @default(now())
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  type          TransactionType
+  status        TransactionStatus @default(INITIATED)
+  listing       Listing  @relation(fields: [listingId], references: [id])
+  listingId     String
+  seller        User     @relation("SellerTransactions", fields: [sellerId], references: [id])
+  sellerId      String
+  buyer         User     @relation("BuyerTransactions", fields: [buyerId], references: [id])
+  buyerId       String
+  acreFeet      Int
+  pricePerAF    Int
+  totalAmount   Int      // dollars or cents, be consistent with Stripe
+  paymentMethod PaymentMethod?
+  paymentId     String?  // Stripe paymentIntent id or Escrow.com id
+  complianceApprovedBy String?
+  complianceApprovedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  signatures    Signature[]
+}
+
+model Signature {
+  id              String @id @default(cuid())
+  transaction     Transaction @relation(fields: [transactionId], references: [id])
+  transactionId   String
+  party           Party // SELLER or BUYER
+  docusignEnvelopeId String?
+  status          SignatureStatus @default(PENDING)
+  completedAt     DateTime?
+}
+
+enum Role { USER ADMIN }
+
+enum Party { SELLER BUYER }
+
+enum ListingStatus { ACTIVE UNDER_CONTRACT SOLD ARCHIVED }
+
+enum TransactionType { BUY_NOW OFFER AUCTION }
+
+enum TransactionStatus {
+  INITIATED
+  PENDING_SELLER_SIGNATURE
+  AWAITING_BUYER_PAYMENT
+  PAYMENT_IN_REVIEW
+  PENDING_BUYER_SIGNATURE
+  COMPLIANCE_REVIEW
+  APPROVED
+  FUNDS_RELEASED
+  CANCELLED
+}
+
+enum SignatureStatus { PENDING SENT COMPLETED DECLINED }
+
+enum PaymentMethod { STRIPE ESCROW_COM }
