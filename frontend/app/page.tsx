@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import Footer from "@/components/Footer";
 
 /** ---- Types shared with the API shape ---- */
 type Listing = {
@@ -61,9 +62,9 @@ export default function HomePage() {
   }, [data]);
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white flex flex-col">
       {/* Hero */}
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 flex-1">
         <div className="grid items-center gap-10 md:grid-cols-2">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
@@ -75,7 +76,7 @@ export default function HomePage() {
               workflow.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              {/* Primary CTA updated */}
+              {/* Primary CTA */}
               <Link
                 href="/sign-up"
                 className="inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-medium text-white bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]"
@@ -187,6 +188,9 @@ export default function HomePage() {
           )}
         </div>
       </section>
+
+      {/* Footer */}
+      <Footer />
     </div>
   );
 }
@@ -214,21 +218,4 @@ function formatWindow(startIso: string, endIso: string) {
   return sameYear
     ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
     : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
-}
-
-import Footer from "@/components/Footer"; // add this at the top
-
-// ...existing page code...
-
-export default function HomePage() {
-  // existing logic...
-
-  return (
-    <div className="min-h-screen bg-white">
-      {/* existing sections ... */}
-
-      {/* Footer */}
-      <Footer />
-    </div>
-  );
 }
