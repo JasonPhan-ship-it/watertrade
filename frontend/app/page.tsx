@@ -103,9 +103,9 @@ export default function HomePage() {
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Kpi label="Listings (sample)" value={String(stats.count)} />
-              <Kpi label="Acre-Feet (sample)" value={stats.af} />
-              <Kpi label="Avg $/AF (sample)" value={stats.avg} />
+              <Kpi label="Listings" value={String(stats.count)} />
+              <Kpi label="Acre-Feet" value={stats.af} />
+              <Kpi label="Avg $/AF" value={stats.avg} />
             </div>
 
             <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
