@@ -215,3 +215,20 @@ function formatWindow(startIso: string, endIso: string) {
     ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
     : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
 }
+
+import Footer from "@/components/Footer"; // add this at the top
+
+// ...existing page code...
+
+export default function HomePage() {
+  // existing logic...
+
+  return (
+    <div className="min-h-screen bg-white">
+      {/* existing sections ... */}
+
+      {/* Footer */}
+      <Footer />
+    </div>
+  );
+}
