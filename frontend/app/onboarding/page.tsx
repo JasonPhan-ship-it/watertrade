@@ -3,6 +3,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "@clerk/nextjs";
 
 type ExistingProfile = {
   fullName: string;
@@ -26,12 +27,14 @@ const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] 
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { session } = useSession(); // <- we'll reload this after saving
+
   const [submitting, setSubmitting] = React.useState(false);
   const [prefill, setPrefill] = React.useState<ExistingProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Prefill if a profile already exists (nice DX, and lets a user fix validation)
+  // Prefill if a profile already exists
   React.useEffect(() => {
     let mounted = true;
     (async () => {
@@ -43,7 +46,7 @@ export default function OnboardingPage() {
           setPrefill(json.profile as ExistingProfile);
         }
       } catch {
-        // ignore: first-time users will 404/empty
+        // first-time users: no profile yet
       } finally {
         if (mounted) setLoadingProfile(false);
       }
@@ -60,40 +63,51 @@ export default function OnboardingPage() {
 
     const fd = new FormData(e.currentTarget);
 
-    // Send enum-safe role values to match ProfileRole
+    // enum-safe role values to match Prisma ProfileRole
     const role = String(fd.get("role") || "");
-    // Required by API: acceptTerms must be true (checkbox sends "on")
     const acceptTerms = fd.get("acceptTerms") === "on";
 
     const payload = {
       fullName: String(fd.get("fullName") || "").trim(),
       company: String(fd.get("company") || ""),
-      role, // already enum value from the <select>
+      role, // BUYER | SELLER | BOTH | DISTRICT_ADMIN
       phone: String(fd.get("phone") || ""),
       primaryDistrict: String(fd.get("primaryDistrict") || ""),
       waterTypes: Array.from(fd.getAll("waterTypes")) as string[],
       acceptTerms,
     };
 
+    // small helper so a stuck request doesn't spin forever
+    const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
+      Promise.race([
+        p,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Request timed out")), ms)),
+      ]);
+
     try {
-      const res = await fetch("/api/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const res = await withTimeout(
+        fetch("/api/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+      );
 
       if (!res.ok) {
-        // Try to show a helpful server message
         let msg = "Failed to save profile";
         try {
-          const maybeJson = await res.json();
-          msg = maybeJson?.error || msg;
+          const j = await (res as Response).json();
+          msg = j?.error || msg;
         } catch {
-          msg = await res.text();
+          msg = await (res as Response).text();
         }
         throw new Error(msg || "Failed to save profile");
       }
 
+      // ✅ Refresh Clerk session so middleware sees publicMetadata.onboarded = true
+      await session?.reload();
+
+      // and go to dashboard
       router.replace("/dashboard");
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
@@ -143,7 +157,6 @@ export default function OnboardingPage() {
               id="role"
               name="role"
               required
-              // IMPORTANT: enum values to satisfy Prisma ProfileRole
               defaultValue={prefill?.tradeRole || ""}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             >
