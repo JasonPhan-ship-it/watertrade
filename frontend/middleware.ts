@@ -1,50 +1,58 @@
 // middleware.ts
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
-const isProtected = createRouteMatcher([
-  "/dashboard(.*)",
-  "/listings(.*)",
-  "/create-listing(.*)",
-  "/analytics(.*)",
-]);
+// Public and protected route checks
+const PUBLIC_ROUTES: (string | RegExp)[] = [
+  "/", "/onboarding", /^\/sign-in(.*)/, /^\/sign-up(.*)/,
+];
 
-const isPublic = createRouteMatcher([
-  "/",
-  "/onboarding",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-]);
+const PROTECTED_PREFIXES = [
+  "/dashboard",
+  "/listings",
+  "/create-listing",
+  "/analytics",
+];
 
-export default clerkMiddleware(async (auth, req) => {
-  const { userId, sessionClaims } = auth();
-  const url = new URL(req.url);
-  const pathname = url.pathname;
+function isPublic(pathname: string) {
+  return PUBLIC_ROUTES.some((p) =>
+    typeof p === "string" ? p === pathname : p.test(pathname)
+  );
+}
 
-  // Always run Clerk on API routes (for auth()), but never redirect them.
-  if (pathname.startsWith("/api")) return;
+function isProtected(pathname: string) {
+  return PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
+}
 
-  // Public routes don’t need onboarding
-  if (isPublic(req)) return;
+export default withClerkMiddleware((req) => {
+  const { userId, sessionClaims } = getAuth(req);
+  const { pathname } = req.nextUrl;
 
-  // If the route isn’t protected, do nothing
-  if (!isProtected(req)) return;
+  // Never redirect APIs (but Clerk still runs so getAuth works there)
+  if (pathname.startsWith("/api")) return NextResponse.next();
 
-  // If not signed in, let Clerk handle the redirect to sign-in
-  if (!userId) return;
+  // Skip onboarding guard on public pages
+  if (isPublic(pathname)) return NextResponse.next();
 
-  // Check Clerk public metadata flag set during onboarding
+  // Only guard protected pages
+  if (!isProtected(pathname)) return NextResponse.next();
+
+  // Not signed in: let Clerk handle auth flow
+  if (!userId) return NextResponse.next();
+
+  // Gate on onboarding flag stored in Clerk public metadata
   const onboarded = (sessionClaims?.publicMetadata as any)?.onboarded === true;
-
-  // Force onboarding for first-time users
   if (!onboarded && pathname !== "/onboarding") {
+    const url = req.nextUrl.clone();
     url.pathname = "/onboarding";
     url.search = "";
-    return Response.redirect(url);
+    return NextResponse.redirect(url);
   }
+
+  return NextResponse.next();
 });
 
 export const config = {
-  // Run on all routes except Next internals and static files.
-  // Keep /api included so Clerk auth works there (we just don't redirect APIs above).
+  // Run on all routes except Next internals & static assets
   matcher: ["/((?!_next|.*\\..*).*)"],
 };
