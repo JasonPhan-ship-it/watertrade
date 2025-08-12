@@ -28,6 +28,9 @@ model User {
   sellerTransactions  Transaction[] @relation("SellerTransactions")
   bids                Bid[]                      // <-- back-relation for Bid.bidder
 
+  // NEW: One-to-one profile created via onboarding
+  profile   UserProfile?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -126,6 +129,30 @@ model Signature {
   @@index([transactionId, party])
 }
 
+/* ---------------- NEW: Onboarding Profile ---------------- */
+
+model UserProfile {
+  id               String       @id @default(cuid())
+
+  // one-to-one with User
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String       @unique
+
+  fullName         String
+  company          String?
+  tradeRole        ProfileRole  // Buyer, Seller, Both, District Admin
+  phone            String?
+  primaryDistrict  String?
+  waterTypes       String[]     @default([]) // e.g. ["CVP Allocation","Pumping Credits"]
+
+  acceptTerms      Boolean
+
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([userId])
+}
+
 // --------------- Enums ----------------
 
 enum Role {
@@ -173,4 +200,12 @@ enum SignatureStatus {
 enum PaymentMethod {
   STRIPE
   ESCROW_COM
+}
+
+/* NEW */
+enum ProfileRole {
+  BUYER
+  SELLER
+  BOTH
+  DISTRICT_ADMIN
 }
