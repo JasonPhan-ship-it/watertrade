@@ -123,34 +123,32 @@ export default function HomePage() {
                         <th className="px-4 py-3 text-right font-medium">$ / AF</th>
                         <th className="px-4 py-3 font-medium">Availability</th>
                         <th className="px-4 py-3 font-medium">Water Type</th>
-                        <th className="px-4 py-3 text-center font-medium">Action</th>
+                        <th className="px-4 py-3 text-right font-medium w-36">Action</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-slate-100">
                       {(data?.listings ?? []).map((l) => (
-                        <tr key={l.id} className="border-t border-slate-100">
-                          <td className="px-4 py-3">{l.district}</td>
-                          <td className="px-4 py-3 text-right">
+                        <tr key={l.id} className="align-middle">
+                          <td className="px-4 py-3 text-slate-900">{l.district}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-900">
                             {formatNumber(l.acreFeet)}
                           </td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-900">
                             ${formatNumber(l.pricePerAf)}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3 text-slate-900">
                             {formatWindow(l.availabilityStart, l.availabilityEnd)}
                           </td>
                           <td className="px-4 py-3">
-                            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-                              {l.waterType}
-                            </span>
+                            <WaterTypeBadge type={l.waterType} />
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-4 py-3 text-right">
                             <Link
                               href={`/listings/${l.id}`}
-                              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                              className="inline-flex h-8 w-28 items-center justify-center rounded-full border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
                               title="View details"
                             >
-                              View Details
+                              View
                             </Link>
                           </td>
                         </tr>
@@ -162,7 +160,7 @@ export default function HomePage() {
             </div>
 
             <p className="mt-3 text-center text-xs text-slate-500">
-              Preview shows a small subset. Sign in to see full listings & analytics.
+              Preview shows a small subset. Sign in to see full listings &amp; analytics.
             </p>
           </div>
         </div>
@@ -202,6 +200,24 @@ function Kpi({ label, value }: { label: string; value: string }) {
       <div className="text-slate-500 text-xs">{label}</div>
       <div className="mt-1 text-lg font-semibold tracking-tight">{value}</div>
     </div>
+  );
+}
+
+function WaterTypeBadge({ type }: { type: string }) {
+  const t = type.toLowerCase();
+  // Map common types to soft badge colors; default to indigo
+  const cls =
+    t.includes("cvp")
+      ? "border-sky-100 bg-sky-50 text-sky-700"
+      : t.includes("supplemental")
+      ? "border-indigo-100 bg-indigo-50 text-indigo-700"
+      : t.includes("transfer")
+      ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+      : "border-indigo-100 bg-indigo-50 text-indigo-700";
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${cls}`}>
+      {type}
+    </span>
   );
 }
 
