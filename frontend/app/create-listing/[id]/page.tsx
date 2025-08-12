@@ -1,6 +1,6 @@
 // app/listings/[id]/page.tsx
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, headers } from "next/navigation";
 
 type Listing = {
   id: string;
@@ -13,22 +13,47 @@ type Listing = {
   createdAt: string;
 };
 
-// ---- Fetch a single listing (adjust the URL to match your API) ----
+function getBaseUrl() {
+  const h = headers();
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  return `${proto}://${host}`;
+}
+
 async function getListing(id: string): Promise<Listing | null> {
-  // If your API is /api/listings/[id]
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/listings/${id}`, {
-    // Avoid caching so new data shows immediately
-    cache: "no-store",
-  }).catch(() => null);
+  const base = getBaseUrl();
 
-  // If you don't have /api/listings/[id], uncomment this instead:
-  // const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/listings?id=${id}`, { cache: "no-store" }).catch(() => null);
+  // Try /api/listings/[id]
+  try {
+    const res = await fetch(`${base}/api/listings/${encodeURIComponent(id)}`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      // Supports { listing }, or a raw object
+      const one = (json?.listing ?? json) as Listing | undefined;
+      if (one && one.id) return one;
+    }
+  } catch {}
 
-  if (!res || !res.ok) return null;
+  // Fallback: /api/listings?id=...
+  try {
+    const res = await fetch(`${base}/api/listings?id=${encodeURIComponent(id)}`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      // Supports { listing }, raw object, or { listings: [...] }
+      if (json?.listing?.id) return json.listing as Listing;
+      if (json?.id) return json as Listing;
+      if (Array.isArray(json?.listings)) {
+        const found = (json.listings as Listing[]).find((x) => x.id === id);
+        if (found) return found;
+      }
+    }
+  } catch {}
 
-  const json = await res.json();
-  // Support either { listing: {...} } or a raw object
-  return (json?.listing ?? json) as Listing;
+  return null;
 }
 
 export default async function ListingDetailPage({
@@ -39,8 +64,8 @@ export default async function ListingDetailPage({
   const listing = await getListing(params.id);
 
   if (!listing) {
-    // If API isn’t wired yet, you can return a placeholder instead of 404:
-    // return <div className="container mx-auto px-4 py-10">Coming soon… ({params.id})</div>
+    // TEMPORARY: comment out the next line while wiring your API to avoid 404s:
+    // return <main className="container mx-auto px-4 py-10">Coming soon… ({params.id})</main>
     notFound();
   }
 
@@ -98,7 +123,6 @@ export default async function ListingDetailPage({
           </dl>
         </div>
 
-        {/* Placeholder for actions / contact / offer flow */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Next Steps</h2>
           <p className="mt-2 text-sm text-slate-600">
