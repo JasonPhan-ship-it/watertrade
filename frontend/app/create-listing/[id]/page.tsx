@@ -1,6 +1,7 @@
 // app/listings/[id]/page.tsx
 import Link from "next/link";
-import { notFound, headers } from "next/navigation";
+import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 
 type Listing = {
   id: string;
@@ -13,6 +14,7 @@ type Listing = {
   createdAt: string;
 };
 
+// Build absolute URL for server-side fetches
 function getBaseUrl() {
   const h = headers();
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -30,7 +32,6 @@ async function getListing(id: string): Promise<Listing | null> {
     });
     if (res.ok) {
       const json = await res.json();
-      // Supports { listing }, or a raw object
       const one = (json?.listing ?? json) as Listing | undefined;
       if (one && one.id) return one;
     }
@@ -43,7 +44,6 @@ async function getListing(id: string): Promise<Listing | null> {
     });
     if (res.ok) {
       const json = await res.json();
-      // Supports { listing }, raw object, or { listings: [...] }
       if (json?.listing?.id) return json.listing as Listing;
       if (json?.id) return json as Listing;
       if (Array.isArray(json?.listings)) {
@@ -64,7 +64,7 @@ export default async function ListingDetailPage({
   const listing = await getListing(params.id);
 
   if (!listing) {
-    // TEMPORARY: comment out the next line while wiring your API to avoid 404s:
+    // Temporarily show a placeholder instead of a 404 while wiring API:
     // return <main className="container mx-auto px-4 py-10">Coming soon… ({params.id})</main>
     notFound();
   }
@@ -82,6 +82,7 @@ export default async function ListingDetailPage({
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
+        {/* Left column: details */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <dl className="grid grid-cols-1 gap-4">
             <div>
@@ -123,6 +124,7 @@ export default async function ListingDetailPage({
           </dl>
         </div>
 
+        {/* Right column: next steps */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Next Steps</h2>
           <p className="mt-2 text-sm text-slate-600">
