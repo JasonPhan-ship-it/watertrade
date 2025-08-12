@@ -29,7 +29,7 @@ export default function Navigation() {
               alt="Water Traders"
               width={1080}
               height={480}
-              className="h-16 w-auto sm:h-18 md:h-20 -ml-1"
+              className="w-64 sm:w-72 md:w-96 h-auto -ml-1"
             />
           </Link>
 
