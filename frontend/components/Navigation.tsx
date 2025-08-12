@@ -22,14 +22,14 @@ export default function Navigation() {
               width={120}
               height={120}
               priority
-              className="h-10 w-auto md:h-12 shrink-0"
+              className="h-8 w-auto md:h-10 shrink-0"
             />
             <Image
               src="/wordmark.png"           // <-- your PNG wordmark here
               alt="Water Traders"
               width={520}
               height={120}
-              className="h-8 w-auto md:h-10 shrink-0"
+              className="h-20 w-auto md:h-24 shrink-0"
             />
           </Link>
 
