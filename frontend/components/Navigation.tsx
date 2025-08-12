@@ -2,7 +2,7 @@
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { User, LogOut, LogIn } from "lucide-react"; // removed Droplets
+import { User, LogOut, LogIn } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -12,21 +12,22 @@ export default function Navigation() {
   return (
     <nav className="bg-white shadow-sm border-b">
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo lockup (image includes logo + name) */}
+        {/* Taller header */}
+        <div className="flex items-center justify-between h-20 md:h-24">
+          {/* Logo lockup (smaller) */}
           <Link href="/" className="flex items-center">
             <Image
-              src="/brand.svg"       // <-- place your file in /public as brand.svg
+              src="/brand.svg"
               alt="Water Traders, LLC"
-              width={990}
-              height={180}
+              width={600}
+              height={120}
               priority
-              className="h-28 w-auto sm:h-32 md:h-36"  /* adjust size here */
+              className="h-10 w-auto md:h-12"
             />
           </Link>
 
           {/* Links */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-5 md:gap-6">
             <Link href="/dashboard" className="text-sm text-gray-700 hover:text-gray-900">
               Dashboard
             </Link>
