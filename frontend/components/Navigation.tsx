@@ -14,15 +14,22 @@ export default function Navigation() {
       <div className="container mx-auto px-4">
         {/* Taller header */}
         <div className="flex items-center justify-between h-20 md:h-24">
-          {/* Logo lockup */}
-          <Link href="/" className="flex items-center">
+          {/* Logo lockup: icon + PNG wordmark */}
+          <Link href="/" className="flex items-center gap-3" aria-label="Water Traders home">
             <Image
-              src="/brand.svg"
-              alt="Water Traders, LLC"
-              width={600}
+              src="/brand.svg"              // existing icon
+              alt="Water Traders icon"
+              width={120}
               height={120}
               priority
-              className="h-20 w-auto md:h-24"
+              className="h-10 w-auto md:h-12 shrink-0"
+            />
+            <Image
+              src="/wordmark.png"           // <-- your PNG wordmark here
+              alt="Water Traders"
+              width={520}
+              height={120}
+              className="h-8 w-auto md:h-10 shrink-0"
             />
           </Link>
 
