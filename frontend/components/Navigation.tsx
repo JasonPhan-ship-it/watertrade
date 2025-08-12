@@ -22,7 +22,7 @@ export default function Navigation() {
               width={600}
               height={120}
               priority
-              className="h-10 w-auto md:h-12"
+              className="h-20 w-auto md:h-24"
             />
           </Link>
 
