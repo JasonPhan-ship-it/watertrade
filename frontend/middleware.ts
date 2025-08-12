@@ -1,24 +1,50 @@
-// frontend/middleware.ts
-import { authMiddleware } from "@clerk/nextjs";
+// middleware.ts
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-/**
- * We don’t need to list public routes here because we’ll scope the middleware
- * to protected paths via `config.matcher` below. Anything matched here and not
- * listed as public will require auth automatically.
- */
-export default authMiddleware({
-  // Keep APIs public (and skip auth logic entirely for them)
-  publicRoutes: ["/api/(.*)", "/sign-in(.*)", "/sign-up(.*)"],
-  ignoredRoutes: ["/api/(.*)"],
+const isProtected = createRouteMatcher([
+  "/dashboard(.*)",
+  "/listings(.*)",
+  "/create-listing(.*)",
+  "/analytics(.*)",
+]);
+
+const isPublic = createRouteMatcher([
+  "/",
+  "/onboarding",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+]);
+
+export default clerkMiddleware(async (auth, req) => {
+  const { userId, sessionClaims } = auth();
+  const url = new URL(req.url);
+  const pathname = url.pathname;
+
+  // Always run Clerk on API routes (for auth()), but never redirect them.
+  if (pathname.startsWith("/api")) return;
+
+  // Public routes don’t need onboarding
+  if (isPublic(req)) return;
+
+  // If the route isn’t protected, do nothing
+  if (!isProtected(req)) return;
+
+  // If not signed in, let Clerk handle the redirect to sign-in
+  if (!userId) return;
+
+  // Check Clerk public metadata flag set during onboarding
+  const onboarded = (sessionClaims?.publicMetadata as any)?.onboarded === true;
+
+  // Force onboarding for first-time users
+  if (!onboarded && pathname !== "/onboarding") {
+    url.pathname = "/onboarding";
+    url.search = "";
+    return Response.redirect(url);
+  }
 });
 
-/**
- * Run the middleware ONLY on these paths. Since they are not in `publicRoutes`,
- * Clerk will require authentication and redirect to /sign-in if needed.
- */
 export const config = {
-  matcher: [
-    "/dashboard(.*)",
-    "/create-listing(.*)",
-  ],
+  // Run on all routes except Next internals and static files.
+  // Keep /api included so Clerk auth works there (we just don't redirect APIs above).
+  matcher: ["/((?!_next|.*\\..*).*)"],
 };
