@@ -1,4 +1,5 @@
 // frontend/app/listings/[id]/page.tsx
+import { headers } from "next/headers";
 
 type Listing = {
   id: string;
@@ -11,22 +12,31 @@ type Listing = {
   createdAt: string;         // ISO
 };
 
+export const dynamic = "force-dynamic"; // avoid any caching surprises
+
 export default async function ListingDetailPage({
   params,
 }: { params: { id: string } }) {
-  // Decode once from the URL, then encode once for the API path.
+  // Decode once from the URL
   const cleanId = decodeURIComponent(params.id);
 
-  const res = await fetch(
-    `/api/listings/${encodeURIComponent(cleanId)}`,
-    { cache: "no-store" }
-  );
+  // Build absolute base URL for server-side fetch
+  const h = headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? (host?.includes("localhost") ? "http" : "https");
+  const base = `${proto}://${host}`;
+
+  // Encode once when calling the API
+  const res = await fetch(`${base}/api/listings/${encodeURIComponent(cleanId)}`, { cache: "no-store" });
 
   if (!res.ok) {
+    const msg = await res.text().catch(() => "");
     return (
       <div className="mx-auto max-w-3xl p-6">
         <h1 className="text-xl font-semibold">Listing not found</h1>
-        <p className="mt-2 text-slate-600">We couldn’t find a listing with id: <code>{cleanId}</code>.</p>
+        <p className="mt-2 text-slate-600">
+          We couldn’t load <code>{cleanId}</code>. {msg && <span className="block mt-2 text-slate-500">API said: {msg}</span>}
+        </p>
         <a href="/dashboard" className="mt-6 inline-block text-blue-600 hover:underline">← Back to Listings</a>
       </div>
     );
@@ -36,7 +46,6 @@ export default async function ListingDetailPage({
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
-
   const fmtWindow = (sIso: string, eIso: string) => {
     const s = new Date(sIso), e = new Date(eIso);
     const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
