@@ -1,4 +1,4 @@
-// frontend/app/listings/[id]/page.tsx
+// app/listings/[id]/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,15 +16,18 @@ type Listing = {
 };
 
 export default function ListingDetailPage() {
-  const { id } = useParams();
+  // ✅ Tell TS what params exist
+  const { id } = useParams<{ id: string }>();
+  const listingId = Array.isArray(id) ? id[0] : id; // extra-safe
+
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!listingId) return;
     setLoading(true);
-    fetch(`/api/listings/${id}`)
+    fetch(`/api/listings/${encodeURIComponent(listingId)}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(await res.text());
         return res.json();
@@ -32,7 +35,7 @@ export default function ListingDetailPage() {
       .then((data) => setListing(data))
       .catch((e) => setError(e.message || "Failed to load listing"))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [listingId]);
 
   if (loading) return <div className="p-6">Loading…</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
@@ -50,9 +53,7 @@ export default function ListingDetailPage() {
       </div>
 
       <div className="mt-6">
-        <a href="/dashboard" className="text-blue-600 hover:underline">
-          ← Back to Listings
-        </a>
+        <a href="/dashboard" className="text-blue-600 hover:underline">← Back to Listings</a>
       </div>
     </div>
   );
