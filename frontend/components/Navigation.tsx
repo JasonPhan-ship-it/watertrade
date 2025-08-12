@@ -10,7 +10,7 @@ export default function Navigation() {
   const { user, isSignedIn } = useUser();
 
   return (
-    <nav className="bg-white shadow-sm border-b pb-4 md:pb-6">
+    <nav className="bg-white shadow-sm border-b mt-8 sm:mt-10 md:mt-14 pb-4 md:pb-6">
       <div className="container mx-auto px-4">
         {/* Taller header */}
         <div className="flex items-center justify-between h-20 md:h-24">
