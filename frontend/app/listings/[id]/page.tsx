@@ -16,16 +16,16 @@ type Listing = {
 };
 
 export default function ListingDetailPage() {
-  // ✅ Tell TS what params exist
-  const { id } = useParams<{ id: string }>();
-  const listingId = Array.isArray(id) ? id[0] : id; // extra-safe
+  const params = useParams<{ id: string }>(); // -> { id: string } | null
+  const rawId = params?.id;                    // string | undefined
+  const listingId = Array.isArray(rawId) ? rawId[0] : rawId; // string | undefined
 
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!listingId) return;
+    if (!listingId) return; // guard against undefined at first render
     setLoading(true);
     fetch(`/api/listings/${encodeURIComponent(listingId)}`)
       .then(async (res) => {
@@ -37,6 +37,7 @@ export default function ListingDetailPage() {
       .finally(() => setLoading(false));
   }, [listingId]);
 
+  if (!listingId) return <div className="p-6">Missing listing id.</div>;
   if (loading) return <div className="p-6">Loading…</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
   if (!listing) return <div className="p-6">No listing found.</div>;
