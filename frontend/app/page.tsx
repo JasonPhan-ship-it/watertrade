@@ -23,12 +23,10 @@ type ApiResponse = {
 };
 
 export default function HomePage() {
-  // Preview data
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch a tiny, public preview (no auth; premium=false; first 3 rows)
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -45,7 +43,6 @@ export default function HomePage() {
     };
   }, []);
 
-  // Simple preview stats
   const stats = useMemo(() => {
     const rows = data?.listings ?? [];
     const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
@@ -76,7 +73,6 @@ export default function HomePage() {
               workflow.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              {/* Primary CTA */}
               <Link
                 href="/sign-up"
                 className="inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-medium text-white bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]"
@@ -187,13 +183,11 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Footer */}
       <Footer />
     </div>
   );
 }
 
-/** ---------- Little presentational helpers ---------- */
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -204,18 +198,8 @@ function Kpi({ label, value }: { label: string; value: string }) {
 }
 
 function WaterTypeBadge({ type }: { type: string }) {
-  const t = type.toLowerCase();
-  // Map common types to soft badge colors; default to indigo
-  const cls =
-    t.includes("cvp")
-      ? "border-sky-100 bg-sky-50 text-sky-700"
-      : t.includes("supplemental")
-      ? "border-indigo-100 bg-indigo-50 text-indigo-700"
-      : t.includes("transfer")
-      ? "border-emerald-100 bg-emerald-50 text-emerald-700"
-      : "border-indigo-100 bg-indigo-50 text-indigo-700";
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${cls}`}>
+    <span className="inline-flex items-center rounded-full bg-[#0E6A59] px-3 py-1 text-xs font-semibold text-white">
       {type}
     </span>
   );
