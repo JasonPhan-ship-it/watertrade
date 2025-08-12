@@ -27,9 +27,9 @@ export default function Navigation() {
             <Image
               src="/wordmark.png"           // <-- your PNG wordmark here
               alt="Water Traders"
-              width={720}
-              height={240}
-              className="h-24 w-auto md:h-28 shrink-0"
+              width={1080}
+              height={480}
+              className="h-8 w-auto md:h-10 shrink-0 -ml-1"
             />
           </Link>
 
