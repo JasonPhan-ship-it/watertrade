@@ -1,58 +1,44 @@
 // middleware.ts
-import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
+import { clerkMiddleware, getAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-// Public and protected route checks
-const PUBLIC_ROUTES: (string | RegExp)[] = [
-  "/", "/onboarding", /^\/sign-in(.*)/, /^\/sign-up(.*)/,
-];
+export default clerkMiddleware(async (auth, req) => {
+  const { userId, sessionClaims } = auth();
+  const url = req.nextUrl;
 
-const PROTECTED_PREFIXES = [
-  "/dashboard",
-  "/listings",
-  "/create-listing",
-  "/analytics",
-];
+  // ✅ Allow public routes without checks
+  if (url.pathname.startsWith("/api") || 
+      url.pathname.startsWith("/_next") || 
+      url.pathname.startsWith("/favicon")) {
+    return NextResponse.next();
+  }
 
-function isPublic(pathname: string) {
-  return PUBLIC_ROUTES.some((p) =>
-    typeof p === "string" ? p === pathname : p.test(pathname)
-  );
-}
+  // If not signed in, send to sign-in page
+  if (!userId) {
+    return NextResponse.redirect(new URL("/sign-in", req.url));
+  }
 
-function isProtected(pathname: string) {
-  return PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
-}
+  // ✅ Cookie bypass for just-onboarded users
+  const onboardedCookie = req.cookies.get("onboarded");
+  if (onboardedCookie?.value === "1") {
+    return NextResponse.next();
+  }
 
-export default withClerkMiddleware((req) => {
-  const { userId, sessionClaims } = getAuth(req);
-  const { pathname } = req.nextUrl;
+  // Check Clerk publicMetadata for onboarding
+  const hasOnboarded = sessionClaims?.publicMetadata?.onboarded === true;
 
-  // Never redirect APIs (but Clerk still runs so getAuth works there)
-  if (pathname.startsWith("/api")) return NextResponse.next();
-
-  // Skip onboarding guard on public pages
-  if (isPublic(pathname)) return NextResponse.next();
-
-  // Only guard protected pages
-  if (!isProtected(pathname)) return NextResponse.next();
-
-  // Not signed in: let Clerk handle auth flow
-  if (!userId) return NextResponse.next();
-
-  // Gate on onboarding flag stored in Clerk public metadata
-  const onboarded = (sessionClaims?.publicMetadata as any)?.onboarded === true;
-  if (!onboarded && pathname !== "/onboarding") {
-    const url = req.nextUrl.clone();
-    url.pathname = "/onboarding";
-    url.search = "";
-    return NextResponse.redirect(url);
+  // If they haven't onboarded and aren't on /onboarding, redirect them
+  if (!hasOnboarded && url.pathname !== "/onboarding") {
+    return NextResponse.redirect(new URL("/onboarding", req.url));
   }
 
   return NextResponse.next();
 });
 
 export const config = {
-  // Run on all routes except Next internals & static assets
-  matcher: ["/((?!_next|.*\\..*).*)"],
+  matcher: [
+    "/((?!.*\\..*|_next).*)", // all paths except static files
+    "/", 
+    "/(api|trpc)(.*)",
+  ],
 };
