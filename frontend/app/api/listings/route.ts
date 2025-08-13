@@ -5,6 +5,15 @@ import { auth } from "@clerk/nextjs/server";
 
 type SortKey = "createdAt" | "pricePerAf" | "acreFeet" | "availabilityStart" | "availabilityEnd";
 
+// Map UI sort keys → Prisma column names
+const ORDER_MAP: Record<SortKey, keyof import("@prisma/client").Listing> = {
+  createdAt: "createdAt",
+  pricePerAf: "pricePerAF",
+  acreFeet: "acreFeet",
+  availabilityStart: "availabilityStart",
+  availabilityEnd: "availabilityEnd",
+};
+
 function parseQuery(req: NextRequest) {
   const sp = new URL(req.url).searchParams;
   return {
@@ -30,25 +39,28 @@ export async function GET(req: NextRequest) {
   const { premium, page, pageSize, sortBy, sortDir, district, waterType } = parseQuery(req);
 
   const where: any = { status: "ACTIVE" };
-  if (district) where.district = district;
-  if (waterType) where.waterType = waterType;
+  if (district && district !== "All Districts") where.district = district;
+  if (waterType && waterType !== "Any Water Type") where.waterType = waterType;
 
-  const limitForFree = !premium ? 3 : pageSize;
-  const skipForFree = !premium ? 0 : (page - 1) * pageSize;
+  // premium gating at the API level (free users get first 3)
+  const take = !premium ? 3 : pageSize;
+  const skip = !premium ? 0 : (page - 1) * pageSize;
+
+  const orderKey = ORDER_MAP[sortBy] ?? "createdAt";
 
   const [total, rows] = await Promise.all([
     prisma.listing.count({ where }),
     prisma.listing.findMany({
       where,
-      orderBy: { [sortBy]: sortDir },
-      skip: skipForFree,
-      take: limitForFree,
+      orderBy: { [orderKey]: sortDir },
+      skip,
+      take,
       select: {
         id: true,
         district: true,
         waterType: true,
         acreFeet: true,
-        pricePerAF: true,         // cents
+        pricePerAF: true, // cents
         availabilityStart: true,
         availabilityEnd: true,
         createdAt: true,
@@ -60,7 +72,8 @@ export async function GET(req: NextRequest) {
     id: r.id,
     district: r.district,
     acreFeet: r.acreFeet,
-    pricePerAf: Math.round(r.pricePerAF / 100), // dollars for UI
+    // keep the cents (e.g., 425.50) instead of rounding to whole dollars
+    pricePerAf: r.pricePerAF / 100,
     availabilityStart: r.availabilityStart.toISOString(),
     availabilityEnd: r.availabilityEnd.toISOString(),
     waterType: r.waterType,
@@ -76,13 +89,14 @@ export async function POST(req: NextRequest) {
     const { userId: clerkId } = auth();
     const body = await req.json();
 
-    const title: string = body.title;
-    const kind: "SELL" | "BUY" = (String(body.type || "sell").toUpperCase() === "BUY" ? "BUY" : "SELL");
+    const title = String(body.title || "").trim();
     if (!title) {
       return NextResponse.json({ error: "Missing title" }, { status: 400 });
     }
 
-    // Defaults / coercions
+    const kind: "SELL" | "BUY" =
+      String(body.type || "sell").toLowerCase() === "buy" ? "BUY" : "SELL";
+
     const district = String(body.district || "Unknown District");
     const waterType = String(body.waterType || "Surface");
     const acreFeet = Math.max(0, Math.floor(Number(body.volumeAF ?? 0)));
@@ -94,56 +108,32 @@ export async function POST(req: NextRequest) {
       : new Date(Date.now() + 60 * 24 * 3600 * 1000); // +60 days
     const availability = toAvailString(availabilityStart, availabilityEnd);
 
-    // Try to attach seller if we can map Clerk -> User
+    // Optional seller link
     let sellerId: string | null = null;
     if (clerkId) {
       const user = await prisma.user.findUnique({ where: { clerkId } });
       sellerId = user?.id ?? null;
-      // (Optional) auto-upsert by email if you want to create User rows on the fly
     }
 
     const created = await prisma.listing.create({
       data: {
         title,
-        description: body.description ?? null,
+        description: body.description ? String(body.description) : null,
         district,
         waterType,
         availability,
         availabilityStart,
         availabilityEnd,
         acreFeet,
-        pricePerAF: pricePerAfCents,
+        pricePerAF: pricePerAfCents, // dollars → cents
         kind,
         status: "ACTIVE",
         sellerId,
       },
-      select: {
-        id: true,
-        district: true,
-        waterType: true,
-        acreFeet: true,
-        pricePerAF: true,
-        availabilityStart: true,
-        availabilityEnd: true,
-        createdAt: true,
-      },
+      select: { id: true },
     });
 
-    return NextResponse.json(
-      {
-        listing: {
-          id: created.id,
-          district: created.district,
-          acreFeet: created.acreFeet,
-          pricePerAf: Math.round(created.pricePerAF / 100),
-          availabilityStart: created.availabilityStart.toISOString(),
-          availabilityEnd: created.availabilityEnd.toISOString(),
-          waterType: created.waterType,
-          createdAt: created.createdAt.toISOString(),
-        },
-      },
-      { status: 201 }
-    );
+    return NextResponse.json({ ok: true, id: created.id }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Unknown error" }, { status: 500 });
   }
