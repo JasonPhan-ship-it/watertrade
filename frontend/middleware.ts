@@ -1,44 +1,67 @@
-// middleware.ts
-import { clerkMiddleware, getAuth } from "@clerk/nextjs/server";
+// middleware.ts (Clerk v4-compatible + cookie bypass)
+import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-export default clerkMiddleware(async (auth, req) => {
-  const { userId, sessionClaims } = auth();
-  const url = req.nextUrl;
+const isStatic = (path: string) =>
+  path.startsWith("/_next") ||
+  path.startsWith("/favicon") ||
+  path.startsWith("/images") ||
+  path.startsWith("/assets") ||
+  /\.(?:png|jpg|jpeg|gif|svg|ico|css|js|txt|woff2?)$/i.test(path);
 
-  // ✅ Allow public routes without checks
-  if (url.pathname.startsWith("/api") || 
-      url.pathname.startsWith("/_next") || 
-      url.pathname.startsWith("/favicon")) {
+const isApi = (path: string) => path.startsWith("/api");
+
+const isPublic = (path: string) =>
+  path === "/" ||
+  path.startsWith("/sign-in") ||
+  path.startsWith("/sign-up");
+
+export default withClerkMiddleware((req) => {
+  const { pathname } = req.nextUrl;
+
+  // Let static files, APIs, and public routes through
+  if (isStatic(pathname) || isApi(pathname) || isPublic(pathname)) {
     return NextResponse.next();
   }
 
-  // If not signed in, send to sign-in page
+  // Clerk auth (v4 style)
+  const { userId, sessionClaims } = getAuth(req);
+
+  // If not signed in, send to sign-in
   if (!userId) {
-    return NextResponse.redirect(new URL("/sign-in", req.url));
+    const url = req.nextUrl.clone();
+    url.pathname = "/sign-in";
+    url.search = "";
+    return NextResponse.redirect(url);
   }
 
-  // ✅ Cookie bypass for just-onboarded users
-  const onboardedCookie = req.cookies.get("onboarded");
-  if (onboardedCookie?.value === "1") {
-    return NextResponse.next();
+  // Onboarding check
+  const onboardedFromClerk =
+    (sessionClaims?.publicMetadata as any)?.onboarded === true;
+
+  // ✅ Short-lived cookie set by /api/profile after successful onboarding
+  const onboardedCookie = req.cookies.get("onboarded")?.value === "1";
+
+  // Gate: must complete onboarding unless cookie bypass is present
+  if (!onboardedFromClerk && !onboardedCookie && pathname !== "/onboarding") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/onboarding";
+    url.search = "";
+    return NextResponse.redirect(url);
   }
 
-  // Check Clerk publicMetadata for onboarding
-  const hasOnboarded = sessionClaims?.publicMetadata?.onboarded === true;
-
-  // If they haven't onboarded and aren't on /onboarding, redirect them
-  if (!hasOnboarded && url.pathname !== "/onboarding") {
-    return NextResponse.redirect(new URL("/onboarding", req.url));
+  // If already onboarded (or bypass cookie present) and they hit /onboarding, send them onward
+  if ((onboardedFromClerk || onboardedCookie) && pathname === "/onboarding") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/dashboard";
+    url.search = "";
+    return NextResponse.redirect(url);
   }
 
   return NextResponse.next();
 });
 
 export const config = {
-  matcher: [
-    "/((?!.*\\..*|_next).*)", // all paths except static files
-    "/", 
-    "/(api|trpc)(.*)",
-  ],
+  // Run on all routes except static assets
+  matcher: ["/((?!.*\\..*|_next).*)"],
 };
