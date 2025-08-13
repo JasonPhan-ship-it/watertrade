@@ -1,0 +1,1 @@
+-- baseline: existing production schema (no-op)
