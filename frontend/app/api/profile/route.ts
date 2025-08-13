@@ -101,8 +101,20 @@ export async function POST(req: Request) {
       .updateUser(clerkUserId, { publicMetadata: { onboarded: true } })
       .catch(() => {});
 
-    // ✅ Return immediately
-    return NextResponse.json({ ok: true, profile }, { status: 200 });
+    // ✅ Set short-lived cookie so middleware allows immediate redirect
+    const res = NextResponse.json({ ok: true, profile }, { status: 200 });
+    res.headers.append(
+      "Set-Cookie",
+      [
+        "onboarded=1",
+        "Path=/",
+        "Max-Age=300",                // 5 minutes
+        "HttpOnly",                   // not accessible to JS; adjust if you need to read it client-side
+        "SameSite=Lax",
+        process.env.NODE_ENV === "production" ? "Secure" : "",
+      ].filter(Boolean).join("; ")
+    );
+    return res;
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
