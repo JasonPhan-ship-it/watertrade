@@ -1,0 +1,19 @@
+name: Prisma Baseline (one-time)
+on:
+  workflow_dispatch: {}
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      # Mark ONLY the baseline as applied (no schema change).
+      - run: npx prisma migrate resolve --applied 000_init
