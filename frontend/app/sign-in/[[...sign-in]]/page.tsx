@@ -1,5 +1,4 @@
 "use client";
-
 import { SignIn } from "@clerk/nextjs";
 
 export default function SignInPage() {
@@ -9,12 +8,11 @@ export default function SignInPage() {
         routing="path"
         path="/sign-in"
         signUpUrl="/sign-up"
-        afterSignInUrl="/dashboard"
+        // ⬇️ After sign-in, we run the checker that sets the cookie or routes to onboarding
+        afterSignInUrl="/api/auth/after-sign-in?next=/dashboard"
         appearance={{
           variables: { colorPrimary: "#004434" },
-          layout: {
-            logoImageUrl: "/brand.svg", // <-- move logo here
-          },
+          layout: { logoImageUrl: "/brand.svg" },
           elements: {
             card: "rounded-2xl border border-slate-200 shadow-lg",
             formButtonPrimary: "bg-[#004434] hover:bg-[#00392f] text-white rounded-xl",
