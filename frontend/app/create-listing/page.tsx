@@ -16,8 +16,12 @@ export default function CreateListingPage() {
     setLoading(true);
     setMessage(null);
 
+    // Capture the form element BEFORE any await so reset() is safe later
+    const formEl = e.currentTarget;
+
     try {
-      const formData = new FormData(e.currentTarget);
+      const formData = new FormData(formEl);
+
       const payload = {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
@@ -26,25 +30,24 @@ export default function CreateListingPage() {
         type: String(formData.get("type") || "sell"),
       };
 
-      const url = "/api/listings";
-      if (typeof window !== "undefined") console.log("POST", url, payload); // prove exact path
-
-      const res = await fetch(url, {
+      const res = await fetch("/api/listings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`API ${res.status}: ${res.statusText}${text ? " - " + text.slice(0, 200) : ""}`);
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          `API ${res.status}: ${res.statusText}${text ? " - " + text.slice(0, 200) : ""}`
+        );
       }
 
       setMessage("Listing created!");
-      e.currentTarget.reset();
+      formEl.reset(); // ✅ safe because we captured formEl before the await
     } catch (err: any) {
-      setMessage(err?.message || "Failed to create listing.");
       console.error(err);
+      setMessage(err?.message || "Failed to create listing.");
     } finally {
       setLoading(false);
     }
@@ -53,26 +56,48 @@ export default function CreateListingPage() {
   return (
     <div className="mx-auto max-w-2xl p-6">
       <Card>
-        <CardHeader><CardTitle>Create Listing</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Create Listing</CardTitle>
+        </CardHeader>
+
         <form onSubmit={handleSubmit} className="contents">
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="title">Title</Label>
-              <Input id="title" name="title" placeholder="e.g., 50 AF transfer in Westlands" required />
+              <Input
+                id="title"
+                name="title"
+                placeholder="e.g., 50 AF transfer in Westlands"
+                required
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="volumeAF">Volume (AF)</Label>
-                <Input id="volumeAF" name="volumeAF" type="number" min={0} step="0.01" required />
+                <Input
+                  id="volumeAF"
+                  name="volumeAF"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="pricePerAF">Price per AF ($)</Label>
-                <Input id="pricePerAF" name="pricePerAF" type="number" min={0} step="0.01" required />
+                <Input
+                  id="pricePerAF"
+                  name="pricePerAF"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  required
+                />
               </div>
             </div>
 
-            {/* native <select> so FormData includes "type" */}
+            {/* Native select so FormData includes "type" */}
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
               <select
@@ -89,7 +114,11 @@ export default function CreateListingPage() {
 
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
-              <Textarea id="description" name="description" placeholder="Add context, district, timing, terms..." />
+              <Textarea
+                id="description"
+                name="description"
+                placeholder="Add context, district, timing, terms..."
+              />
             </div>
           </CardContent>
 
@@ -97,7 +126,11 @@ export default function CreateListingPage() {
             <Button type="submit" disabled={loading}>
               {loading ? "Submitting..." : "Create"}
             </Button>
-            {message && <p className="text-sm text-gray-600" aria-live="polite">{message}</p>}
+            {message && (
+              <p className="text-sm text-gray-600" aria-live="polite">
+                {message}
+              </p>
+            )}
           </CardFooter>
         </form>
       </Card>
