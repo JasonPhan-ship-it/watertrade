@@ -38,31 +38,49 @@ model User {
 }
 
 model Listing {
-  id           String   @id @default(cuid())
+  id           String         @id @default(cuid())
+
+  // NEW: handy for UI & search
+  title        String
+  description  String?
+
+  // Core water trade fields
   district     String
   waterType    String
-  availability String              // e.g., "Feb–Apr 2025"
+
+  // Existing human-readable window (kept for display/back-compat)
+  availability String
+
+  // NEW: real dates for sorting/filters
+  availabilityStart DateTime
+  availabilityEnd   DateTime
+
   acreFeet     Int
   pricePerAF   Int                 // cents
-  status       ListingStatus @default(ACTIVE)
+
+  // NEW: SELL or BUY (maps to your form's "type")
+  kind         ListingKind         @default(SELL)
+
+  status       ListingStatus       @default(ACTIVE)
 
   // Seller (optional for seed)
-  seller     User?   @relation(fields: [sellerId], references: [id], onDelete: SetNull)
-  sellerId   String?
+  seller       User?               @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  sellerId     String?
 
   // Auction options
-  isAuction      Boolean  @default(false)
+  isAuction      Boolean           @default(false)
   auctionEndsAt  DateTime?
-  reservePrice   Int?                 // cents per AF
+  reservePrice   Int?              // cents per AF
 
   bids          Bid[]
-  transactions  Transaction[]         // <-- back-relation for Transaction.listing
+  transactions  Transaction[]      // <-- back-relation for Transaction.listing
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([status, isAuction, auctionEndsAt])
   @@index([district, waterType])
+  @@index([createdAt])
 }
 
 model Bid {
@@ -208,4 +226,10 @@ enum ProfileRole {
   SELLER
   BOTH
   DISTRICT_ADMIN
+}
+
+/* NEW: listing direction */
+enum ListingKind {
+  SELL
+  BUY
 }
