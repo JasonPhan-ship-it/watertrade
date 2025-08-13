@@ -6,14 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "postinstall": "npx prisma generate"
+    "postinstall": "prisma generate",
+
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+
+    "vercel-build": "npm run db:deploy && next build"
   },
   "engines": {
     "node": ">=18.18 <21"
   },
   "dependencies": {
     "@clerk/nextjs": "^4.31.8",
-    "@prisma/client": "^6.13.0",
+    "@prisma/client": "^6.14.0",
     "@radix-ui/react-slot": "^1.0.2",
     "autoprefixer": "^10.4.15",
     "clsx": "^2.1.0",
@@ -31,7 +38,7 @@
     "@types/node": "^20.5.1",
     "@types/react": "^18.2.21",
     "@types/react-dom": "^18.2.7",
-    "prisma": "^6.13.0",
+    "prisma": "^6.14.0",
     "typescript": "^5.3.3"
   }
 }
