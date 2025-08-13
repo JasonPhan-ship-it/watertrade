@@ -1,4 +1,5 @@
-import { ReactNode } from "react";
+// app/admin/layout.tsx
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
