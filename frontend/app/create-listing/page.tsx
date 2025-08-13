@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-// NOTE: removed shadcn Select import to use native <select>
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
@@ -20,7 +19,6 @@ export default function CreateListingPage() {
 
     try {
       const formData = new FormData(e.currentTarget);
-
       const payload = {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
@@ -29,14 +27,14 @@ export default function CreateListingPage() {
         type: String(formData.get("type") || "sell"),
       };
 
-      // POST to /api/listings (helper will ensure the /api prefix)
-      await api("/listings", {
+      await api("/api/listings", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       setMessage("Listing created!");
-      (e.currentTarget as HTMLFormElement).reset();
+      e.currentTarget.reset();
     } catch (err: any) {
       setMessage(err?.message || "Failed to create listing.");
     } finally {
@@ -47,20 +45,13 @@ export default function CreateListingPage() {
   return (
     <div className="mx-auto max-w-2xl p-6">
       <Card>
-        <CardHeader>
-          <CardTitle>Create Listing</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Create Listing</CardTitle></CardHeader>
 
         <form onSubmit={handleSubmit} className="contents">
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="title">Title</Label>
-              <Input
-                id="title"
-                name="title"
-                placeholder="e.g., 50 AF transfer in Westlands"
-                required
-              />
+              <Input id="title" name="title" placeholder="e.g., 50 AF transfer in Westlands" required />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -74,7 +65,7 @@ export default function CreateListingPage() {
               </div>
             </div>
 
-            {/* Use a native <select> so FormData includes "type" */}
+            {/* Use native select so FormData includes "type" */}
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
               <select
@@ -91,11 +82,7 @@ export default function CreateListingPage() {
 
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                name="description"
-                placeholder="Add context, district, timing, terms..."
-              />
+              <Textarea id="description" name="description" placeholder="Add context, district, timing, terms..." />
             </div>
           </CardContent>
 
