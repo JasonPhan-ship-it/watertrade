@@ -16,7 +16,6 @@ export default function CreateListingPage() {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
-
     try {
       const formData = new FormData(e.currentTarget);
       const payload = {
@@ -46,7 +45,6 @@ export default function CreateListingPage() {
     <div className="mx-auto max-w-2xl p-6">
       <Card>
         <CardHeader><CardTitle>Create Listing</CardTitle></CardHeader>
-
         <form onSubmit={handleSubmit} className="contents">
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -65,7 +63,7 @@ export default function CreateListingPage() {
               </div>
             </div>
 
-            {/* Use native select so FormData includes "type" */}
+            {/* Native select so FormData includes "type" */}
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
               <select
@@ -90,7 +88,7 @@ export default function CreateListingPage() {
             <Button type="submit" disabled={loading}>
               {loading ? "Submitting..." : "Create"}
             </Button>
-            {message && <p className="text-sm text-gray-600">{message}</p>}
+            {message && <p className="text-sm text-gray-600" aria-live="polite">{message}</p>}
           </CardFooter>
         </form>
       </Card>
