@@ -96,26 +96,21 @@ export async function POST(req: Request) {
       },
     });
 
-    // Fire-and-forget Clerk metadata update so we don't block response
-    clerkClient.users
-      .updateUser(clerkUserId, { publicMetadata: { onboarded: true } })
-      .catch(() => {});
+// ... inside POST, after the successful upsert and the fire-and-forget Clerk update
+// Fire-and-forget Clerk metadata update so we don't block response
+clerkClient.users.updateUser(clerkUserId, { publicMetadata: { onboarded: true } }).catch(() => {});
 
-    // ✅ Set short-lived cookie so middleware allows immediate redirect
-    const res = NextResponse.json({ ok: true, profile }, { status: 200 });
-    res.headers.append(
-      "Set-Cookie",
-      [
-        "onboarded=1",
-        "Path=/",
-        "Max-Age=300",                // 5 minutes
-        "HttpOnly",                   // not accessible to JS; adjust if you need to read it client-side
-        "SameSite=Lax",
-        process.env.NODE_ENV === "production" ? "Secure" : "",
-      ].filter(Boolean).join("; ")
-    );
-    return res;
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
-  }
-}
+// ✅ Set cookie and redirect to /dashboard from the API itself
+const redirect = NextResponse.redirect(new URL("/dashboard", req.url), 303);
+redirect.headers.append(
+  "Set-Cookie",
+  [
+    "onboarded=1",
+    "Path=/",
+    "Max-Age=300",               // 5 minutes
+    "HttpOnly",                  // server-readable for middleware
+    "SameSite=Lax",
+    process.env.NODE_ENV === "production" ? "Secure" : "",
+  ].filter(Boolean).join("; ")
+);
+return redirect;
