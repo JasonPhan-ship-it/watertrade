@@ -1,76 +1,84 @@
-// frontend/app/listings/[id]/page.tsx
-import { headers } from "next/headers";
+// app/listings/[id]/page.tsx
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 
-type Listing = {
-  id: string;
-  district: string;
-  acreFeet: number;
-  pricePerAf: number;
-  availabilityStart: string; // ISO
-  availabilityEnd: string;   // ISO
-  waterType: string;
-  createdAt: string;         // ISO
-};
+export const revalidate = 0; // always fresh (no static cache)
 
-export const dynamic = "force-dynamic"; // avoid any caching surprises
+export default async function ListingDetailPage({ params }: { params: { id: string } }) {
+  const row = await prisma.listing.findUnique({
+    where: { id: params.id },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      district: true,
+      waterType: true,
+      availability: true,
+      availabilityStart: true,
+      availabilityEnd: true,
+      acreFeet: true,
+      pricePerAF: true, // cents
+      kind: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
 
-export default async function ListingDetailPage({
-  params,
-}: { params: { id: string } }) {
-  // Decode once from the URL
-  const cleanId = decodeURIComponent(params.id);
+  if (!row) return notFound();
 
-  // Build absolute base URL for server-side fetch
-  const h = headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? (host?.includes("localhost") ? "http" : "https");
-  const base = `${proto}://${host}`;
-
-  // Encode once when calling the API
-  const res = await fetch(`${base}/api/listings/${encodeURIComponent(cleanId)}`, { cache: "no-store" });
-
-  if (!res.ok) {
-    const msg = await res.text().catch(() => "");
-    return (
-      <div className="mx-auto max-w-3xl p-6">
-        <h1 className="text-xl font-semibold">Listing not found</h1>
-        <p className="mt-2 text-slate-600">
-          We couldn’t load <code>{cleanId}</code>. {msg && <span className="block mt-2 text-slate-500">API said: {msg}</span>}
-        </p>
-        <a href="/dashboard" className="mt-6 inline-block text-blue-600 hover:underline">← Back to Listings</a>
-      </div>
-    );
-  }
-
-  const l = (await res.json()) as Listing;
-
-  const fmt = (n: number) =>
-    new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
-  const fmtWindow = (sIso: string, eIso: string) => {
-    const s = new Date(sIso), e = new Date(eIso);
-    const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-    return s.getFullYear() === e.getFullYear()
-      ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
-      : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
-  };
+  const pricePerAf = row.pricePerAF / 100;
+  const startIso = row.availabilityStart.toISOString();
+  const endIso = row.availabilityEnd.toISOString();
 
   return (
     <div className="mx-auto max-w-3xl p-6">
-      <h1 className="text-2xl font-semibold tracking-tight">{l.district}</h1>
-      <p className="mt-1 text-slate-600">Water Type: {l.waterType}</p>
-
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div><div className="text-slate-500 text-sm">Acre-Feet</div><div className="mt-1 text-lg font-medium">{fmt(l.acreFeet)}</div></div>
-          <div><div className="text-slate-500 text-sm">Price per AF</div><div className="mt-1 text-lg font-medium">${fmt(l.pricePerAf)}</div></div>
-          <div className="sm:col-span-2">
-            <div className="text-slate-500 text-sm">Availability</div>
-            <div className="mt-1 text-lg font-medium">{fmtWindow(l.availabilityStart, l.availabilityEnd)}</div>
-          </div>
-        </div>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">{row.title}</h1>
+        <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
+          {row.kind === "BUY" ? "Buy" : "Sell"}
+        </span>
       </div>
 
-      <a href="/dashboard" className="mt-6 inline-block text-blue-600 hover:underline">← Back to Listings</a>
+      <p className="mt-2 text-sm text-slate-600">{row.description || "No description provided."}</p>
+
+      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Detail label="District" value={row.district} />
+        <Detail label="Water Type" value={row.waterType} />
+        <Detail label="Acre-Feet" value={formatNumber(row.acreFeet)} />
+        <Detail label="Price / AF" value={`$${formatNumber(pricePerAf)}`} />
+        <Detail label="Availability" value={formatWindow(startIso, endIso)} />
+        <Detail label="Status" value={row.status} />
+      </div>
+
+      <div className="mt-8">
+        <Link href="/dashboard" className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">
+          Back to Listings
+        </Link>
+      </div>
     </div>
   );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function formatNumber(n: number | string) {
+  const num = typeof n === "string" ? Number(n) : n;
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
+}
+
+function formatWindow(startIso: string, endIso: string) {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  const sameYear = s.getFullYear() === e.getFullYear();
+  const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
+  return sameYear ? `${mm(s)}–${mm(e)} ${s.getFullYear()}` : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
 }
