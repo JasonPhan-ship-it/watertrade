@@ -33,7 +33,12 @@ const DISTRICTS = [
   "Arvin Edison Water District",
 ] as const;
 
-const WATER_TYPES = ["Any Water Type", "Pumping Credits", "CVP Allocation", "Supplemental Water"] as const;
+const WATER_TYPES = [
+  "Any Water Type",
+  "Pumping Credits",
+  "CVP Allocation",
+  "Supplemental Water",
+] as const;
 
 const WINDOWS = ["Any Window", "Feb–Apr 2025", "Mar–May 2025", "Apr–Jun 2025", "May–Jul 2025"] as const;
 
@@ -44,7 +49,7 @@ export default function DashboardPage() {
   // filters
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
-  const [windowLabel, setWindowLabel] = useState<string>(WINDOWS[0]);
+  const [windowLabel, setWindowLabel] = useState<string>(WINDOWS[0]); // currently a no-op on the API
 
   // sort + pagination
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
@@ -63,9 +68,13 @@ export default function DashboardPage() {
   // build query
   const qs = useMemo(() => {
     const u = new URLSearchParams();
+    // server expects "district" and "waterType" — omit if "All/Any"
     if (district !== "All Districts") u.set("district", district);
     if (waterType !== "Any Water Type") u.set("waterType", waterType);
+
+    // windowLabel is currently only UI; API ignores "window" (safe to send; no effect)
     if (windowLabel !== "Any Window") u.set("window", windowLabel);
+
     u.set("sortBy", sortBy);
     u.set("sortDir", sortDir);
     u.set("page", String(page));
@@ -79,14 +88,19 @@ export default function DashboardPage() {
     let live = true;
     setLoading(true);
     setError(null);
-    fetch(`/api/listings?${qs}`)
+
+    fetch(`/api/listings?${qs}`, { method: "GET", cache: "no-store" })
       .then(async (r) => {
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          const text = await r.text().catch(() => "");
+          throw new Error(`HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`);
+        }
         return r.json() as Promise<ApiResponse>;
       })
       .then((json) => live && setData(json))
       .catch((e) => live && setError(e.message || "Failed to load"))
       .finally(() => live && setLoading(false));
+
     return () => {
       live = false;
     };
@@ -138,7 +152,9 @@ export default function DashboardPage() {
         {/* Brand banner color */}
         <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
           <div className="text-2xl font-semibold tracking-tight">Active Water Sales</div>
-          <div className="mt-1 text-sm text-white/80">Westlands · San Luis · Panoche · Arvin Edison</div>
+          <div className="mt-1 text-sm text-white/80">
+            Westlands · San Luis · Panoche · Arvin Edison
+          </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <select
@@ -186,7 +202,10 @@ export default function DashboardPage() {
                   </option>
                 ))}
               </select>
-              <button className="h-10 shrink-0 rounded-xl bg-white/10 px-4 text-sm font-medium text-white ring-1 ring-inset ring-white/40 hover:bg-white/20">
+              <button
+                onClick={() => setPage(1)}
+                className="h-10 shrink-0 rounded-xl bg-white/10 px-4 text-sm font-medium text-white ring-1 ring-inset ring-white/40 hover:bg-white/20"
+              >
                 Apply Filters
               </button>
             </div>
@@ -207,19 +226,25 @@ export default function DashboardPage() {
             <div className="text-sm text-slate-600">
               {premium ? (
                 <>
-                  <span className="font-medium text-slate-900">Premium:</span> Full details & early access unlocked.
+                  <span className="font-medium text-slate-900">Premium:</span> Full details & early
+                  access unlocked.
                 </>
               ) : (
                 <>
-                  <span className="font-medium text-slate-900">Premium:</span> You’re viewing a limited set. Upgrade to
-                  see full details & early access.
+                  <span className="font-medium text-slate-900">Premium:</span> You’re viewing a
+                  limited set. Upgrade to see full details & early access.
                 </>
               )}
             </div>
             <button
-              onClick={() => setPremium((v) => !v)}
+              onClick={() => {
+                setPremium((v) => !v);
+                setPage(1);
+              }}
               className={`h-8 rounded-xl px-3 text-xs font-medium ${
-                premium ? "bg-[#004434] text-white hover:bg-[#00392f]" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                premium
+                  ? "bg-[#004434] text-white hover:bg-[#00392f]"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
               {premium ? "Disable" : "Enable"} Premium (Demo)
@@ -237,7 +262,9 @@ export default function DashboardPage() {
           </div>
 
           {error ? (
-            <div className="px-6 py-8 text-sm text-red-600">{error}</div>
+            <div className="px-6 py-8 text-sm text-red-600">
+              {error}
+            </div>
           ) : loading ? (
             <div className="px-6 py-8 text-sm text-slate-500">Loading…</div>
           ) : (
@@ -246,12 +273,45 @@ export default function DashboardPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-slate-600">
                     <tr>
-                      <Th label="District" active={sortBy === "district"} dir={sortDir} onClick={() => onSort("district")} />
-                      <Th label="Acre-Feet" align="right" active={sortBy === "acreFeet"} dir={sortDir} onClick={() => onSort("acreFeet")} />
-                      <Th label="$ / AF" align="right" active={sortBy === "pricePerAf"} dir={sortDir} onClick={() => onSort("pricePerAf")} />
-                      <Th label="Availability" active={sortBy === "availabilityStart"} dir={sortDir} onClick={() => onSort("availabilityStart")} />
-                      <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
-                      <Th label="Action" align="center" active={sortBy === "createdAt"} dir={sortDir} onClick={() => onSort("createdAt")} />
+                      <Th
+                        label="District"
+                        active={sortBy === "district"}
+                        dir={sortDir}
+                        onClick={() => onSort("district")}
+                      />
+                      <Th
+                        label="Acre-Feet"
+                        align="right"
+                        active={sortBy === "acreFeet"}
+                        dir={sortDir}
+                        onClick={() => onSort("acreFeet")}
+                      />
+                      <Th
+                        label="$ / AF"
+                        align="right"
+                        active={sortBy === "pricePerAf"}
+                        dir={sortDir}
+                        onClick={() => onSort("pricePerAf")}
+                      />
+                      <Th
+                        label="Availability"
+                        active={sortBy === "availabilityStart"}
+                        dir={sortDir}
+                        onClick={() => onSort("availabilityStart")}
+                      />
+                      <Th
+                        label="Water Type"
+                        active={false}
+                        dir={"asc"}
+                        onClick={() => {}}
+                      />
+                      <Th
+                        label="Action"
+                        align="center"
+                        active={sortBy === "createdAt"}
+                        dir={sortDir}
+                        onClick={() => onSort("createdAt")}
+                      />
                     </tr>
                   </thead>
                   <tbody>
@@ -262,7 +322,6 @@ export default function DashboardPage() {
                         <Td align="right">${formatNumber(l.pricePerAf)}</Td>
                         <Td>{formatWindow(l.availabilityStart, l.availabilityEnd)}</Td>
                         <Td>
-                          {/* Water type pill — lighter accent of #004434 with white text */}
                           <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
                             {l.waterType}
                           </span>
@@ -278,6 +337,13 @@ export default function DashboardPage() {
                         </Td>
                       </tr>
                     ))}
+                    {(data?.listings?.length ?? 0) === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
+                          No listings match your filters.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -286,8 +352,9 @@ export default function DashboardPage() {
               <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row">
                 <div className="text-xs text-slate-500">
                   Page <span className="font-medium text-slate-700">{page}</span> of{" "}
-                  <span className="font-medium text-slate-700">{Math.max(1, totalPages)}</span> • {data?.total ?? 0} total
-                  listings{data?.limited ? " (limited for non-premium)" : ""}
+                  <span className="font-medium text-slate-700">{Math.max(1, totalPages)}</span> •{" "}
+                  {data?.total ?? 0} total listings
+                  {data?.limited ? " (limited for non-premium)" : ""}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -388,5 +455,7 @@ function formatWindow(startIso: string, endIso: string) {
   const e = new Date(endIso);
   const sameYear = s.getFullYear() === e.getFullYear();
   const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-  return sameYear ? `${mm(s)}–${mm(e)} ${s.getFullYear()}` : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
+  return sameYear
+    ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
+    : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
 }
