@@ -3,16 +3,33 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
-    // information_schema is safe to query with $queryRaw
-    const rows: Array<{ column_name: string; data_type: string }> = await prisma.$queryRaw`
-      SELECT column_name, data_type
+    // Which schema are we actually querying?
+    const [row]: Array<{ current_schema: string }> = await prisma.$queryRaw`
+      SELECT current_schema()
+    `;
+    const schema = row?.current_schema ?? "public";
+
+    // Try to find a likely table name, case-insensitively.
+    const tables = await prisma.$queryRaw<Array<{ table_name: string }>>`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND lower(table_name) IN ('listing','listings')
+      ORDER BY table_name
+      LIMIT 1
+    `;
+    const table = tables[0]?.table_name ?? "Listing";
+
+    // Pull columns for that table (case-insensitive match)
+    const columns = await prisma.$queryRaw<Array<{ column_name: string; data_type: string; is_nullable: string }>>`
+      SELECT column_name, data_type, is_nullable
       FROM information_schema.columns
       WHERE table_schema = current_schema()
-        AND table_name = 'Listing'
+        AND lower(table_name) = lower(${table})
       ORDER BY ordinal_position
     `;
 
-    return NextResponse.json({ columns: rows }, { status: 200 });
+    return NextResponse.json({ schema, table, columns }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "unknown error" }, { status: 500 });
   }
