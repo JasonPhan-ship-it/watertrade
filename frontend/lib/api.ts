@@ -1,18 +1,31 @@
-// Prefer same-origin relative calls by default.
-// If you *must* hit a different origin, set NEXT_PUBLIC_API_URL (without trailing slash).
-const ORIGIN = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
+// lib/api.ts
 
-// Ensures we always hit /api/... (even if caller passes "/listings").
+// If set, this should be just an origin (protocol+host), e.g. "https://watertrade.vercel.app"
+// Do NOT include "/api" at the end. We'll add it safely below.
+const RAW = (process.env.NEXT_PUBLIC_API_URL || "").trim();
+
+// Strip trailing slashes
+const ORIGIN = RAW.replace(/\/+$/, "")
+  // Also strip a trailing "/api" if someone set it that way
+  .replace(/\/api$/i, "");
+
+// Turn "path" into a safe "/api/..." path.
+// - If caller passes "listings" => "/api/listings"
+// - If caller passes "/listings" => "/api/listings"
+// - If caller passes "/api/listings" => "/api/listings"
 function toApiPath(path: string) {
+  if (/^https?:\/\//i.test(path)) return path; // absolute URL: use as-is
   const p = path.startsWith("/") ? path : `/${path}`;
   return p.startsWith("/api/") ? p : `/api${p}`;
 }
 
 export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   const apiPath = toApiPath(path);
-
-  // Build final URL: same-origin by default, or external if NEXT_PUBLIC_API_URL is set
-  const url = ORIGIN ? `${ORIGIN}${apiPath}` : apiPath;
+  const url = /^https?:\/\//i.test(apiPath)
+    ? apiPath
+    : ORIGIN
+    ? `${ORIGIN}${apiPath}`
+    : apiPath;
 
   const res = await fetch(url, {
     ...init,
@@ -24,15 +37,13 @@ export async function api<T = any>(path: string, init?: RequestInit): Promise<T>
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    // Trim noisy HTML if we accidentally get a Next error page
-    const snippet = body.replace(/\s+/g, " ").slice(0, 300);
-    throw new Error(`API ${res.status}: ${res.statusText}${snippet ? " - " + snippet : ""}`);
+    // helpful in console / logs
+    console.error("API error", { url, status: res.status, body: body.slice(0, 300) });
+    throw new Error(`API ${res.status}: ${res.statusText}${body ? " - " + body.slice(0, 200) : ""}`);
   }
 
-  // Support endpoints that return 204 No Content
   if (res.status === 204) return {} as T;
 
-  // Try JSON; if it fails, return empty object
   try {
     return (await res.json()) as T;
   } catch {
