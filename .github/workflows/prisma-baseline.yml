@@ -1,12 +1,15 @@
 name: Prisma Baseline (one-time)
 on:
-  workflow_dispatch: {}   # run it manually once
+  workflow_dispatch: {}
 
 jobs:
   baseline:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+    defaults:
+      run:
+        working-directory: frontend   # 👈 run everything in /frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,24 +23,24 @@ jobs:
           echo "---- migrations tree ----"
           ls -R prisma/migrations || true
 
-      - name: Setup Node (no cache needed)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install deps (no lockfile required)
+      - name: Install deps (no lockfile needed)
         run: npm install --no-audit --no-fund
 
       - name: Prisma version
         run: npx prisma --version
 
-      - name: Sanity check: can Prisma see schema?
+      - name: Sanity check: schema exists
         run: |
-          test -f prisma/schema.prisma || (echo "schema.prisma not found at prisma/schema.prisma" && exit 3)
+          test -f prisma/schema.prisma || (echo "schema.prisma not found at frontend/prisma/schema.prisma" && exit 3)
 
       - name: Status (prints helpful details)
         run: npx prisma migrate status --schema prisma/schema.prisma
 
-      # ✅ The actual baseline mark. Does NOT change DB schema.
+      # ✅ Mark ONLY the baseline as applied (no schema change)
       - name: Mark 000_init as applied
         run: npx prisma migrate resolve --applied 000_init --schema prisma/schema.prisma
