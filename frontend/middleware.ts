@@ -1,33 +1,37 @@
-// middleware.ts (Clerk v4-compatible + cookie bypass)
+// middleware.ts — Clerk v4-compatible + onboarding gate
 import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+// Static assets we never want to auth-gate
 const isStatic = (path: string) =>
   path.startsWith("/_next") ||
   path.startsWith("/favicon") ||
   path.startsWith("/images") ||
   path.startsWith("/assets") ||
+  path === "/brand.svg" ||
   /\.(?:png|jpg|jpeg|gif|svg|ico|css|js|txt|woff2?)$/i.test(path);
 
-const isApi = (path: string) => path.startsWith("/api");
-
+// Public (unauthenticated) routes
 const isPublic = (path: string) =>
   path === "/" ||
   path.startsWith("/sign-in") ||
   path.startsWith("/sign-up");
 
+// APIs: let them through here; protect specific admin APIs inside those route handlers if needed
+const isApi = (path: string) => path.startsWith("/api");
+
 export default withClerkMiddleware((req) => {
   const { pathname } = req.nextUrl;
 
-  // Let static files, APIs, and public routes through
-  if (isStatic(pathname) || isApi(pathname) || isPublic(pathname)) {
+  // Allow static files, public routes, and APIs
+  if (isStatic(pathname) || isPublic(pathname) || isApi(pathname)) {
     return NextResponse.next();
   }
 
-  // Clerk auth (v4 style)
+  // Clerk auth
   const { userId, sessionClaims } = getAuth(req);
 
-  // If not signed in, send to sign-in
+  // Not signed in → redirect to sign-in
   if (!userId) {
     const url = req.nextUrl.clone();
     url.pathname = "/sign-in";
@@ -35,14 +39,15 @@ export default withClerkMiddleware((req) => {
     return NextResponse.redirect(url);
   }
 
-  // Onboarding check
+  // Onboarding gate:
+  // - Either Clerk publicMetadata.onboarded === true
+  // - Or a short-lived cookie "onboarded=1" set by your onboarding completion API
   const onboardedFromClerk =
     (sessionClaims?.publicMetadata as any)?.onboarded === true;
 
-  // ✅ Short-lived cookie set by /api/profile after successful onboarding
   const onboardedCookie = req.cookies.get("onboarded")?.value === "1";
 
-  // Gate: must complete onboarding unless cookie bypass is present
+  // If not onboarded, force them through /onboarding
   if (!onboardedFromClerk && !onboardedCookie && pathname !== "/onboarding") {
     const url = req.nextUrl.clone();
     url.pathname = "/onboarding";
@@ -50,7 +55,7 @@ export default withClerkMiddleware((req) => {
     return NextResponse.redirect(url);
   }
 
-  // If already onboarded (or bypass cookie present) and they hit /onboarding, send them onward
+  // If already onboarded and they hit /onboarding, push them to dashboard
   if ((onboardedFromClerk || onboardedCookie) && pathname === "/onboarding") {
     const url = req.nextUrl.clone();
     url.pathname = "/dashboard";
@@ -61,7 +66,7 @@ export default withClerkMiddleware((req) => {
   return NextResponse.next();
 });
 
+// Run on all routes except files and Next internals
 export const config = {
-  // Run on all routes except static assets
   matcher: ["/((?!.*\\..*|_next).*)"],
 };
