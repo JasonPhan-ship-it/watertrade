@@ -37,7 +37,7 @@ export default function HomePage() {
       })
       .then((json) => active && setData(json))
       .catch((e) => active && setError(e.message || "Failed to load"))
-      .finally(() => active && setLoading(false));
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
 
@@ -239,6 +239,67 @@ export default function HomePage() {
       </section>
 
       <Footer />
+
+      {/* Cookie consent banner */}
+      <CookieBanner />
+    </div>
+  );
+}
+
+/* ---------------------- Cookie Banner ---------------------- */
+
+function CookieBanner() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    // Show only if the user hasn't made a choice yet
+    const hasChoice =
+      typeof document !== "undefined" &&
+      document.cookie.split("; ").some((c) => c.startsWith("cookie_consent="));
+    if (!hasChoice) setVisible(true);
+  }, []);
+
+  if (!visible) return null;
+
+  const setConsent = (value: "accepted" | "rejected") => {
+    const isHttps = typeof location !== "undefined" && location.protocol === "https:";
+    const secure = isHttps ? "; secure" : "";
+    // store for 1 year
+    document.cookie = `cookie_consent=${value}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax${secure}`;
+    setVisible(false);
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-live="polite"
+      className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6"
+    >
+      <div className="rounded-2xl border border-white/20 bg-[#004434] p-4 text-white shadow-lg">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm leading-5">
+            We use cookies to improve your experience, analyze traffic, and provide essential site functionality.{" "}
+            <Link href="/privacy" className="underline text-white/90 hover:text-white">
+              Learn more
+            </Link>
+            .
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConsent("rejected")}
+              className="h-9 rounded-xl border border-white/30 bg-transparent px-4 text-sm font-medium text-white hover:bg-white/10"
+            >
+              No thanks
+            </button>
+            <button
+              onClick={() => setConsent("accepted")}
+              className="h-9 rounded-xl bg-white px-4 text-sm font-semibold text-[#004434] hover:bg-slate-100"
+            >
+              Allow cookies
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
