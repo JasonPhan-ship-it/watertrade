@@ -38,9 +38,7 @@ export default function HomePage() {
       .then((json) => active && setData(json))
       .catch((e) => active && setError(e.message || "Failed to load"))
       .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const stats = useMemo(() => {
@@ -48,8 +46,7 @@ export default function HomePage() {
     const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
     const avg =
       rows.length > 0
-        ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) /
-          100
+        ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100
         : 0;
     return {
       count: data?.total ?? 0,
@@ -79,7 +76,6 @@ export default function HomePage() {
               >
                 Create Account
               </Link>
-
               <Link
                 href="/create-listing"
                 className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 px-5 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -162,24 +158,83 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Feature blurbs */}
+      {/* Feature blurbs with centered icons */}
       <section className="border-t bg-slate-50 py-12">
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 sm:grid-cols-3 sm:px-6">
-          {["Transparent Pricing", "District-Aware Transfers", "Premium Analytics"].map(
-            (h, i) => (
-              <div
-                key={i}
-                className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-              >
-                <div className="text-sm font-semibold">{h}</div>
-                <p className="mt-2 text-sm text-slate-600">
-                  {i === 0 && "See current $/AF by district and water type."}
-                  {i === 1 && "Workflows tailored to each district’s window and forms."}
-                  {i === 2 && "Early-access listings plus pricing trends and alerts."}
-                </p>
+          {[
+            {
+              title: "Transparent Pricing",
+              blurb: "See current $/AF by district and water type.",
+              icon: <TagIcon />,
+            },
+            {
+              title: "District-Aware Transfers",
+              blurb: "Workflows tailored to each district’s window and forms.",
+              icon: <ClipboardIcon />,
+            },
+            {
+              title: "Premium Analytics",
+              blurb: "Early-access listings plus pricing trends and alerts.",
+              icon: <ChartIcon />,
+            },
+          ].map((f, i) => (
+            <div
+              key={i}
+              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center"
+            >
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#E6F4F1]">
+                {/* image/icon centered above the words */}
+                <div className="h-6 w-6 text-[#0E6A59]">{f.icon}</div>
               </div>
-            )
-          )}
+              <div className="text-sm font-semibold">{f.title}</div>
+              <p className="mt-2 text-sm text-slate-600">{f.blurb}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Membership cards */}
+      <section className="bg-white py-12">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <h2 className="text-xl font-bold text-slate-900">Membership</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Start free. Upgrade to unlock early-access listings, analytics, and alerts.
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+            {/* Free */}
+            <MembershipCard
+              name="Free"
+              subtitle="For getting started"
+              priceLabel="$0"
+              ctaLabel="Create Free Account"
+              ctaHref="/sign-up"
+              highlights={[
+                "Browse public listings",
+                "Basic search & filters",
+                "Create 1 active listing",
+                "Email support",
+              ]}
+            />
+
+            {/* Premium */}
+            <MembershipCard
+              featured
+              name="Premium"
+              subtitle="For active buyers & sellers"
+              priceLabel="Contact for pricing"
+              ctaLabel="Upgrade to Premium"
+              ctaHref="/pricing"
+              highlights={[
+                "Early access to new listings",
+                "Advanced analytics & historical $/AF",
+                "District window alerts (email/SMS)",
+                "Saved searches & instant notifications",
+                "Bulk bid tools & offer history",
+                "Priority support",
+              ]}
+            />
+          </div>
         </div>
       </section>
 
@@ -187,6 +242,8 @@ export default function HomePage() {
     </div>
   );
 }
+
+/* ---------------------- UI bits ---------------------- */
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
@@ -204,6 +261,102 @@ function WaterTypeBadge({ type }: { type: string }) {
     </span>
   );
 }
+
+function MembershipCard(props: {
+  name: string;
+  subtitle: string;
+  priceLabel: string;
+  ctaLabel: string;
+  ctaHref: string;
+  highlights: string[];
+  featured?: boolean;
+}) {
+  const { name, subtitle, priceLabel, ctaLabel, ctaHref, highlights, featured } = props;
+  return (
+    <div
+      className={[
+        "relative rounded-2xl border bg-white p-6 shadow-sm",
+        featured ? "border-[#0E6A59] ring-1 ring-[#0E6A59]/20" : "border-slate-200",
+      ].join(" ")}
+    >
+      {featured && (
+        <span className="absolute -top-3 left-6 rounded-full bg-[#0E6A59] px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+          Most Popular
+        </span>
+      )}
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-slate-900">{name}</h3>
+          <p className="text-xs text-slate-600">{subtitle}</p>
+        </div>
+        <div className="text-sm font-semibold text-slate-900">{priceLabel}</div>
+      </div>
+
+      <ul className="mt-4 space-y-2 text-sm">
+        {highlights.map((h, i) => (
+          <li key={i} className="flex items-start gap-2 text-slate-700">
+            <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#0E6A59]" />
+            <span>{h}</span>
+          </li>
+        ))}
+      </ul>
+
+      <Link
+        href={ctaHref}
+        className={[
+          "mt-5 inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-medium",
+          featured
+            ? "bg-[#0E6A59] text-white hover:bg-[#0c5c4d]"
+            : "border border-slate-300 text-slate-700 hover:bg-slate-50",
+        ].join(" ")}
+      >
+        {ctaLabel}
+      </Link>
+    </div>
+  );
+}
+
+/* ---------------------- Inline SVG Icons ---------------------- */
+
+function TagIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M20 13l-7 7-9-9V4h7l9 9z" />
+      <circle cx="7.5" cy="7.5" r="1.5" />
+    </svg>
+  );
+}
+
+function ClipboardIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M9 5h6a2 2 0 012 2v12H7V7a2 2 0 012-2z" />
+      <path d="M9 3h6v4H9z" />
+      <path d="M8 11h8M8 15h8" />
+    </svg>
+  );
+}
+
+function ChartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M4 19h16" />
+      <path d="M7 16V9" />
+      <path d="M12 16V5" />
+      <path d="M17 16v-6" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+/* ---------------------- Helpers ---------------------- */
 
 function formatNumber(n: number | string) {
   const num = typeof n === "string" ? Number(n) : n;
