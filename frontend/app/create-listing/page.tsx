@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
+// NOTE: removed shadcn Select import to use native <select>
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
@@ -13,10 +13,14 @@ export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
 
-  async function onSubmit(formData: FormData) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
     setLoading(true);
     setMessage(null);
+
     try {
+      const formData = new FormData(e.currentTarget);
+
       const payload = {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
@@ -24,10 +28,17 @@ export default function CreateListingPage() {
         pricePerAF: Number(formData.get("pricePerAF") || 0),
         type: String(formData.get("type") || "sell"),
       };
-      await api("/listings", { method: "POST", body: JSON.stringify(payload) });
+
+      // POST to /api/listings (helper will ensure the /api prefix)
+      await api("/listings", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
       setMessage("Listing created!");
-    } catch (e: any) {
-      setMessage(e.message || "Failed to create listing.");
+      (e.currentTarget as HTMLFormElement).reset();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to create listing.");
     } finally {
       setLoading(false);
     }
@@ -39,11 +50,17 @@ export default function CreateListingPage() {
         <CardHeader>
           <CardTitle>Create Listing</CardTitle>
         </CardHeader>
-        <form action={onSubmit} className="contents">
+
+        <form onSubmit={handleSubmit} className="contents">
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="title">Title</Label>
-              <Input id="title" name="title" placeholder="e.g., 50 AF transfer in Westlands" required />
+              <Input
+                id="title"
+                name="title"
+                placeholder="e.g., 50 AF transfer in Westlands"
+                required
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -57,19 +74,31 @@ export default function CreateListingPage() {
               </div>
             </div>
 
+            {/* Use a native <select> so FormData includes "type" */}
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
-              <Select id="type" name="type" defaultValue="sell">
+              <select
+                id="type"
+                name="type"
+                defaultValue="sell"
+                required
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+              >
                 <option value="sell">Sell</option>
                 <option value="buy">Buy</option>
-              </Select>
+              </select>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
-              <Textarea id="description" name="description" placeholder="Add context, district, timing, terms..." />
+              <Textarea
+                id="description"
+                name="description"
+                placeholder="Add context, district, timing, terms..."
+              />
             </div>
           </CardContent>
+
           <CardFooter className="flex items-center gap-3">
             <Button type="submit" disabled={loading}>
               {loading ? "Submitting..." : "Create"}
