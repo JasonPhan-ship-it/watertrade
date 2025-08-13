@@ -1,51 +1,30 @@
 name: Prisma Baseline (one-time)
+
 on:
-  workflow_dispatch: {}   # run it manually once
+  workflow_dispatch:
 
 jobs:
   baseline:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}   # must be the full prod URL
+      DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
     defaults:
       run:
-        working-directory: frontend                    # 👈 your project lives here
+        working-directory: frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show working dir & trees
-        run: |
-          echo "PWD = $(pwd)"
-          ls -la
-          echo "---- prisma ----"
-          ls -la prisma || true
-          echo "---- migrations ----"
-          ls -R prisma/migrations || true
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
 
-      - name: Install deps (no lockfile needed)
+      - name: Install deps
         run: npm install --no-audit --no-fund
 
-      - name: Prisma version
-        run: npx prisma --version
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
 
-      - name: ✅ Preflight: check secrets and files
-        run: |
-          if [ -z "${DATABASE_URL}" ]; then
-            echo "::error::PROD_DATABASE_URL secret is missing or empty"; exit 2
-          fi
-          test -f prisma/schema.prisma || (echo "::error::Missing prisma/schema.prisma in frontend/"; exit 3)
-          test -f prisma/migrations/000_init/migration.sql || (echo "::error::Missing prisma/migrations/000_init/migration.sql"; exit 4)
-
-      - name: Status (informational)
-        run: npx prisma migrate status --schema prisma/schema.prisma
-        continue-on-error: true
-
-      # ✅ Mark ONLY the baseline as applied (no schema change)
-      - name: Mark 000_init as applied
+      - name: Mark baseline migration as applied
         run: npx prisma migrate resolve --applied 000_init --schema prisma/schema.prisma
