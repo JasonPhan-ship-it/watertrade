@@ -129,7 +129,7 @@ export default function HomePage() {
                 href="/create-listing"
                 className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 px-5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                List Water
+                Sign In
               </Link>
             </div>
           </div>
