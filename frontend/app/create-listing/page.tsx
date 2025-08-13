@@ -6,7 +6,6 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
 
 export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
@@ -16,6 +15,7 @@ export default function CreateListingPage() {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
+
     try {
       const formData = new FormData(e.currentTarget);
       const payload = {
@@ -26,16 +26,25 @@ export default function CreateListingPage() {
         type: String(formData.get("type") || "sell"),
       };
 
-      await api("/api/listings", {
+      const url = "/api/listings";
+      if (typeof window !== "undefined") console.log("POST", url, payload); // prove exact path
+
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`API ${res.status}: ${res.statusText}${text ? " - " + text.slice(0, 200) : ""}`);
+      }
+
       setMessage("Listing created!");
       e.currentTarget.reset();
     } catch (err: any) {
       setMessage(err?.message || "Failed to create listing.");
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -63,7 +72,7 @@ export default function CreateListingPage() {
               </div>
             </div>
 
-            {/* Native select so FormData includes "type" */}
+            {/* native <select> so FormData includes "type" */}
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
               <select
