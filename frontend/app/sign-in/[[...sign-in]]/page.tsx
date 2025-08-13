@@ -10,9 +10,11 @@ export default function SignInPage() {
         path="/sign-in"
         signUpUrl="/sign-up"
         afterSignInUrl="/dashboard"
-        logoImageUrl="/brand.svg"
         appearance={{
           variables: { colorPrimary: "#004434" },
+          layout: {
+            logoImageUrl: "/brand.svg", // <-- move logo here
+          },
           elements: {
             card: "rounded-2xl border border-slate-200 shadow-lg",
             formButtonPrimary: "bg-[#004434] hover:bg-[#00392f] text-white rounded-xl",
