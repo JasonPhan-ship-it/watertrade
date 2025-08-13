@@ -1,15 +1,17 @@
+// app/api/debug/columns/route.ts
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
-    // Which schema are we actually querying?
     const [row]: Array<{ current_schema: string }> = await prisma.$queryRaw`
       SELECT current_schema()
     `;
     const schema = row?.current_schema ?? "public";
 
-    // Try to find a likely table name, case-insensitively.
     const tables = await prisma.$queryRaw<Array<{ table_name: string }>>`
       SELECT table_name
       FROM information_schema.tables
@@ -20,8 +22,9 @@ export async function GET() {
     `;
     const table = tables[0]?.table_name ?? "Listing";
 
-    // Pull columns for that table (case-insensitive match)
-    const columns = await prisma.$queryRaw<Array<{ column_name: string; data_type: string; is_nullable: string }>>`
+    const columns = await prisma.$queryRaw<
+      Array<{ column_name: string; data_type: string; is_nullable: string }>
+    >`
       SELECT column_name, data_type, is_nullable
       FROM information_schema.columns
       WHERE table_schema = current_schema()
