@@ -1,2 +1,0 @@
--- baseline: existing production schema (no-op)
--- This marks the current DB state as "init" without changing it.
