@@ -1,7 +1,7 @@
 // app/api/profile/route.ts
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 
@@ -45,7 +45,18 @@ async function getOrCreateLocalUser(clerkUserId: string) {
   return user;
 }
 
-export async function POST(req: Request) {
+export async function GET() {
+  const { userId } = auth();
+  if (!userId) return NextResponse.json({ profile: null }, { status: 200 });
+
+  const local = await prisma.user.findUnique({ where: { clerkId: userId } });
+  if (!local) return NextResponse.json({ profile: null }, { status: 200 });
+
+  const profile = await prisma.userProfile.findUnique({ where: { userId: local.id } });
+  return NextResponse.json({ profile }, { status: 200 });
+}
+
+export async function POST(req: NextRequest) {
   try {
     const { userId: clerkUserId } = auth();
     if (!clerkUserId) {
@@ -55,15 +66,7 @@ export async function POST(req: Request) {
     const localUser = await getOrCreateLocalUser(clerkUserId);
 
     const body = await req.json().catch(() => ({}));
-    const {
-      fullName,
-      company,
-      role,
-      phone,
-      primaryDistrict,
-      waterTypes = [],
-      acceptTerms,
-    } = body || {};
+    const { fullName, company, role, phone, primaryDistrict, waterTypes = [], acceptTerms } = body || {};
 
     const tradeRole = normalizeRole(role);
     if (!fullName || !tradeRole || acceptTerms !== true) {
@@ -73,50 +76,43 @@ export async function POST(req: Request) {
       );
     }
 
+    // Upsert profile
     await prisma.userProfile.upsert({
       where: { userId: localUser.id },
       create: {
         userId: localUser.id,
         fullName,
-        company,
+        company: company ?? null,
         tradeRole,
-        phone,
-        primaryDistrict,
+        phone: phone ?? null,
+        primaryDistrict: primaryDistrict ?? null,
         waterTypes,
         acceptTerms: true,
       },
       update: {
         fullName,
-        company,
+        company: company ?? null,
         tradeRole,
-        phone,
-        primaryDistrict,
+        phone: phone ?? null,
+        primaryDistrict: primaryDistrict ?? null,
         waterTypes,
         acceptTerms: true,
       },
     });
 
-    // Fire-and-forget Clerk metadata update so we don't block response
-    clerkClient.users
-      .updateUser(clerkUserId, { publicMetadata: { onboarded: true } })
-      .catch(() => {});
+    // Mark onboarded in Clerk (don’t block on failure)
+    clerkClient.users.updateUser(clerkUserId, { publicMetadata: { onboarded: true } }).catch(() => {});
 
-    // ✅ Set cookie + redirect so the very next request carries the bypass
-    const redirect = NextResponse.redirect(new URL("/dashboard", req.url), 303);
-    redirect.headers.append(
-      "Set-Cookie",
-      [
-        "onboarded=1",
-        "Path=/",
-        "Max-Age=300", // 5 minutes
-        "HttpOnly",
-        "SameSite=Lax",
-        process.env.NODE_ENV === "production" ? "Secure" : "",
-      ]
-        .filter(Boolean)
-        .join("; ")
-    );
-    return redirect;
+    // Set short-lived cookie so middleware lets the next request through immediately
+    const res = NextResponse.json({ ok: true }, { status: 200 });
+    res.cookies.set("onboarded", "1", {
+      httpOnly: true,
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 30, // 30 minutes
+      secure: process.env.NODE_ENV === "production",
+    });
+    return res;
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
