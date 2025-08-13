@@ -4,6 +4,50 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Footer from "@/components/Footer";
 
+/** ---- Tiny Typewriter ---- */
+function useTypewriter(
+  phrases: string[],
+  { typeSpeed = 45, deleteSpeed = 25, pauseMs = 5000 } = {}
+) {
+  const [i, setI] = useState(0); // which phrase
+  const [text, setText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    const current = phrases[i % phrases.length];
+    let t: ReturnType<typeof setTimeout>;
+
+    if (!deleting && text === current) {
+      // full phrase shown → pause, then start deleting
+      t = setTimeout(() => setDeleting(true), pauseMs);
+    } else if (deleting && text.length === 0) {
+      // finished deleting → advance phrase, start typing
+      t = setTimeout(() => {
+        setDeleting(false);
+        setI((prev) => (prev + 1) % phrases.length);
+      }, 800);
+    } else {
+      const nextLen = deleting ? text.length - 1 : text.length + 1;
+      const next = current.slice(0, nextLen);
+      t = setTimeout(() => setText(next), deleting ? deleteSpeed : typeSpeed);
+    }
+
+    return () => clearTimeout(t);
+  }, [text, deleting, i, phrases, typeSpeed, deleteSpeed, pauseMs]);
+
+  return text;
+}
+
+function Typewriter({ phrases, className = "" }: { phrases: string[]; className?: string }) {
+  const text = useTypewriter(phrases, { pauseMs: 5000, typeSpeed: 45, deleteSpeed: 25 });
+  return (
+    <span className={className}>
+      {text}
+      <span aria-hidden className="ml-1 inline-block animate-pulse">|</span>
+    </span>
+  );
+}
+
 /** ---- Types shared with the API shape ---- */
 type Listing = {
   id: string;
@@ -55,6 +99,11 @@ export default function HomePage() {
     };
   }, [data]);
 
+  const PHRASES = useMemo(
+    () => ["From Growers, For Growers.", "List fast. Move water faster."],
+    []
+  );
+
   return (
     <div className="min-h-screen bg-white flex flex-col">
       {/* Hero */}
@@ -62,7 +111,7 @@ export default function HomePage() {
         <div className="grid items-center gap-10 md:grid-cols-2">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-              From Growers, For Growers.
+              <Typewriter phrases={PHRASES} />
             </h1>
             <p className="mt-3 text-slate-600">
               A marketplace built for growers and districts. Discover live listings,
@@ -183,7 +232,6 @@ export default function HomePage() {
               className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center"
             >
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#E6F4F1]">
-                {/* image/icon centered above the words */}
                 <div className="h-6 w-6 text-[#0E6A59]">{f.icon}</div>
               </div>
               <div className="text-sm font-semibold">{f.title}</div>
@@ -202,7 +250,6 @@ export default function HomePage() {
           </p>
 
           <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
-            {/* Free */}
             <MembershipCard
               name="Free"
               subtitle="For getting started"
@@ -216,8 +263,6 @@ export default function HomePage() {
                 "Email support",
               ]}
             />
-
-            {/* Premium */}
             <MembershipCard
               featured
               name="Premium"
@@ -239,8 +284,6 @@ export default function HomePage() {
       </section>
 
       <Footer />
-
-      {/* Cookie consent banner */}
       <CookieBanner />
     </div>
   );
@@ -252,7 +295,6 @@ function CookieBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    // Show only if the user hasn't made a choice yet
     const hasChoice =
       typeof document !== "undefined" &&
       document.cookie.split("; ").some((c) => c.startsWith("cookie_consent="));
@@ -264,17 +306,12 @@ function CookieBanner() {
   const setConsent = (value: "accepted" | "rejected") => {
     const isHttps = typeof location !== "undefined" && location.protocol === "https:";
     const secure = isHttps ? "; secure" : "";
-    // store for 1 year
     document.cookie = `cookie_consent=${value}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax${secure}`;
     setVisible(false);
   };
 
   return (
-    <div
-      role="dialog"
-      aria-live="polite"
-      className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6"
-    >
+    <div role="dialog" aria-live="polite" className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6">
       <div className="rounded-2xl border border-white/20 bg-[#004434] p-4 text-white shadow-lg">
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm leading-5">
