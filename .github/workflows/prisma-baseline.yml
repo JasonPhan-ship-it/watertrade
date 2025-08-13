@@ -1,6 +1,6 @@
 name: Prisma Baseline (one-time)
 on:
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # run it manually once
 
 jobs:
   baseline:
@@ -8,15 +8,36 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # No cache here (it requires a lockfile). Also switch to `npm install`.
-      - uses: actions/setup-node@v4
+      - name: Show working dir & files
+        run: |
+          pwd
+          ls -la
+          echo "---- prisma tree ----"
+          ls -la prisma || true
+          echo "---- migrations tree ----"
+          ls -R prisma/migrations || true
+
+      - name: Setup Node (no cache needed)
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - run: npm install --no-audit --no-fund
-      - run: npx prisma generate
+      - name: Install deps (no lockfile required)
+        run: npm install --no-audit --no-fund
 
-      # Mark ONLY the baseline as applied (no schema change).
-      - run: npx prisma migrate resolve --applied 000_init
+      - name: Prisma version
+        run: npx prisma --version
+
+      - name: Sanity check: can Prisma see schema?
+        run: |
+          test -f prisma/schema.prisma || (echo "schema.prisma not found at prisma/schema.prisma" && exit 3)
+
+      - name: Status (prints helpful details)
+        run: npx prisma migrate status --schema prisma/schema.prisma
+
+      # ✅ The actual baseline mark. Does NOT change DB schema.
+      - name: Mark 000_init as applied
+        run: npx prisma migrate resolve --applied 000_init --schema prisma/schema.prisma
