@@ -30,7 +30,7 @@ async function getOrCreateLocalUser(clerkUserId: string) {
 
   const cu = await clerkClient.users.getUser(clerkUserId).catch(() => null);
   const email =
-    cu?.emailAddresses?.find(e => e.id === cu.primaryEmailAddressId)?.emailAddress ??
+    cu?.emailAddresses?.find((e) => e.id === cu.primaryEmailAddressId)?.emailAddress ??
     cu?.emailAddresses?.[0]?.emailAddress ??
     `${clerkUserId}@example.invalid`;
 
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const profile = await prisma.userProfile.upsert({
+    await prisma.userProfile.upsert({
       where: { userId: localUser.id },
       create: {
         userId: localUser.id,
@@ -96,21 +96,28 @@ export async function POST(req: Request) {
       },
     });
 
-// ... inside POST, after the successful upsert and the fire-and-forget Clerk update
-// Fire-and-forget Clerk metadata update so we don't block response
-clerkClient.users.updateUser(clerkUserId, { publicMetadata: { onboarded: true } }).catch(() => {});
+    // Fire-and-forget Clerk metadata update so we don't block response
+    clerkClient.users
+      .updateUser(clerkUserId, { publicMetadata: { onboarded: true } })
+      .catch(() => {});
 
-// ✅ Set cookie and redirect to /dashboard from the API itself
-const redirect = NextResponse.redirect(new URL("/dashboard", req.url), 303);
-redirect.headers.append(
-  "Set-Cookie",
-  [
-    "onboarded=1",
-    "Path=/",
-    "Max-Age=300",               // 5 minutes
-    "HttpOnly",                  // server-readable for middleware
-    "SameSite=Lax",
-    process.env.NODE_ENV === "production" ? "Secure" : "",
-  ].filter(Boolean).join("; ")
-);
-return redirect;
+    // ✅ Set cookie + redirect so the very next request carries the bypass
+    const redirect = NextResponse.redirect(new URL("/dashboard", req.url), 303);
+    redirect.headers.append(
+      "Set-Cookie",
+      [
+        "onboarded=1",
+        "Path=/",
+        "Max-Age=300", // 5 minutes
+        "HttpOnly",
+        "SameSite=Lax",
+        process.env.NODE_ENV === "production" ? "Secure" : "",
+      ]
+        .filter(Boolean)
+        .join("; ")
+    );
+    return redirect;
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+  }
+}
