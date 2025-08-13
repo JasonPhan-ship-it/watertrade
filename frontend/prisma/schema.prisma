@@ -40,35 +40,35 @@ model User {
 model Listing {
   id           String         @id @default(cuid())
 
-  // NEW: handy for UI & search
-  title        String
+  // Handy for UI & search
+  title        String         @default("Untitled Listing")    // <— default added
   description  String?
 
   // Core water trade fields
   district     String
   waterType    String
 
-  // Existing human-readable window (kept for display/back-compat)
+  // Human-readable window (kept for display/back-compat)
   availability String
 
-  // NEW: real dates for sorting/filters
-  availabilityStart DateTime
-  availabilityEnd   DateTime
+  // Real dates for sorting/filters
+  availabilityStart DateTime  @default(now())                 // <— default added
+  availabilityEnd   DateTime  @default(now())                 // <— default added (API will set real end)
 
   acreFeet     Int
   pricePerAF   Int                 // cents
 
-  // NEW: SELL or BUY (maps to your form's "type")
-  kind         ListingKind         @default(SELL)
+  // SELL or BUY (maps to form "type")
+  kind         ListingKind     @default(SELL)
 
-  status       ListingStatus       @default(ACTIVE)
+  status       ListingStatus   @default(ACTIVE)
 
   // Seller (optional for seed)
-  seller       User?               @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  seller       User?           @relation(fields: [sellerId], references: [id], onDelete: SetNull)
   sellerId     String?
 
   // Auction options
-  isAuction      Boolean           @default(false)
+  isAuction      Boolean       @default(false)
   auctionEndsAt  DateTime?
   reservePrice   Int?              // cents per AF
 
@@ -147,7 +147,7 @@ model Signature {
   @@index([transactionId, party])
 }
 
-/* ---------------- NEW: Onboarding Profile ---------------- */
+/* ---------------- Onboarding Profile ---------------- */
 
 model UserProfile {
   id               String       @id @default(cuid())
@@ -220,7 +220,6 @@ enum PaymentMethod {
   ESCROW_COM
 }
 
-/* NEW */
 enum ProfileRole {
   BUYER
   SELLER
@@ -228,7 +227,6 @@ enum ProfileRole {
   DISTRICT_ADMIN
 }
 
-/* NEW: listing direction */
 enum ListingKind {
   SELL
   BUY
