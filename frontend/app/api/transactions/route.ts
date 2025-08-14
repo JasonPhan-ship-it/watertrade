@@ -79,12 +79,7 @@ export async function POST(req: Request) {
         pricePerAF: p,        // cents
         totalAmount,          // cents
         // status defaults to INITIATED
-        // You can set offerExpiresAt for OFFER if you add it in UI/payload later
-        listingTitleSnapshot: listing.title ?? null,
-        buyerNameSnapshot: me.name ?? null,
-        buyerEmailSnapshot: me.email ?? null,
-        sellerNameSnapshot: listing.seller.name ?? null,
-        sellerEmailSnapshot: listing.seller.email ?? null,
+        // NOTE: snapshot fields removed until DB migration is applied
       },
       select: { id: true, type: true },
     });
@@ -114,7 +109,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ id: trx.id, type: trx.type });
   } catch (err: any) {
     console.error("POST /api/transactions error:", err);
-    // Try to surface a useful message
     const msg =
       typeof err?.message === "string" && err.message.length < 500
         ? err.message
