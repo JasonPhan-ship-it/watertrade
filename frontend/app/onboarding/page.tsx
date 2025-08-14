@@ -36,9 +36,7 @@ export default function OnboardingPage() {
 
   // --- helpers ---
   function withTimeout<T>(p: Promise<T>, ms = 15000) {
-    const t = setTimeout(() => {
-      // We don't pass a signal; we race instead.
-    }, ms);
+    const t = setTimeout(() => {}, ms);
     return Promise.race([
       p,
       new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
@@ -53,31 +51,26 @@ export default function OnboardingPage() {
     router.replace("/dashboard");
   }, [router]);
 
-  // Persist onboarded in Clerk + cookie, then refresh session and go
+  // Persist onboarded in Clerk (unsafeMetadata) + cookie, then refresh session and go
   const markOnboardedAndProceed = React.useCallback(
     async (uid?: string | null) => {
       try {
-        // Merge existing publicMetadata to avoid overwriting other keys
-        const currentMeta = (user?.publicMetadata ?? {}) as Record<string, unknown>;
-        await user?.update?.({ publicMetadata: { ...currentMeta, onboarded: true } });
+        const current = (user?.unsafeMetadata ?? {}) as Record<string, unknown>;
+        await user?.update?.({ unsafeMetadata: { ...current, onboarded: true } });
       } catch {
         // Non-fatal: middleware also accepts cookie fallback
       }
 
-      // Optional cookie fallback for your current middleware
+      // Cookie fallback for your middleware (optional)
       if (uid) {
         try {
           document.cookie = `onboarded=${uid}; Path=/; Max-Age=1800; SameSite=Lax`;
-        } catch {
-          // ignore
-        }
+        } catch {}
       }
 
       try {
         await session?.reload?.();
-      } catch {
-        // ignore
-      }
+      } catch {}
 
       goDashboard();
     },
@@ -151,9 +144,7 @@ export default function OnboardingPage() {
         } catch {
           try {
             msg = await res.text();
-          } catch {
-            // keep default
-          }
+          } catch {}
         }
         throw new Error(msg);
       }
