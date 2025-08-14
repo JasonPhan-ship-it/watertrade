@@ -16,29 +16,29 @@ export async function POST(req: NextRequest) {
   const sig = req.headers.get("stripe-signature");
   const raw = await req.text();
 
-  // 🔽 dynamic import
-  const Stripe = (await import("stripe")).default;
+  const StripeMod = await import("stripe");
+  const Stripe = (StripeMod as any).default || StripeMod;
   const stripe = new Stripe(key, { apiVersion: "2024-06-20" });
 
   let evt;
   try {
     evt = stripe.webhooks.constructEvent(raw, sig!, whSecret);
-  } catch (err: any) {
+  } catch {
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
   try {
     if (evt.type === "checkout.session.completed") {
-      const s = evt.data.object as Stripe.Checkout.Session;
-      const clerkId = (s.metadata?.clerkId as string) || null;
-      const localUserId = (s.client_reference_id as string) || null;
+      const s = evt.data.object as typeof stripe.checkout.sessions["create"] extends (...args: any) => Promise<infer T> ? T : any;
+      const clerkId = (s as any).metadata?.clerkId as string | null;
+      const localUserId = (s as any).client_reference_id as string | null;
 
       if (clerkId) {
         await clerkClient.users.updateUser(clerkId, { publicMetadata: { premium: true } });
       }
 
       const email =
-        (s.customer_details?.email as string) ||
+        (s as any).customer_details?.email as string ||
         (await (async () => {
           if (!localUserId) return null;
           const u = await prisma.user.findUnique({ where: { id: localUserId } });
