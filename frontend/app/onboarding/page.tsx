@@ -27,31 +27,33 @@ export default function OnboardingPage() {
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // ensure we only navigate once
-  const navigatedRef = React.useRef(false);
-  const navigateToDashboard = React.useCallback(() => {
-    if (navigatedRef.current) return;
-    navigatedRef.current = true;
+  // Remove any stale 'onboarded' cookie if it belongs to a different user
+  React.useEffect(() => {
+    if (typeof document === "undefined" || !user?.id) return;
+    const existing = document.cookie.split("; ").find((c) => c.startsWith("onboarded="))?.split("=")[1];
+    if (existing && existing !== user.id) {
+      document.cookie = "onboarded=; Max-Age=0; Path=/; SameSite=Lax";
+    }
+  }, [user?.id]);
 
-    // try SPA navigation first
+  const goDashOnce = React.useRef(false);
+  const goDash = React.useCallback(() => {
+    if (goDashOnce.current) return;
+    goDashOnce.current = true;
     router.push("/dashboard");
-
-    // hard fallback (in case middleware timing/cookies race)
     setTimeout(() => {
       if (typeof window !== "undefined" && window.location.pathname === "/onboarding") {
         window.location.assign("/dashboard");
       }
-    }, 200);
+    }, 150);
   }, [router]);
 
-  // If Clerk already knows we're onboarded, skip immediately
+  // If Clerk says onboarded, skip
   React.useEffect(() => {
-    if (user?.publicMetadata?.onboarded === true) {
-      navigateToDashboard();
-    }
-  }, [user, navigateToDashboard]);
+    if (user?.publicMetadata?.onboarded === true) goDash();
+  }, [user?.publicMetadata, goDash]);
 
-  // Ask the API for an existing profile; if found, skip this screen
+  // Prefill or stay on form for brand new users
   React.useEffect(() => {
     let live = true;
     (async () => {
@@ -62,29 +64,27 @@ export default function OnboardingPage() {
         if (!live) return;
 
         if (json?.profile) {
-          // nudge Clerk claims to refresh and then bypass
-          await session?.reload?.().catch(() => {});
-          // set a client cookie as local fallback for middleware
-          document.cookie = "onboarded=1; path=/; max-age=1800; samesite=lax";
-          navigateToDashboard();
+          // returning user — ensure cookie, refresh claims, then skip
+          document.cookie = `onboarded=${user?.id ?? ""}; Path=/; Max-Age=1800; SameSite=Lax`;
+          session?.reload?.().catch(() => {});
+          goDash();
           return;
         }
 
-        setPrefill(null); // no profile; show form
+        // no profile — show form
+        setPrefill(null);
       } catch {
-        // first-time users commonly land here; show empty form
+        // likely first-time — show form
       } finally {
         if (live) setLoadingProfile(false);
       }
     })();
-    return () => {
-      live = false;
-    };
-  }, [session, navigateToDashboard]);
+    return () => { live = false; };
+  }, [session, user?.id, goDash]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (submitting) return; // guard against double clicks
+    if (submitting) return;
     setSubmitting(true);
     setError(null);
 
@@ -109,7 +109,6 @@ export default function OnboardingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
       if (!res.ok) {
         let msg = "Failed to save profile";
         try {
@@ -118,19 +117,18 @@ export default function OnboardingPage() {
         } catch {
           msg = await res.text();
         }
-        throw new Error(msg || "Failed to save profile");
+        throw new Error(msg);
       }
 
-      // local fallback cookie so middleware passes immediately
-      document.cookie = "onboarded=1; path=/; max-age=1800; samesite=lax";
-
-      // reload Clerk claims but don't block on it
-      session?.reload?.().catch(() => {});
-
-      // stop spinner before navigating (so if anything bounces, user isn’t stuck)
+      // set cookie for current user; stop spinner before nav
+      if (user?.id) {
+        document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
+      }
       setSubmitting(false);
 
-      navigateToDashboard();
+      // don’t wait on claim refresh; navigate now
+      session?.reload?.().catch(() => {});
+      goDash();
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
       setSubmitting(false);
@@ -199,13 +197,11 @@ export default function OnboardingPage() {
           </div>
         </div>
 
-        {/* Terms checkbox */}
         <label className="inline-flex items-center gap-2 text-sm">
           <input id="acceptTerms" name="acceptTerms" type="checkbox" required defaultChecked={prefill?.acceptTerms ?? false} />
           <span>I agree to the Terms and acknowledge the Privacy Policy *</span>
         </label>
 
-        {/* Button is explicitly below the checkbox now */}
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <button
