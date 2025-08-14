@@ -26,7 +26,10 @@ model User {
   listings            Listing[]                  // listings this user is selling
   buyerTransactions   Transaction[] @relation("BuyerTransactions")
   sellerTransactions  Transaction[] @relation("SellerTransactions")
-  bids                Bid[]                      // <-- back-relation for Bid.bidder
+  bids                Bid[]                      // back-relation for Bid.bidder
+
+  // NEW: in-app notifications (optional but useful)
+  notifications       Notification[]
 
   // NEW: One-to-one profile created via onboarding
   profile   UserProfile?
@@ -41,7 +44,7 @@ model Listing {
   id           String         @id @default(cuid())
 
   // Handy for UI & search
-  title        String         @default("Untitled Listing")    // <— default added
+  title        String         @default("Untitled Listing")    // default added
   description  String?
 
   // Core water trade fields
@@ -52,8 +55,8 @@ model Listing {
   availability String
 
   // Real dates for sorting/filters
-  availabilityStart DateTime  @default(now())                 // <— default added
-  availabilityEnd   DateTime  @default(now())                 // <— default added (API will set real end)
+  availabilityStart DateTime  @default(now())                 // default added
+  availabilityEnd   DateTime  @default(now())                 // default added
 
   acreFeet     Int
   pricePerAF   Int                 // cents
@@ -73,7 +76,7 @@ model Listing {
   reservePrice   Int?              // cents per AF
 
   bids          Bid[]
-  transactions  Transaction[]      // <-- back-relation for Transaction.listing
+  transactions  Transaction[]      // back-relation for Transaction.listing
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -117,6 +120,16 @@ model Transaction {
   pricePerAF  Int        // cents
   totalAmount Int        // cents (acreFeet * pricePerAF)
 
+  // --- NEW: snapshots so emails/audits are stable over time ---
+  listingTitleSnapshot String?   // copy of Listing.title at creation
+  sellerNameSnapshot   String?
+  sellerEmailSnapshot  String?
+  buyerNameSnapshot    String?
+  buyerEmailSnapshot   String?
+
+  // --- NEW: offer-specific niceties (optional) ---
+  offerExpiresAt       DateTime?
+
   paymentMethod PaymentMethod?
   paymentId      String?     // Stripe PI id or Escrow.com id
 
@@ -131,6 +144,7 @@ model Transaction {
   @@index([sellerId])
   @@index([status])
   @@index([listingId])
+  @@index([createdAt]) // NEW
 }
 
 model Signature {
@@ -169,6 +183,31 @@ model UserProfile {
   updatedAt        DateTime     @updatedAt
 
   @@index([userId])
+}
+
+// -------- NEW: Notifications (optional but recommended) --------
+
+model Notification {
+  id                   String   @id @default(cuid())
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId               String
+
+  kind                 NotificationKind
+  subject              String
+  body                 String?
+  meta                 Json?        // arbitrary payload; e.g., { listingId, transactionId, pricePerAF }
+  deliveredAt          DateTime?    // when email actually went out
+
+  // Handy cross-links (not FK to keep flexible)
+  relatedListingId     String?
+  relatedTransactionId String?
+
+  createdAt            DateTime @default(now())
+
+  @@index([userId, deliveredAt])
+  @@index([relatedListingId])
+  @@index([relatedTransactionId])
+  @@index([kind, createdAt])
 }
 
 // --------------- Enums ----------------
@@ -230,4 +269,17 @@ enum ProfileRole {
 enum ListingKind {
   SELL
   BUY
+}
+
+// NEW: kinds of notifications we send
+enum NotificationKind {
+  BID_RECEIVED
+  BUY_NOW_STARTED
+  DOCS_SENT
+  OFFER_RECEIVED
+  OFFER_ACCEPTED
+  OFFER_DECLINED
+  COUNTER_OFFER
+  PAYMENT_REQUESTED
+  PAYMENT_CONFIRMED
 }
