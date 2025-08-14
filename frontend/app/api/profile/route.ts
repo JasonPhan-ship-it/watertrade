@@ -2,8 +2,10 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/prisma";
+
+const isProd = process.env.NODE_ENV === "production";
 
 const ROLE_MAP: Record<string, "BUYER" | "SELLER" | "BOTH" | "DISTRICT_ADMIN"> = {
   buyer: "BUYER",
@@ -41,49 +43,53 @@ async function getOrCreateLocalUser(clerkUserId: string) {
       clerkId: clerkUserId,
     },
   });
-
   return user;
 }
 
-function onboardedCookieFor(userId: string, maxAge = 1800) {
+function onboardedCookie(userId: string) {
   return [
     `onboarded=${userId}`,
     "Path=/",
-    `Max-Age=${maxAge}`,
+    "Max-Age=1800", // 30 minutes
     "HttpOnly",
     "SameSite=Lax",
-    process.env.NODE_ENV === "production" ? "Secure" : "",
+    isProd ? "Secure" : "",
   ]
     .filter(Boolean)
     .join("; ");
 }
 
-// ---------- GET ----------
+// ---------- GET /api/profile ----------
 export async function GET() {
-  const { userId } = auth();
-  if (!userId) return NextResponse.json({ profile: null }, { status: 200 });
-
-  const local = await getOrCreateLocalUser(userId);
-  const profile = await prisma.userProfile.findUnique({ where: { userId: local.id } });
-
-  const res = NextResponse.json({ profile }, { status: 200 });
-  if (profile) {
-    res.headers.append("Set-Cookie", onboardedCookieFor(userId, 300)); // 5 min
-  }
-  return res;
-}
-
-// ---------- POST (create/update + onboard) ----------
-export async function POST(req: Request) {
   const { userId } = auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  try {
-    const local = await getOrCreateLocalUser(userId);
-    const body = await req.json().catch(() => ({}));
-    const { fullName, company, role, phone, primaryDistrict, waterTypes = [], acceptTerms } = body || {};
-    const tradeRole = normalizeRole(role);
+  const user = await getOrCreateLocalUser(userId);
+  const profile = await prisma.userProfile.findUnique({ where: { userId: user.id } });
 
+  return NextResponse.json({ profile }, { status: 200 });
+}
+
+// ---------- POST /api/profile (create or update) ----------
+export async function POST(req: Request) {
+  try {
+    const { userId } = auth();
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const localUser = await getOrCreateLocalUser(userId);
+
+    const body = await req.json().catch(() => ({}));
+    const {
+      fullName,
+      company,
+      role,
+      phone,
+      primaryDistrict,
+      waterTypes = [],
+      acceptTerms,
+    } = body || {};
+
+    const tradeRole = normalizeRole(role);
     if (!fullName || !tradeRole || acceptTerms !== true) {
       return NextResponse.json(
         { error: "Missing or invalid fields", details: { fullName, role, acceptTerms } },
@@ -91,53 +97,80 @@ export async function POST(req: Request) {
       );
     }
 
-    await prisma.userProfile.upsert({
-      where: { userId: local.id },
-      create: { userId: local.id, fullName, company, tradeRole, phone, primaryDistrict, waterTypes, acceptTerms: true },
-      update: { fullName, company, tradeRole, phone, primaryDistrict, waterTypes, acceptTerms: true },
+    const profile = await prisma.userProfile.upsert({
+      where: { userId: localUser.id },
+      create: {
+        userId: localUser.id,
+        fullName,
+        company,
+        tradeRole,
+        phone,
+        primaryDistrict,
+        waterTypes,
+        acceptTerms: true,
+      },
+      update: {
+        fullName,
+        company,
+        tradeRole,
+        phone,
+        primaryDistrict,
+        waterTypes,
+        acceptTerms: true,
+      },
     });
 
-    // mark as onboarded in Clerk (non-blocking)
+    // mark onboarded in Clerk (do not await)
     clerkClient.users.updateUser(userId, { publicMetadata: { onboarded: true } }).catch(() => {});
 
-    const res = NextResponse.json({ ok: true }, { status: 200 });
-    res.headers.append("Set-Cookie", onboardedCookieFor(userId));
+    const res = NextResponse.json({ ok: true, profile }, { status: 200 });
+    res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
 
-// ---------- PATCH (edit profile only) ----------
-export async function PATCH(req: Request) {
-  const { userId } = auth();
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+// ---------- PUT /api/profile (edit) ----------
+export async function PUT(req: Request) {
   try {
-    const local = await getOrCreateLocalUser(userId);
+    const { userId } = auth();
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const localUser = await getOrCreateLocalUser(userId);
     const body = await req.json().catch(() => ({}));
+    const {
+      fullName,
+      company,
+      role,
+      phone,
+      primaryDistrict,
+      waterTypes = [],
+      acceptTerms,
+    } = body || {};
 
-    const updates: any = {};
-    if (typeof body.fullName === "string") updates.fullName = body.fullName.trim();
-    if (typeof body.company === "string") updates.company = body.company;
-    if (typeof body.phone === "string") updates.phone = body.phone;
-    if (typeof body.primaryDistrict === "string") updates.primaryDistrict = body.primaryDistrict;
-    if (Array.isArray(body.waterTypes)) updates.waterTypes = body.waterTypes;
-    if (body.role != null) {
-      const norm = normalizeRole(body.role);
-      if (norm) updates.tradeRole = norm;
+    const tradeRole = normalizeRole(role);
+    if (!fullName || !tradeRole) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
-    }
-
-    const profile = await prisma.userProfile.update({
-      where: { userId: local.id },
-      data: updates,
+    const updated = await prisma.userProfile.update({
+      where: { userId: localUser.id },
+      data: {
+        fullName,
+        company,
+        tradeRole,
+        phone,
+        primaryDistrict,
+        waterTypes,
+        // acceptTerms not toggled here unless included:
+        ...(typeof acceptTerms === "boolean" ? { acceptTerms } : {}),
+      },
     });
 
-    return NextResponse.json({ profile }, { status: 200 });
+    const res = NextResponse.json({ ok: true, profile: updated }, { status: 200 });
+    res.headers.append("Set-Cookie", onboardedCookie(userId));
+    return res;
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
