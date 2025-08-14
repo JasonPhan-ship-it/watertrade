@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@clerk/nextjs/server";
 import BuyNow from "./parts/BuyNow";
 import MakeOffer from "./parts/MakeOffer";
 import AuctionBid from "./parts/AuctionBid";
@@ -15,6 +16,7 @@ export default async function ListingDetailPage({
     where: { id: params.id },
     select: {
       id: true,
+      sellerId: true,              // needed to compute ownership
       title: true,
       district: true,
       acreFeet: true,
@@ -31,6 +33,19 @@ export default async function ListingDetailPage({
     notFound();
   }
 
+  // Determine if the current user owns this listing
+  const { userId: clerkId } = auth();
+  let isOwner = false;
+  if (clerkId) {
+    const me = await prisma.user.findUnique({
+      where: { clerkId },
+      select: { id: true },
+    });
+    if (me?.id && listing.sellerId === me.id) {
+      isOwner = true;
+    }
+  }
+
   const priceDollars = (listing.pricePerAF / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -38,16 +53,26 @@ export default async function ListingDetailPage({
 
   return (
     <main className="container mx-auto px-4 py-10">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-slate-900">
           {listing.title || "Listing Details"}
         </h1>
-        <Link
-          href="/dashboard"
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-        >
-          Back to Dashboard
-        </Link>
+        <div className="flex items-center gap-2">
+          {isOwner && (
+            <Link
+              href={`/listings/${listing.id}/edit`}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Edit
+            </Link>
+          )}
+          <Link
+            href="/dashboard"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
