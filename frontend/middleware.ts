@@ -3,29 +3,29 @@ import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 /** ---------- Route helpers ---------- */
-const isStatic = (path: string) =>
-  path.startsWith("/_next") ||
-  path.startsWith("/favicon") ||
-  path.startsWith("/images") ||
-  path.startsWith("/assets") ||
-  /\.(?:png|jpg|jpeg|gif|svg|ico|css|js|txt|woff2?)$/i.test(path);
+const isStatic = (pathname: string) =>
+  pathname.startsWith("/_next") ||
+  pathname.startsWith("/favicon") ||
+  pathname.startsWith("/images") ||
+  pathname.startsWith("/assets") ||
+  /\.(?:png|jpg|jpeg|gif|svg|ico|css|js|txt|woff2?)$/i.test(pathname);
 
-const isApi = (path: string) => path.startsWith("/api");
+const isApi = (pathname: string) => pathname.startsWith("/api");
 
-const isPublic = (path: string) =>
-  path === "/" ||
-  path.startsWith("/sign-in") ||
-  path.startsWith("/sign-up") ||
-  path.startsWith("/privacy");
+const isPublic = (pathname: string) =>
+  pathname === "/" ||
+  pathname.startsWith("/sign-in") ||
+  pathname.startsWith("/sign-up") ||
+  pathname.startsWith("/privacy");
 
 /** ONLY routes that should require auth + onboarding */
-const isProtected = (path: string) =>
-  path.startsWith("/dashboard") ||
-  path.startsWith("/listings") ||
-  path.startsWith("/account"); // add/remove as needed
-  path.startsWith("/admin"); // ✅
+const isProtected = (pathname: string) =>
+  pathname.startsWith("/dashboard") ||
+  pathname.startsWith("/listings") ||
+  pathname.startsWith("/account") ||
+  pathname.startsWith("/admin"); // ← keep this inside the expression
 
-const isOnboarding = (path: string) => path.startsWith("/onboarding");
+const isOnboarding = (pathname: string) => pathname.startsWith("/onboarding");
 
 export default withClerkMiddleware((req) => {
   const { pathname } = req.nextUrl;
@@ -37,14 +37,6 @@ export default withClerkMiddleware((req) => {
 
   const { userId, sessionClaims } = getAuth(req);
 
-  // If onboarding page without auth -> sign in
-  if (isOnboarding(pathname) && !userId) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/sign-in";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
-
   // If a protected page is hit without auth, send to sign-in
   if (isProtected(pathname) && !userId) {
     const url = req.nextUrl.clone();
@@ -53,11 +45,11 @@ export default withClerkMiddleware((req) => {
     return NextResponse.redirect(url);
   }
 
-  // Determine onboarding status (read from unsafeMetadata)
-  const claims = sessionClaims as any;
-  const onboardedFromClerk = claims?.unsafeMetadata?.onboarded === true;
+  // Determine onboarding status
+  const onboardedFromClerk =
+    (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.onboarded === true;
 
-  // Optional cookie fallback (kept from your version)
+  // Optional cookie fallback
   const cookieVal = req.cookies.get("onboarded")?.value;
   const cookieMatchesUser = !!userId && cookieVal === userId;
 
