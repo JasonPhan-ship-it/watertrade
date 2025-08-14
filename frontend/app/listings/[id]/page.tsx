@@ -4,11 +4,12 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import ListingActions from "@/components/ListingActions";
 
-export const revalidate = 0; // no cache
+export const revalidate = 0; // always fresh
 
 type PageProps = { params: { id: string } };
 
 export default async function ListingDetailPage({ params }: PageProps) {
+  // Fetch the listing
   const row = await prisma.listing.findUnique({
     where: { id: params.id },
     select: {
@@ -33,15 +34,23 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   if (!row) return notFound();
 
+  // Format helpers
   const pricePerAfDollars = row.pricePerAF / 100;
+  const reservePriceDollars = row.reservePrice != null ? row.reservePrice / 100 : null;
   const startIso = row.availabilityStart.toISOString();
   const endIso = row.availabilityEnd.toISOString();
 
+  const title = (row.title || "").trim() || "Untitled Listing";
+  const description = (row.description || "").trim() || "No description provided.";
+
   return (
-    <div className="mx-auto max-w-5xl p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">{row.title}</h1>
+    <div className="mx-auto max-w-6xl p-6">
+      {/* Top bar */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <p className="mt-1 text-sm text-slate-600">{description}</p>
+        </div>
         <div className="flex items-center gap-2">
           {row.isAuction && (
             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 ring-1 ring-amber-300">
@@ -54,32 +63,58 @@ export default async function ListingDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      <p className="mt-2 text-sm text-slate-600">
-        {row.description || "No description provided."}
-      </p>
+      {/* Details + Action panel */}
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr,380px]">
+        {/* Left: Facts */}
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Detail label="District" value={row.district} />
+          <Detail label="Water Type" value={row.waterType} />
+          <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
+          <Detail label="Price / AF" value={`$${format2(pricePerAfDollars)}`} />
+          <Detail label="Availability" value={formatWindow(startIso, endIso)} />
+          <Detail label="Status" value={row.status} />
 
-      {/* Facts */}
-      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <Detail label="District" value={row.district} />
-        <Detail label="Water Type" value={row.waterType} />
-        <Detail label="Acre-Feet" value={formatNumber(row.acreFeet)} />
-        <Detail label="Price / AF" value={`$${formatNumber(pricePerAfDollars)}`} />
-        <Detail label="Availability" value={formatWindow(startIso, endIso)} />
-        <Detail label="Status" value={row.status} />
+          {/* Timestamps */}
+          <Detail label="Created" value={new Date(row.createdAt).toLocaleString()} />
+          <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
+
+          {/* Auction specifics */}
+          {row.isAuction && (
+            <Detail
+              label="Reserve Price"
+              value={
+                reservePriceDollars != null
+                  ? `$${format2(reservePriceDollars)} / AF`
+                  : "No reserve"
+              }
+            />
+          )}
+        </section>
+
+        {/* Right: Actions */}
+        <aside className="sticky top-4 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3">
+            <div className="text-sm font-semibold text-slate-900">
+              {row.kind === "BUY" ? "Sell to Buyer" : "Buy Now / Offer"}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {row.isAuction
+                ? "Auction available — place a bid or submit an offer."
+                : "Buy it now or send an offer to the counterparty."}
+            </div>
+          </div>
+
+          <ListingActions
+            listingId={row.id}
+            kind={row.kind}                                  // "SELL" | "BUY"
+            pricePerAf={pricePerAfDollars}                  // dollars for UI
+            isAuction={!!row.isAuction}
+            reservePrice={reservePriceDollars}              // dollars | null
+          />
+        </aside>
       </div>
 
-      {/* Actions */}
-      <div className="mt-8">
-        <ListingActions
-          listingId={row.id}
-          kind={row.kind}                              // "SELL" | "BUY"
-          pricePerAf={pricePerAfDollars}              // dollars for UI
-          isAuction={!!row.isAuction}
-          reservePrice={row.reservePrice != null ? row.reservePrice / 100 : null} // dollars
-        />
-      </div>
-
-      {/* Back */}
+      {/* Back link */}
       <div className="mt-8">
         <Link
           href="/dashboard"
@@ -92,6 +127,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
   );
 }
 
+/* ---------------- UI atoms ---------------- */
+
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -101,9 +138,14 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatNumber(n: number | string) {
-  const num = typeof n === "string" ? Number(n) : n;
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
+/* ---------------- format helpers ---------------- */
+
+function formatInt(n: number) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
+}
+
+function format2(n: number) {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatWindow(startIso: string, endIso: string) {
