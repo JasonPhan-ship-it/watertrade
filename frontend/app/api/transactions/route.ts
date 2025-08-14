@@ -1,29 +1,11 @@
 // app/api/transactions/route.ts
 import { NextResponse } from "next/server";
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, appUrl } from "@/lib/email";
+import { getOrCreateUserFromClerk } from "@/lib/clerk";
 
 export const runtime = "nodejs";
-
-async function getOrCreateUserFromClerk(clerkId: string) {
-  let user = await prisma.user.findUnique({ where: { clerkId } });
-  if (user) return user;
-
-  const cu = await clerkClient.users.getUser(clerkId);
-  const email =
-    cu?.primaryEmailAddress?.emailAddress || cu?.emailAddresses?.[0]?.emailAddress;
-  const name = [cu?.firstName, cu?.lastName].filter(Boolean).join(" ") || cu?.username || "";
-
-  user = await prisma.user.create({
-    data: {
-      clerkId,
-      email: email || `${clerkId}@example.local`,
-      name,
-    },
-  });
-  return user;
-}
 
 export async function POST(req: Request) {
   try {
@@ -34,7 +16,6 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const { listingId, type, acreFeet, pricePerAF } = body || {};
-
     if (!listingId || !acreFeet || !pricePerAF || type !== "BUY_NOW") {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
@@ -56,7 +37,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Listing has no seller assigned" }, { status: 400 });
     }
 
-    const totalAmount = qty * p; // cents
+    const totalAmount = qty * p;
 
     const trx = await prisma.transaction.create({
       data: {
@@ -67,16 +48,14 @@ export async function POST(req: Request) {
         acreFeet: qty,
         pricePerAF: p,
         totalAmount,
-        // status defaults to INITIATED per your schema
       },
       select: { id: true },
     });
 
-    // Email seller immediately
     if (listing.seller.email) {
       await sendEmail({
         to: listing.seller.email,
-        subject: `Buy Now initiated on your listing`,
+        subject: "Buy Now initiated on your listing",
         html: `
           <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;">
             <h2>Buy Now Initiated</h2>
