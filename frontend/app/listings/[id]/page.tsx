@@ -94,7 +94,9 @@ export default async function ListingDetailPage({ params }: PageProps) {
             <div className="mt-1 text-xs text-slate-500">
               {row.isAuction
                 ? "Auction available — place a bid or submit an offer."
-                : "Buy it now or send an offer to the counterparty."}
+                : row.kind === "BUY"
+                  ? "Sell it now or send an offer to the counterparty."
+                  : "Buy it now or send an offer to the counterparty."}
             </div>
           </div>
 
