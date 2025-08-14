@@ -2,62 +2,15 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-
-// Small client island for calling the test-email API
-function TestEmailButton({ email }: { email: string }) {
-  "use client";
-  const [state, setState] = React.useState<"idle" | "sending" | "sent" | "error">("idle");
-  const [msg, setMsg] = React.useState<string | null>(null);
-
-  async function send() {
-    try {
-      setState("sending");
-      setMsg(null);
-      const res = await fetch("/api/admin/send-test-email", { method: "POST" });
-      if (!res.ok) {
-        let m = "Failed";
-        try {
-          const j = await res.json();
-          m = j?.error || m;
-        } catch {
-          m = await res.text().catch(() => m);
-        }
-        throw new Error(m);
-      }
-      setState("sent");
-      setMsg(`Sent to ${email}`);
-    } catch (e: any) {
-      setState("error");
-      setMsg(e?.message || "Failed to send");
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={send}
-        disabled={state === "sending"}
-        className="rounded-xl bg-black px-4 py-2 text-white disabled:opacity-50"
-      >
-        {state === "sending" ? "Sending…" : "Send Test Email"}
-      </button>
-      {msg ? (
-        <span className={`text-sm ${state === "error" ? "text-red-600" : "text-slate-600"}`}>
-          {msg}
-        </span>
-      ) : null}
-    </div>
-  );
-}
+import TestEmailButton from "./TestEmailButton";
 
 export default async function AdminSettingsPage() {
   const { userId } = auth();
   if (!userId) redirect("/sign-in");
 
-  // Ensure we have a local User row and verify ADMIN role
+  // Ensure a local User exists
   let user = await prisma.user.findUnique({ where: { clerkId: userId } });
   if (!user) {
-    // Create a lightweight local user from Clerk so admins aren't blocked
     const cu = await clerkClient.users.getUser(userId);
     const email =
       cu?.emailAddresses?.find((e) => e.id === cu.primaryEmailAddressId)?.emailAddress ||
@@ -71,7 +24,6 @@ export default async function AdminSettingsPage() {
   }
 
   if (user.role !== "ADMIN") {
-    // Non-admins get bounced
     redirect("/dashboard");
   }
 
@@ -102,7 +54,6 @@ export default async function AdminSettingsPage() {
         <p className="mt-1 text-sm text-slate-600">
           Send a test email to confirm your Resend configuration.
         </p>
-        {/* @ts-expect-error: Server comp rendering client comp inline */}
         <div className="mt-3">
           <TestEmailButton email={user.email} />
         </div>
