@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "@clerk/nextjs";
+import { useSession, useUser } from "@clerk/nextjs";
 
 type ExistingProfile = {
   fullName: string;
@@ -20,22 +20,51 @@ const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] 
 export default function OnboardingPage() {
   const router = useRouter();
   const { session } = useSession();
+  const { user } = useUser();
 
   const [submitting, setSubmitting] = React.useState(false);
   const [prefill, setPrefill] = React.useState<ExistingProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Avoid double navigation
+  const navigatedRef = React.useRef(false);
+  const navigateOnce = (to: string) => {
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
+    router.replace(to);
+  };
+
+  // Client-side bypass if Clerk already says we're onboarded
+  React.useEffect(() => {
+    if (user?.publicMetadata?.onboarded === true) {
+      navigateOnce("/dashboard");
+    }
+  }, [user]);
+
+  // Prefill / bypass via API (also sets a short-lived cookie server-side)
   React.useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch("/api/profile", { cache: "no-store" });
+        const res = await fetch("/api/profile", { cache: "no-store", credentials: "include" });
         if (!res.ok) throw new Error(await res.text());
         const json = await res.json();
-        if (mounted && json?.profile) setPrefill(json.profile as ExistingProfile);
+
+        if (!mounted) return;
+
+        // If the profile exists, skip this page entirely
+        if (json?.profile) {
+          // Small nudge to Clerk so middleware soon sees metadata
+          await session?.reload?.().catch(() => {});
+          navigateOnce("/dashboard");
+          return;
+        }
+
+        // If no profile, we proceed with the form (prefill remains null)
+        setPrefill(null);
       } catch {
-        // ignore: first-time users won't have a profile yet
+        // first-time users (no profile) land here
       } finally {
         if (mounted) setLoadingProfile(false);
       }
@@ -43,10 +72,11 @@ export default function OnboardingPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [session]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
     setError(null);
 
@@ -64,23 +94,17 @@ export default function OnboardingPage() {
       acceptTerms,
     };
 
-    const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
-      Promise.race([
-        p,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Request timed out")), ms)),
-      ]);
-
     try {
-      const res = await withTimeout(
-        fetch("/api/profile", {
-          method: "POST",
-          credentials: "include", // <-- ensure cookies flow both ways
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        })
-      );
+      // Ask API to save AND set cookies/metadata, but don't follow redirects implicitly.
+      const res = await fetch("/api/profile", {
+        method: "POST",
+        credentials: "include",
+        redirect: "manual", // important if server ever returns 303
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-      if (!res.ok) {
+      if (!(res.status === 200 || res.status === 201 || res.status === 204 || res.status === 303)) {
         let msg = "Failed to save profile";
         try {
           const j = await res.json();
@@ -91,20 +115,13 @@ export default function OnboardingPage() {
         throw new Error(msg || "Failed to save profile");
       }
 
-      // 🔐 Set the bypass cookie on the client too (instant pass through middleware)
+      // Client cookie as instant fallback for middleware check
       document.cookie = "onboarded=1; path=/; max-age=1800; samesite=lax";
 
-      // 🔄 Refresh Clerk session claims (so publicMetadata.onboarded is visible soon)
       await session?.reload?.().catch(() => {});
-
-      // small delay gives the browser time to persist Set-Cookie from fetch
-      await new Promise((r) => setTimeout(r, 50));
-
-      // go to dashboard
-      router.replace("/dashboard");
+      navigateOnce("/dashboard");
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
-    } finally {
       setSubmitting(false);
     }
   }
