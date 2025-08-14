@@ -21,15 +21,12 @@ type Row = {
 };
 
 export default async function AdminTransactionsPage() {
-  // --- Auth + ensure local user
+  // --- Auth + ensure local user exists
   const { userId } = auth();
-  if (!userId) {
-    redirect("/sign-in");
-  }
+  if (!userId) redirect("/sign-in");
 
   let me = await prisma.user.findUnique({ where: { clerkId: userId } });
   if (!me) {
-    // Create a local user record from Clerk (safe on server)
     const cu = await clerkClient.users.getUser(userId);
     const email =
       cu?.emailAddresses?.find(e => e.id === cu.primaryEmailAddressId)?.emailAddress ||
@@ -41,16 +38,14 @@ export default async function AdminTransactionsPage() {
     });
   }
 
-  if (me.role !== "ADMIN") {
-    // Be explicit and *don’t* throw — redirect to dashboard
-    redirect("/dashboard");
-  }
+  if (me.role !== "ADMIN") redirect("/dashboard");
 
-  // --- Load data but never throw — catch and render a friendly message
   let txns: Row[] = [];
+  let degraded = false;
   let loadError: string | null = null;
 
   try {
+    // Full query (includes snapshots + relations)
     txns = await prisma.transaction.findMany({
       orderBy: { createdAt: "desc" },
       take: 300,
@@ -69,8 +64,33 @@ export default async function AdminTransactionsPage() {
       },
     });
   } catch (e: any) {
-    // Don’t throw — just show an error row
-    loadError = "Failed to load transactions.";
+    // Log the real reason on the server and fall back
+    console.error("Admin /transactions full select failed:", e);
+    loadError = e?.message || String(e);
+    degraded = true;
+
+    const basic = await prisma.transaction.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 300,
+      select: {
+        id: true,
+        createdAt: true,
+        type: true,
+        status: true,
+        acreFeet: true,
+        pricePerAF: true,
+        totalAmount: true,
+      },
+    });
+
+    // Map into Row shape with nulls for the fields we didn't fetch
+    txns = basic.map((b) => ({
+      ...b,
+      listingTitleSnapshot: null,
+      listing: null,
+      buyer: null,
+      seller: null,
+    }));
   }
 
   return (
@@ -79,8 +99,6 @@ export default async function AdminTransactionsPage() {
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
           Admin · Transactions
         </h1>
-
-        {/* Simple download button that hits /admin/export */}
         <a
           href="/admin/export"
           className="inline-flex h-10 items-center rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#00392f]"
@@ -89,57 +107,61 @@ export default async function AdminTransactionsPage() {
         </a>
       </div>
 
-      {loadError ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {loadError}
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <Th>Created</Th>
-                <Th>Type</Th>
-                <Th>Status</Th>
-                <Th>Listing</Th>
-                <Th>Buyer</Th>
-                <Th>Seller</Th>
-                <Th className="text-right">AF</Th>
-                <Th className="text-right">Price / AF</Th>
-                <Th className="text-right">Total</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {txns.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-center text-slate-500" colSpan={9}>
-                    No transactions yet.
-                  </td>
-                </tr>
-              ) : (
-                txns.map((t) => {
-                  const listingTitle = t.listingTitleSnapshot || t.listing?.title || "—";
-                  const buyer = t.buyer?.name || t.buyer?.email || "—";
-                  const seller = t.seller?.name || t.seller?.email || "—";
-                  return (
-                    <tr key={t.id} className="border-t border-slate-100">
-                      <Td>{new Date(t.createdAt).toLocaleString()}</Td>
-                      <Td>{t.type}</Td>
-                      <Td>{t.status}</Td>
-                      <Td>{listingTitle}</Td>
-                      <Td>{buyer}</Td>
-                      <Td>{seller}</Td>
-                      <Td align="right">{num(t.acreFeet)}</Td>
-                      <Td align="right">{usdCents(t.pricePerAF)}/AF</Td>
-                      <Td align="right">{usdCents(t.totalAmount)}</Td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+      {degraded && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          Running in “degraded” mode. A database error occurred fetching all fields
+          (e.g. missing snapshot columns). Showing a reduced set instead.
+          {process.env.NODE_ENV !== "production" && loadError ? (
+            <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{loadError}</pre>
+          ) : null}
         </div>
       )}
+
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-slate-600">
+            <tr>
+              <Th>Created</Th>
+              <Th>Type</Th>
+              <Th>Status</Th>
+              <Th>Listing</Th>
+              <Th>Buyer</Th>
+              <Th>Seller</Th>
+              <Th className="text-right">AF</Th>
+              <Th className="text-right">Price / AF</Th>
+              <Th className="text-right">Total</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {txns.length === 0 ? (
+              <tr>
+                <td className="px-4 py-6 text-center text-slate-500" colSpan={9}>
+                  No transactions yet.
+                </td>
+              </tr>
+            ) : (
+              txns.map((t) => {
+                const listingTitle = t.listingTitleSnapshot || t.listing?.title || "—";
+                const buyer = t.buyer?.name || t.buyer?.email || "—";
+                const seller = t.seller?.name || t.seller?.email || "—";
+                return (
+                  <tr key={t.id} className="border-t border-slate-100">
+                    <Td>{new Date(t.createdAt).toLocaleString()}</Td>
+                    <Td>{t.type}</Td>
+                    <Td>{t.status}</Td>
+                    <Td>{listingTitle}</Td>
+                    <Td>{buyer}</Td>
+                    <Td>{seller}</Td>
+                    <Td align="right">{num(t.acreFeet)}</Td>
+                    <Td align="right">{usdCents(t.pricePerAF)}/AF</Td>
+                    <Td align="right">{usdCents(t.totalAmount)}</Td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }
