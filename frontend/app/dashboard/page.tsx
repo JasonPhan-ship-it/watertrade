@@ -9,8 +9,8 @@ type Listing = {
   district: string;
   acreFeet: number;
   pricePerAf: number;
-  availabilityStart: string; // ISO
-  availabilityEnd: string;   // ISO
+  availabilityStart: string; // ISO (kept in type but unused)
+  availabilityEnd: string;   // ISO (kept in type but unused)
   waterType: string;
   createdAt: string;         // ISO
 };
@@ -21,7 +21,7 @@ type ApiResponse = {
   limited?: boolean;
 };
 
-type SortBy = "district" | "acreFeet" | "pricePerAf" | "availabilityStart" | "createdAt";
+type SortBy = "district" | "acreFeet" | "pricePerAf" | "createdAt";
 type SortDir = "asc" | "desc";
 
 /* ---------- Constants ---------- */
@@ -40,8 +40,6 @@ const WATER_TYPES = [
   "Supplemental Water",
 ] as const;
 
-const WINDOWS = ["Any Window", "Feb–Apr 2025", "Mar–May 2025", "Apr–Jun 2025", "May–Jul 2025"] as const;
-
 const PAGE_SIZES = [5, 10, 20] as const;
 
 /* ---------- Page ---------- */
@@ -49,7 +47,6 @@ export default function DashboardPage() {
   // filters
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
-  const [windowLabel, setWindowLabel] = useState<string>(WINDOWS[0]); // currently a no-op on the API
 
   // sort + pagination
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
@@ -65,23 +62,18 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // build query
+  // build query (no window param)
   const qs = useMemo(() => {
     const u = new URLSearchParams();
-    // server expects "district" and "waterType" — omit if "All/Any"
     if (district !== "All Districts") u.set("district", district);
     if (waterType !== "Any Water Type") u.set("waterType", waterType);
-
-    // windowLabel is currently only UI; API ignores "window" (safe to send; no effect)
-    if (windowLabel !== "Any Window") u.set("window", windowLabel);
-
     u.set("sortBy", sortBy);
     u.set("sortDir", sortDir);
     u.set("page", String(page));
     u.set("pageSize", String(pageSize));
     u.set("premium", String(premium));
     return u.toString();
-  }, [district, waterType, windowLabel, sortBy, sortDir, page, pageSize, premium]);
+  }, [district, waterType, sortBy, sortDir, page, pageSize, premium]);
 
   // fetch
   useEffect(() => {
@@ -106,7 +98,7 @@ export default function DashboardPage() {
     };
   }, [qs]);
 
-  // KPIs
+  // KPIs (no Next Window)
   const stats = useMemo(() => {
     const rows = data?.listings ?? [];
     const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
@@ -115,19 +107,10 @@ export default function DashboardPage() {
         ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100
         : 0;
 
-    const nextWindow = (() => {
-      if (!rows.length) return "—";
-      const earliest = rows
-        .slice()
-        .sort((a, b) => a.availabilityStart.localeCompare(b.availabilityStart))[0];
-      return formatWindow(earliest.availabilityStart, earliest.availabilityEnd);
-    })();
-
     return {
       active: data?.total ?? 0,
       totalAf: formatNumber(totalAf),
       avgPrice: avg ? `$${formatNumber(avg)}` : "$0",
-      nextWindow,
     };
   }, [data]);
 
@@ -149,14 +132,13 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-slate-50">
       {/* Hero / Filters */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        {/* Brand banner color */}
         <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
           <div className="text-2xl font-semibold tracking-tight">Active Water Sales</div>
           <div className="mt-1 text-sm text-white/80">
             Westlands · San Luis · Panoche · Arvin Edison
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <select
               value={district}
               onChange={(e) => {
@@ -186,38 +168,14 @@ export default function DashboardPage() {
                 </option>
               ))}
             </select>
-
-            <div className="flex gap-2">
-              <select
-                value={windowLabel}
-                onChange={(e) => {
-                  setWindowLabel(e.target.value);
-                  setPage(1);
-                }}
-                className="h-10 flex-1 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur placeholder-white/70 focus:bg-white/20 focus:ring-2 focus:ring-white/60"
-              >
-                {WINDOWS.map((w) => (
-                  <option key={w} value={w} className="text-slate-900">
-                    {w}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => setPage(1)}
-                className="h-10 shrink-0 rounded-xl bg-white/10 px-4 text-sm font-medium text-white ring-1 ring-inset ring-white/40 hover:bg-white/20"
-              >
-                Apply Filters
-              </button>
-            </div>
           </div>
         </section>
 
-        {/* KPIs */}
-        <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
+        {/* KPIs (now 3 cards) */}
+        <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Stat label="Active Listings" value={String(stats.active)} />
           <Stat label="Total Acre-Feet" value={stats.totalAf} />
           <Stat label="Avg $/AF" value={stats.avgPrice} />
-          <Stat label="Next Window" value={stats.nextWindow} />
         </section>
 
         {/* Premium card (demo toggle) */}
@@ -262,9 +220,7 @@ export default function DashboardPage() {
           </div>
 
           {error ? (
-            <div className="px-6 py-8 text-sm text-red-600">
-              {error}
-            </div>
+            <div className="px-6 py-8 text-sm text-red-600">{error}</div>
           ) : loading ? (
             <div className="px-6 py-8 text-sm text-slate-500">Loading…</div>
           ) : (
@@ -294,12 +250,6 @@ export default function DashboardPage() {
                         onClick={() => onSort("pricePerAf")}
                       />
                       <Th
-                        label="Availability"
-                        active={sortBy === "availabilityStart"}
-                        dir={sortDir}
-                        onClick={() => onSort("availabilityStart")}
-                      />
-                      <Th
                         label="Water Type"
                         active={false}
                         dir={"asc"}
@@ -320,7 +270,6 @@ export default function DashboardPage() {
                         <Td>{l.district}</Td>
                         <Td align="right">{formatNumber(l.acreFeet)}</Td>
                         <Td align="right">${formatNumber(l.pricePerAf)}</Td>
-                        <Td>{formatWindow(l.availabilityStart, l.availabilityEnd)}</Td>
                         <Td>
                           <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
                             {l.waterType}
@@ -339,7 +288,7 @@ export default function DashboardPage() {
                     ))}
                     {(data?.listings?.length ?? 0) === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
+                        <td colSpan={5} className="px-6 py-10 text-center text-slate-500">
                           No listings match your filters.
                         </td>
                       </tr>
@@ -436,26 +385,26 @@ function Th({
   );
 }
 
-function Td({ children, align = "left" }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
+function Td({
+  children,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right" | "center";
+}) {
   return (
-    <td className={`px-6 py-4 ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}>
+    <td
+      className={`px-6 py-4 ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : ""
+      }`}
+    >
       {children}
     </td>
   );
 }
 
-/* ---------- Format helpers ---------- */
+/* ---------- Format helper ---------- */
 function formatNumber(n: number | string) {
   const num = typeof n === "string" ? Number(n) : n;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
-}
-
-function formatWindow(startIso: string, endIso: string) {
-  const s = new Date(startIso);
-  const e = new Date(endIso);
-  const sameYear = s.getFullYear() === e.getFullYear();
-  const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-  return sameYear
-    ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
-    : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
 }
