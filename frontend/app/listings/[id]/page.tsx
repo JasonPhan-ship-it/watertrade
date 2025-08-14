@@ -25,7 +25,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
       kind: true,       // SELL | BUY
       isAuction: true,
       reservePrice: true, // cents | null
-      status: true,     // ACTIVE, UNDER_CONTRACT, etc.
+      status: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -33,20 +33,9 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   if (!row) return notFound();
 
-  const pricePerAf = row.pricePerAF / 100;
+  const pricePerAfDollars = row.pricePerAF / 100;
   const startIso = row.availabilityStart.toISOString();
   const endIso = row.availabilityEnd.toISOString();
-
-  // Serialize what the client needs
-  const clientListing = {
-    id: row.id,
-    kind: row.kind, // 'SELL' | 'BUY'
-    isAuction: !!row.isAuction,
-    reservePriceCents: row.reservePrice ?? null,
-    pricePerAfCents: row.pricePerAF,
-    maxAf: row.acreFeet,
-    status: row.status,
-  };
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -74,14 +63,20 @@ export default async function ListingDetailPage({ params }: PageProps) {
         <Detail label="District" value={row.district} />
         <Detail label="Water Type" value={row.waterType} />
         <Detail label="Acre-Feet" value={formatNumber(row.acreFeet)} />
-        <Detail label="Price / AF" value={`$${formatNumber(pricePerAf)}`} />
+        <Detail label="Price / AF" value={`$${formatNumber(pricePerAfDollars)}`} />
         <Detail label="Availability" value={formatWindow(startIso, endIso)} />
         <Detail label="Status" value={row.status} />
       </div>
 
       {/* Actions */}
       <div className="mt-8">
-        <ListingActions listing={clientListing} />
+        <ListingActions
+          listingId={row.id}
+          kind={row.kind}                              // "SELL" | "BUY"
+          pricePerAf={pricePerAfDollars}              // dollars for UI
+          isAuction={!!row.isAuction}
+          reservePrice={row.reservePrice != null ? row.reservePrice / 100 : null} // dollars
+        />
       </div>
 
       {/* Back */}
