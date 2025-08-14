@@ -4,33 +4,37 @@ import { useMemo, useState } from "react";
 
 type ListingLike = {
   id: string;
-  acreFeet: number;   // quantity to purchase
-  pricePerAF: number; // cents per AF (matches your DB schema)
+  acreFeet: number;   // full quantity to purchase
+  pricePerAF: number; // can be dollars OR cents depending on your data
   title?: string;
 };
 
 export default function BuyNow({ listing }: { listing: ListingLike }) {
   const [loading, setLoading] = useState(false);
 
-  const priceDollars = useMemo(
-    () => (listing.pricePerAF / 100).toLocaleString(undefined, { minimumFractionDigits: 2 }),
-    [listing.pricePerAF]
-  );
-  const totalDollars = useMemo(
-    () =>
-      ((listing.acreFeet * listing.pricePerAF) / 100).toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-      }),
-    [listing.acreFeet, listing.pricePerAF]
+  // If value is small (< 10k), treat as dollars; otherwise treat as cents.
+  const priceInDollars = useMemo(() => {
+    const v = Number(listing.pricePerAF);
+    if (!Number.isFinite(v)) return 0;
+    return v < 10_000 ? v : v / 100;
+  }, [listing.pricePerAF]);
+
+  const totalInDollars = useMemo(
+    () => Number(listing.acreFeet) * priceInDollars,
+    [listing.acreFeet, priceInDollars]
   );
 
   const disabled =
-    loading || !listing?.id || !Number.isFinite(listing.acreFeet) || listing.acreFeet <= 0;
+    loading ||
+    !listing?.id ||
+    !Number.isFinite(listing.acreFeet) ||
+    Number(listing.acreFeet) <= 0;
 
   async function onBuyNow() {
     try {
       setLoading(true);
 
+      // Always use the listing's own values
       const res = await fetch("/api/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -38,7 +42,8 @@ export default function BuyNow({ listing }: { listing: ListingLike }) {
           listingId: listing.id,
           type: "BUY_NOW",
           acreFeet: listing.acreFeet,
-          pricePerAF: listing.pricePerAF, // cents per AF
+          // Send the raw price; the API converts dollars->cents if needed
+          pricePerAF: listing.pricePerAF,
         }),
       });
 
@@ -74,9 +79,13 @@ export default function BuyNow({ listing }: { listing: ListingLike }) {
       <div className="mt-2 text-sm text-slate-600">
         {listing.title ? <div className="font-medium text-slate-900">{listing.title}</div> : null}
         <div>
-          {listing.acreFeet.toLocaleString()} AF @ ${priceDollars}/AF
+          {Number(listing.acreFeet).toLocaleString()} AF @ $
+          {priceInDollars.toLocaleString(undefined, { minimumFractionDigits: 2 })}/AF
           <span className="text-slate-400"> • </span>
-          Total: <span className="font-medium text-slate-900">${totalDollars}</span>
+          Total:{" "}
+          <span className="font-medium text-slate-900">
+            ${totalInDollars.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </span>
         </div>
       </div>
 
@@ -85,15 +94,13 @@ export default function BuyNow({ listing }: { listing: ListingLike }) {
           onClick={onBuyNow}
           disabled={disabled}
           className="h-10 rounded-xl bg-black px-4 text-white disabled:opacity-50"
-          aria-label={`Buy ${listing.acreFeet} AF at $${priceDollars} per AF, total $${totalDollars}`}
+          aria-label={`Buy ${listing.acreFeet} AF at $${priceInDollars.toFixed(
+            2
+          )} per AF, total $${totalInDollars.toFixed(2)}`}
         >
           {loading ? "Starting…" : "Buy Now"}
         </button>
       </div>
-
-      {!disabled && listing.acreFeet <= 0 && (
-        <div className="mt-2 text-xs text-red-600">This listing has no available quantity.</div>
-      )}
     </div>
   );
 }
