@@ -1,21 +1,16 @@
 // app/pricing/checkout/page.tsx
-import Stripe from "stripe";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { appUrl } from "@/lib/email";
 
-export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export default async function CheckoutStart() {
   const { userId } = auth();
-  if (!userId) {
-    // Force login first, then come back here
-    redirect(`/sign-in?redirect_url=${encodeURIComponent("/pricing/checkout")}`);
-  }
+  if (!userId) redirect(`/sign-in?redirect_url=${encodeURIComponent("/pricing/checkout")}`);
 
-  // Ensure local user row exists
   let me = await prisma.user.findUnique({ where: { clerkId: userId } });
   if (!me) {
     const cu = await clerkClient.users.getUser(userId);
@@ -27,34 +22,27 @@ export default async function CheckoutStart() {
     me = await prisma.user.create({ data: { clerkId: userId, email, name: name ?? undefined } });
   }
 
-  // Ensure they are onboarded (profile exists)
   const profile = await prisma.userProfile.findUnique({ where: { userId: me.id } });
-  if (!profile) {
-    // Send them to onboarding and then come back here
-    redirect(`/onboarding?next=${encodeURIComponent("/pricing/checkout")}`);
-  }
+  if (!profile) redirect(`/onboarding?next=${encodeURIComponent("/pricing/checkout")}`);
 
-  // Create Stripe Checkout Session
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  const key = process.env.STRIPE_SECRET_KEY;
   const priceId = process.env.STRIPE_PRICE_ID;
-  if (!stripeKey || !priceId) {
-    throw new Error("Stripe env vars missing (STRIPE_SECRET_KEY, STRIPE_PRICE_ID).");
-  }
+  if (!key || !priceId) throw new Error("Missing STRIPE_SECRET_KEY or STRIPE_PRICE_ID");
 
-  const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
+  // 🔽 dynamic import
+  const Stripe = (await import("stripe")).default;
+  const stripe = new Stripe(key, { apiVersion: "2024-06-20" });
+
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: appUrl("/pricing/success"),
     cancel_url: appUrl("/pricing"),
-    client_reference_id: me.id,           // your local User ID
+    client_reference_id: me.id,
     customer_email: me.email || undefined,
-    metadata: { clerkId: userId },        // for webhook convenience
+    metadata: { clerkId: userId },
   });
 
-  if (!session.url) {
-    throw new Error("Failed to create Stripe Checkout Session.");
-  }
-
+  if (!session.url) throw new Error("Failed to create Stripe Checkout Session");
   redirect(session.url);
 }
