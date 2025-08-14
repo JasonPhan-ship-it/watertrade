@@ -13,11 +13,14 @@ export default async function EditListingPage({ params }: { params: { id: string
   if (!me) {
     const cu = await clerkClient.users.getUser(userId);
     const email =
-      cu?.emailAddresses?.find(e => e.id === cu.primaryEmailAddressId)?.emailAddress ||
+      cu?.emailAddresses?.find((e) => e.id === cu.primaryEmailAddressId)?.emailAddress ||
       cu?.emailAddresses?.[0]?.emailAddress ||
       `${userId}@example.local`;
     const name = [cu?.firstName, cu?.lastName].filter(Boolean).join(" ") || cu?.username || null;
-    me = await prisma.user.create({ data: { clerkId: userId, email, name: name ?? undefined } });
+
+    me = await prisma.user.create({
+      data: { clerkId: userId, email, name: name ?? undefined },
+    });
   }
 
   const listing = await prisma.listing.findUnique({
@@ -62,7 +65,6 @@ export default async function EditListingPage({ params }: { params: { id: string
       <h1 className="text-2xl font-semibold tracking-tight">Edit Listing</h1>
       <p className="mt-1 text-sm text-slate-600">Only the listing owner can edit.</p>
 
-      {/* @ts-expect-error Server-to-client prop pass */}
       <EditListingForm listing={props} />
     </div>
   );
