@@ -23,6 +23,7 @@ const isProtected = (path: string) =>
   path.startsWith("/dashboard") ||
   path.startsWith("/listings") ||
   path.startsWith("/account"); // add/remove as needed
+  path.startsWith("/admin"); // ✅
 
 const isOnboarding = (path: string) => path.startsWith("/onboarding");
 
