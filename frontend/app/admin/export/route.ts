@@ -69,8 +69,10 @@ export async function GET(req: NextRequest) {
     "Total (USD)": Number((t.totalAmount / 100).toFixed(2)),
   }));
 
-  // 🔽 dynamic import
-  const XLSX = await import("xlsx");
+  // dynamic import with interop
+  const xlsxMod = await import("xlsx");
+  const XLSX: any = (xlsxMod as any).default || xlsxMod;
+
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   XLSX.utils.book_append_sheet(wb, ws, "Transactions");
@@ -86,7 +88,7 @@ export async function GET(req: NextRequest) {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="${filename}"`,
-      "Cache-Control": "no-store",
-    },
+      "Cache-Control": "no-store"
+    }
   });
 }
