@@ -1,3 +1,4 @@
+// app/api/profile/route.ts
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -44,6 +45,19 @@ async function getOrCreateLocalUser(clerkUserId: string) {
   return user;
 }
 
+function onboardedCookieFor(userId: string, maxAge = 1800) {
+  return [
+    `onboarded=${userId}`,
+    "Path=/",
+    `Max-Age=${maxAge}`,
+    "HttpOnly",
+    "SameSite=Lax",
+    process.env.NODE_ENV === "production" ? "Secure" : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
 // ---------- GET ----------
 export async function GET() {
   const { userId } = auth();
@@ -54,29 +68,18 @@ export async function GET() {
 
   const res = NextResponse.json({ profile }, { status: 200 });
   if (profile) {
-    // short-lived cookie to let middleware pass immediately
-    res.headers.append(
-      "Set-Cookie",
-      [
-        "onboarded=1",
-        "Path=/",
-        "Max-Age=300",
-        "HttpOnly",
-        "SameSite=Lax",
-        process.env.NODE_ENV === "production" ? "Secure" : "",
-      ].filter(Boolean).join("; ")
-    );
+    res.headers.append("Set-Cookie", onboardedCookieFor(userId, 300)); // 5 min
   }
   return res;
 }
 
-// ---------- POST (create or update + mark onboarded) ----------
+// ---------- POST (create/update + onboard) ----------
 export async function POST(req: Request) {
-  try {
-    const { userId: clerkUserId } = auth();
-    if (!clerkUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { userId } = auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const localUser = await getOrCreateLocalUser(clerkUserId);
+  try {
+    const local = await getOrCreateLocalUser(userId);
     const body = await req.json().catch(() => ({}));
     const { fullName, company, role, phone, primaryDistrict, waterTypes = [], acceptTerms } = body || {};
     const tradeRole = normalizeRole(role);
@@ -89,39 +92,29 @@ export async function POST(req: Request) {
     }
 
     await prisma.userProfile.upsert({
-      where: { userId: localUser.id },
-      create: { userId: localUser.id, fullName, company, tradeRole, phone, primaryDistrict, waterTypes, acceptTerms: true },
+      where: { userId: local.id },
+      create: { userId: local.id, fullName, company, tradeRole, phone, primaryDistrict, waterTypes, acceptTerms: true },
       update: { fullName, company, tradeRole, phone, primaryDistrict, waterTypes, acceptTerms: true },
     });
 
-    // set public metadata but don't block
-    clerkClient.users.updateUser(clerkUserId, { publicMetadata: { onboarded: true } }).catch(() => {});
+    // mark as onboarded in Clerk (non-blocking)
+    clerkClient.users.updateUser(userId, { publicMetadata: { onboarded: true } }).catch(() => {});
 
     const res = NextResponse.json({ ok: true }, { status: 200 });
-    res.headers.append(
-      "Set-Cookie",
-      [
-        "onboarded=1",
-        "Path=/",
-        "Max-Age=1800",
-        "HttpOnly",
-        "SameSite=Lax",
-        process.env.NODE_ENV === "production" ? "Secure" : "",
-      ].filter(Boolean).join("; ")
-    );
+    res.headers.append("Set-Cookie", onboardedCookieFor(userId));
     return res;
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
 
-// ---------- PATCH (edit profile; no onboarding gate changes) ----------
+// ---------- PATCH (edit profile only) ----------
 export async function PATCH(req: Request) {
-  try {
-    const { userId: clerkUserId } = auth();
-    if (!clerkUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { userId } = auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const localUser = await getOrCreateLocalUser(clerkUserId);
+  try {
+    const local = await getOrCreateLocalUser(userId);
     const body = await req.json().catch(() => ({}));
 
     const updates: any = {};
@@ -140,7 +133,7 @@ export async function PATCH(req: Request) {
     }
 
     const profile = await prisma.userProfile.update({
-      where: { userId: localUser.id },
+      where: { userId: local.id },
       data: updates,
     });
 
