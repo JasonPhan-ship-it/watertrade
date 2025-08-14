@@ -1,26 +1,23 @@
+// frontend/app/create-listing/[id]/parts/MakeOffer.tsx
 "use client";
 import { useMemo, useState } from "react";
 
 type ListingLike = {
   id: string;
-  acreFeet: number;     // available quantity
-  pricePerAF: number;   // cents per AF in DB
+  acreFeet: number;    // available quantity
+  pricePerAF: number;  // cents per AF in DB
   title?: string;
 };
 
 export default function MakeOffer({ listing }: { listing: ListingLike }) {
-  // Use STRING state so users can clear the inputs easily
-  const [qtyStr, setQtyStr] = useState(String(Math.min(250, listing.acreFeet)));
-  // Show dollars in the UI (friendlier). Backend converts dollars->cents as needed.
-  const [priceStr, setPriceStr] = useState(
-    (listing.pricePerAF / 100).toFixed(2) // e.g., "650.00"
-  );
+  // Start EMPTY so the user can type or leave blank until ready
+  const [qtyStr, setQtyStr] = useState("");
+  const [priceStr, setPriceStr] = useState(""); // dollars
   const [sent, setSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const qty = useMemo(() => {
-    // allow blank while typing
     if (qtyStr.trim() === "") return NaN;
     const n = Number(qtyStr);
     return Number.isFinite(n) ? Math.floor(n) : NaN;
@@ -42,27 +39,19 @@ export default function MakeOffer({ listing }: { listing: ListingLike }) {
   const canSubmit = qtyValid && priceValid && !sent && !submitting;
 
   function clampQtyInput(v: string) {
-    // Allow empty while typing
     if (v.trim() === "") return "";
-    // Strip non-digits
     const clean = v.replace(/[^\d]/g, "");
-    // Avoid leading zeros like "000"
     const normalized = clean.replace(/^0+(?=\d)/, "");
     return normalized;
   }
 
   function clampPriceInput(v: string) {
-    // Allow empty while typing
     if (v.trim() === "") return "";
-    // Keep digits and a single dot, max 2 decimals
     let clean = v.replace(/[^\d.]/g, "");
     const parts = clean.split(".");
-    if (parts.length > 2) {
-      // more than one dot -> keep first two segments
-      clean = `${parts[0]}.${parts.slice(1).join("")}`;
-    }
+    if (parts.length > 2) clean = `${parts[0]}.${parts.slice(1).join("")}`;
     const [intPart, decPart = ""] = clean.split(".");
-    const dec = decPart.slice(0, 2);
+    const dec = decPart.slice(0, 2); // max 2 decimals
     return decPart !== "" ? `${intPart}.${dec}` : intPart;
   }
 
@@ -80,8 +69,8 @@ export default function MakeOffer({ listing }: { listing: ListingLike }) {
         body: JSON.stringify({
           listingId: listing.id,
           type: "OFFER",
-          acreFeet: qty,             // integer AF
-          pricePerAF: priceDollars,  // dollars per AF (backend converts to cents)
+          acreFeet: qty,            // integer AF
+          pricePerAF: priceDollars, // dollars/AF; server converts to cents
         }),
       });
 
@@ -120,11 +109,12 @@ export default function MakeOffer({ listing }: { listing: ListingLike }) {
           AF
           <div className="mt-1 relative">
             <input
+              type="text"                // <-- text so it can be fully cleared
+              inputMode="numeric"
+              pattern="\d*"
               className={`w-full rounded-lg border px-3 py-2 pr-10 text-sm outline-none ${
                 qtyStr === "" ? "placeholder-slate-400" : ""
               }`}
-              inputMode="numeric"
-              pattern="\d*"
               placeholder={`max ${listing.acreFeet}`}
               value={qtyStr}
               onChange={(e) => setQtyStr(clampQtyInput(e.target.value))}
@@ -148,11 +138,11 @@ export default function MakeOffer({ listing }: { listing: ListingLike }) {
           $ / AF
           <div className="mt-1 relative">
             <input
+              type="text"                // <-- text so it can be fully cleared
+              inputMode="decimal"
               className={`w-full rounded-lg border pl-7 pr-3 py-2 text-sm outline-none ${
                 priceStr === "" ? "placeholder-slate-400" : ""
               }`}
-              inputMode="decimal"
-              step="0.01"
               placeholder={(listing.pricePerAF / 100).toFixed(2)}
               value={priceStr}
               onChange={(e) => setPriceStr(clampPriceInput(e.target.value))}
