@@ -1,9 +1,9 @@
-// app/admin/export/route.ts
+// frontend/app/admin/export/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 
-export const runtime = "nodejs";
+export const runtime = "nodejs"; // ensure Node (not Edge)
 
 function parseDate(d?: string) {
   if (!d) return null;
@@ -69,14 +69,16 @@ export async function GET(req: NextRequest) {
     "Total (USD)": Number((t.totalAmount / 100).toFixed(2)),
   }));
 
-  // dynamic import with interop
-  const xlsxMod = await import("xlsx");
-  const XLSX: any = (xlsxMod as any).default || xlsxMod;
+  // ---- Robust dynamic import for both ESM/CJS bundling cases
+  const mod = await import("xlsx");
+  const XLSX: any = (mod as any).default ?? mod;
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   XLSX.utils.book_append_sheet(wb, ws, "Transactions");
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+  // Produce ArrayBuffer (safer for Response body than Node Buffer in some envs)
+  const ab: ArrayBuffer = XLSX.write(wb, { type: "array", bookType: "xlsx" });
 
   const today = new Date();
   const yyyy = today.getFullYear();
@@ -84,11 +86,12 @@ export async function GET(req: NextRequest) {
   const dd = String(today.getDate()).padStart(2, "0");
   const filename = `transactions-${yyyy}-${mm}-${dd}.xlsx`;
 
-  return new NextResponse(buf, {
+  return new NextResponse(ab, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="${filename}"`,
-      "Cache-Control": "no-store"
-    }
+      "Cache-Control": "no-store",
+      "Content-Length": String(ab.byteLength),
+    },
   });
 }
