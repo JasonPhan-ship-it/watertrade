@@ -2,10 +2,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import ListingActions from "@/components/ListingActions";
 
-export const revalidate = 0; // always fresh
+export const revalidate = 0; // no cache
 
-export default async function ListingDetailPage({ params }: { params: { id: string } }) {
+type PageProps = { params: { id: string } };
+
+export default async function ListingDetailPage({ params }: PageProps) {
   const row = await prisma.listing.findUnique({
     where: { id: params.id },
     select: {
@@ -19,8 +22,10 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
       availabilityEnd: true,
       acreFeet: true,
       pricePerAF: true, // cents
-      kind: true,
-      status: true,
+      kind: true,       // SELL | BUY
+      isAuction: true,
+      reservePrice: true, // cents | null
+      status: true,     // ACTIVE, UNDER_CONTRACT, etc.
       createdAt: true,
       updatedAt: true,
     },
@@ -32,18 +37,40 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
   const startIso = row.availabilityStart.toISOString();
   const endIso = row.availabilityEnd.toISOString();
 
+  // Serialize what the client needs
+  const clientListing = {
+    id: row.id,
+    kind: row.kind, // 'SELL' | 'BUY'
+    isAuction: !!row.isAuction,
+    reservePriceCents: row.reservePrice ?? null,
+    pricePerAfCents: row.pricePerAF,
+    maxAf: row.acreFeet,
+    status: row.status,
+  };
+
   return (
-    <div className="mx-auto max-w-3xl p-6">
+    <div className="mx-auto max-w-5xl p-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">{row.title}</h1>
-        <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
-          {row.kind === "BUY" ? "Buy" : "Sell"}
-        </span>
+        <div className="flex items-center gap-2">
+          {row.isAuction && (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 ring-1 ring-amber-300">
+              Auction
+            </span>
+          )}
+          <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
+            {row.kind === "BUY" ? "Buyer Looking" : "For Sale"}
+          </span>
+        </div>
       </div>
 
-      <p className="mt-2 text-sm text-slate-600">{row.description || "No description provided."}</p>
+      <p className="mt-2 text-sm text-slate-600">
+        {row.description || "No description provided."}
+      </p>
 
-      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {/* Facts */}
+      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Detail label="District" value={row.district} />
         <Detail label="Water Type" value={row.waterType} />
         <Detail label="Acre-Feet" value={formatNumber(row.acreFeet)} />
@@ -52,8 +79,17 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
         <Detail label="Status" value={row.status} />
       </div>
 
+      {/* Actions */}
       <div className="mt-8">
-        <Link href="/dashboard" className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">
+        <ListingActions listing={clientListing} />
+      </div>
+
+      {/* Back */}
+      <div className="mt-8">
+        <Link
+          href="/dashboard"
+          className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
+        >
           Back to Listings
         </Link>
       </div>
@@ -80,5 +116,7 @@ function formatWindow(startIso: string, endIso: string) {
   const e = new Date(endIso);
   const sameYear = s.getFullYear() === e.getFullYear();
   const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-  return sameYear ? `${mm(s)}–${mm(e)} ${s.getFullYear()}` : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
+  return sameYear
+    ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
+    : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
 }
