@@ -2,6 +2,7 @@
 import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+/** ---------- Route helpers ---------- */
 const isStatic = (path: string) =>
   path.startsWith("/_next") ||
   path.startsWith("/favicon") ||
@@ -17,6 +18,14 @@ const isPublic = (path: string) =>
   path.startsWith("/sign-up") ||
   path.startsWith("/privacy");
 
+/** ONLY routes that should require auth + onboarding */
+const isProtected = (path: string) =>
+  path.startsWith("/dashboard") ||
+  path.startsWith("/listings") ||
+  path.startsWith("/account"); // add/remove as needed
+
+const isOnboarding = (path: string) => path.startsWith("/onboarding");
+
 export default withClerkMiddleware((req) => {
   const { pathname } = req.nextUrl;
 
@@ -25,37 +34,45 @@ export default withClerkMiddleware((req) => {
     return NextResponse.next();
   }
 
-  // 🚫 Do not bounce the onboarding page itself
-  if (pathname.startsWith("/onboarding")) {
-    return NextResponse.next();
-  }
-
   const { userId, sessionClaims } = getAuth(req);
-  if (!userId) {
+
+  // If a protected page is hit without auth, send to sign-in
+  if (isProtected(pathname) && !userId) {
     const url = req.nextUrl.clone();
     url.pathname = "/sign-in";
     url.search = "";
     return NextResponse.redirect(url);
   }
 
+  // Determine onboarding status
   const onboardedFromClerk =
-    (sessionClaims?.publicMetadata as any)?.onboarded === true;
+    (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.onboarded === true;
 
-  // Cookie must equal the current userId
+  // Optional cookie fallback (kept from your version)
   const cookieVal = req.cookies.get("onboarded")?.value;
-  const cookieMatchesUser = cookieVal === userId;
+  const cookieMatchesUser = !!userId && cookieVal === userId;
 
-  // Gate all non-public, non-onboarding pages until onboarded
-  if (!onboardedFromClerk && !cookieMatchesUser) {
+  // If user is already onboarded but tries to visit onboarding, push to dashboard
+  if (isOnboarding(pathname) && (onboardedFromClerk || cookieMatchesUser)) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/dashboard";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  // If user hits a protected route but isn't onboarded yet, send to onboarding
+  if (isProtected(pathname) && !(onboardedFromClerk || cookieMatchesUser)) {
     const url = req.nextUrl.clone();
     url.pathname = "/onboarding";
     url.search = "";
     return NextResponse.redirect(url);
   }
 
+  // Otherwise allow
   return NextResponse.next();
 });
 
 export const config = {
+  // Run on all routes except static assets and Next internals
   matcher: ["/((?!.*\\..*|_next).*)"],
 };
