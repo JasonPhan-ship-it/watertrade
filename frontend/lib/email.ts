@@ -1,7 +1,5 @@
 // lib/email.ts
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
 export async function sendEmail({
   to,
@@ -12,19 +10,38 @@ export async function sendEmail({
   subject: string;
   html: string;
 }) {
-  if (!process.env.RESEND_API_KEY) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM;
+
+  if (!apiKey) {
     console.warn("RESEND_API_KEY missing; skipping email send.");
     return;
   }
-  if (!process.env.EMAIL_FROM) {
+  if (!from) {
     throw new Error("EMAIL_FROM env var is required");
   }
-  await resend.emails.send({
-    from: process.env.EMAIL_FROM,
-    to,
-    subject,
-    html,
+
+  // Resend expects an array for 'to'
+  const toList = Array.isArray(to) ? to : [to];
+
+  const res = await fetch(RESEND_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: toList,
+      subject,
+      html,
+    }),
   });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Resend error ${res.status}: ${text || res.statusText}`);
+  }
 }
 
 export function appUrl(path = "/") {
