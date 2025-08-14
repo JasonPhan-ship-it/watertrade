@@ -1,17 +1,17 @@
+// frontend/app/create-listing/[id]/parts/BuyNow.tsx
 "use client";
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 
 type ListingLike = {
   id: string;
-  acreFeet: number;      // quantity to purchase
-  pricePerAF: number;    // cents per AF (matches your schema)
+  acreFeet: number;   // quantity to purchase
+  pricePerAF: number; // cents per AF (matches your DB schema)
   title?: string;
 };
 
 export default function BuyNow({ listing }: { listing: ListingLike }) {
   const [loading, setLoading] = useState(false);
 
-  // Display helpers (assumes cents in DB)
   const priceDollars = useMemo(
     () => (listing.pricePerAF / 100).toLocaleString(undefined, { minimumFractionDigits: 2 }),
     [listing.pricePerAF]
@@ -30,12 +30,6 @@ export default function BuyNow({ listing }: { listing: ListingLike }) {
   async function onBuyNow() {
     try {
       setLoading(true);
-
-      // Optional: basic confirm to prevent accidental clicks
-      // const ok = window.confirm(
-      //   `Buy ${listing.acreFeet} AF at $${priceDollars}/AF (Total: $${totalDollars})?`
-      // );
-      // if (!ok) return;
 
       const res = await fetch("/api/transactions", {
         method: "POST",
@@ -64,7 +58,7 @@ export default function BuyNow({ listing }: { listing: ListingLike }) {
       // Kick off docs/payment flow
       await fetch(`/api/transactions/${id}/kickoff`, { method: "POST" });
 
-      // Go to transaction page
+      // Navigate to the transaction
       window.location.href = `/transactions/${id}`;
     } catch (e) {
       alert((e as Error).message || "Failed to start transaction");
