@@ -2,14 +2,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import ListingActions from "@/components/ListingActions";
+import ListingsActions from "components/ListingsActions";
 
 export const revalidate = 0; // always fresh
 
 type PageProps = { params: { id: string } };
 
 export default async function ListingDetailPage({ params }: PageProps) {
-  // Fetch the listing
   const row = await prisma.listing.findUnique({
     where: { id: params.id },
     select: {
@@ -34,7 +33,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   if (!row) return notFound();
 
-  // Format helpers
   const pricePerAfDollars = row.pricePerAF / 100;
   const reservePriceDollars = row.reservePrice != null ? row.reservePrice / 100 : null;
   const startIso = row.availabilityStart.toISOString();
@@ -45,7 +43,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-6xl p-6">
-      {/* Top bar */}
+      {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
@@ -73,12 +71,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <Detail label="Price / AF" value={`$${format2(pricePerAfDollars)}`} />
           <Detail label="Availability" value={formatWindow(startIso, endIso)} />
           <Detail label="Status" value={row.status} />
-
-          {/* Timestamps */}
           <Detail label="Created" value={new Date(row.createdAt).toLocaleString()} />
           <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
-
-          {/* Auction specifics */}
           {row.isAuction && (
             <Detail
               label="Reserve Price"
@@ -104,12 +98,12 @@ export default async function ListingDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          <ListingActions
+          <ListingsActions
             listingId={row.id}
-            kind={row.kind}                                  // "SELL" | "BUY"
-            pricePerAf={pricePerAfDollars}                  // dollars for UI
+            kind={row.kind}                         // "SELL" | "BUY"
+            pricePerAf={pricePerAfDollars}         // dollars for UI
             isAuction={!!row.isAuction}
-            reservePrice={reservePriceDollars}              // dollars | null
+            reservePrice={reservePriceDollars}     // dollars | null
           />
         </aside>
       </div>
@@ -127,8 +121,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
   );
 }
 
-/* ---------------- UI atoms ---------------- */
-
+/* ---------- UI bits ---------- */
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -138,16 +131,13 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-/* ---------------- format helpers ---------------- */
-
+/* ---------- format helpers ---------- */
 function formatInt(n: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
 }
-
 function format2(n: number) {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
 function formatWindow(startIso: string, endIso: string) {
   const s = new Date(startIso);
   const e = new Date(endIso);
