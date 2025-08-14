@@ -7,6 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
+// Optional: common districts for suggestions (free-text still allowed)
+const DISTRICTS = [
+  "Westlands Water District",
+  "San Luis Water District",
+  "Panoche Water District",
+  "Arvin Edison Water District",
+];
+
 export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
@@ -28,6 +36,7 @@ export default function CreateListingPage() {
         volumeAF: Number(formData.get("volumeAF") || 0),
         pricePerAF: Number(formData.get("pricePerAF") || 0),
         type: String(formData.get("type") || "sell"),
+        district: String(formData.get("district") || ""), // <-- NEW
       };
 
       const res = await fetch("/api/listings", {
@@ -70,6 +79,23 @@ export default function CreateListingPage() {
                 placeholder="e.g., 50 AF transfer in Westlands"
                 required
               />
+            </div>
+
+            {/* NEW: Water District */}
+            <div className="space-y-2">
+              <Label htmlFor="district">Water District</Label>
+              <Input
+                id="district"
+                name="district"
+                list="district-options"
+                placeholder="e.g., Westlands Water District"
+                required
+              />
+              <datalist id="district-options">
+                {DISTRICTS.map((d) => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -117,7 +143,7 @@ export default function CreateListingPage() {
               <Textarea
                 id="description"
                 name="description"
-                placeholder="Add context, district, timing, terms..."
+                placeholder="Add context, district window, timing, terms..."
               />
             </div>
           </CardContent>
