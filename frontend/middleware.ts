@@ -15,16 +15,22 @@ const isPublic = (path: string) =>
   path === "/" ||
   path.startsWith("/sign-in") ||
   path.startsWith("/sign-up") ||
-  path.startsWith("/privacy"); // add any other public pages here
+  path.startsWith("/privacy");
 
 export default withClerkMiddleware((req) => {
   const { pathname } = req.nextUrl;
+
+  // Always allow these through
   if (isStatic(pathname) || isApi(pathname) || isPublic(pathname)) {
     return NextResponse.next();
   }
 
-  const { userId, sessionClaims } = getAuth(req);
+  // 🚫 Do not bounce the onboarding page itself
+  if (pathname.startsWith("/onboarding")) {
+    return NextResponse.next();
+  }
 
+  const { userId, sessionClaims } = getAuth(req);
   if (!userId) {
     const url = req.nextUrl.clone();
     url.pathname = "/sign-in";
@@ -35,20 +41,14 @@ export default withClerkMiddleware((req) => {
   const onboardedFromClerk =
     (sessionClaims?.publicMetadata as any)?.onboarded === true;
 
-  // NEW: cookie must equal the *current* Clerk userId
-  const onboardedCookie = req.cookies.get("onboarded")?.value;
-  const cookieMatchesUser = onboardedCookie === userId;
+  // Cookie must equal the current userId
+  const cookieVal = req.cookies.get("onboarded")?.value;
+  const cookieMatchesUser = cookieVal === userId;
 
-  if (!onboardedFromClerk && !cookieMatchesUser && pathname !== "/onboarding") {
+  // Gate all non-public, non-onboarding pages until onboarded
+  if (!onboardedFromClerk && !cookieMatchesUser) {
     const url = req.nextUrl.clone();
     url.pathname = "/onboarding";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
-
-  if ((onboardedFromClerk || cookieMatchesUser) && pathname === "/onboarding") {
-    const url = req.nextUrl.clone();
-    url.pathname = "/dashboard";
     url.search = "";
     return NextResponse.redirect(url);
   }
