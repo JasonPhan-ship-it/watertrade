@@ -316,7 +316,7 @@ function CookieBanner() {
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm leading-5">
             We use cookies to improve your experience, analyze traffic, and provide essential site functionality.{" "}
-            <Link href="/privacy" className="underline text-white/90 hover:text-white">
+            <Link href="/privacy-policy" className="underline text-white/90 hover:text-white">
               Learn more
             </Link>
             .
