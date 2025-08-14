@@ -3,177 +3,252 @@
 
 import * as React from "react";
 
+type Kind = "SELL" | "BUY";
+
 type Props = {
   listingId: string;
-  kind: "SELL" | "BUY";
-  pricePerAf: number;      // dollars (UI)
+  kind: Kind;                 // SELL = you're buying from seller; BUY = you're selling to buyer
+  pricePerAf: number;         // dollars (already converted from cents)
   isAuction?: boolean;
-  reservePrice?: number | null; // dollars
+  reservePrice?: number | null; // dollars, if applicable
 };
+
+type Mode = "BUY_NOW" | "SELL_NOW" | "OFFER" | "BID";
 
 export default function ListingActions({
   listingId,
   kind,
   pricePerAf,
-  isAuction,
-  reservePrice,
+  isAuction = false,
+  reservePrice = null,
 }: Props) {
-  const [busy, setBusy] = React.useState<string | null>(null);
-  const [msg, setMsg] = React.useState<string | null>(null);
+  const [mode, setMode] = React.useState<Mode>(() => (kind === "SELL" ? "BUY_NOW" : "SELL_NOW"));
+  const [acreFeet, setAcreFeet] = React.useState<number>(1);
+  const [price, setPrice] = React.useState<number>(() => {
+    const base = isAuction ? (reservePrice ?? pricePerAf) : pricePerAf;
+    return round2(base);
+  });
+  const [submitting, setSubmitting] = React.useState(false);
+  const [message, setMessage] = React.useState<string | null>(null);
 
-  async function postJSON(url: string, body: any) {
-    const res = await fetch(url, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      // keep UX friendly if endpoints aren’t built yet
-      let text = "";
-      try {
-        text = await res.text();
-      } catch {}
-      throw new Error(text || `${res.status} ${res.statusText}`);
-    }
-    return res.json().catch(() => ({}));
-  }
+  const total = React.useMemo(() => round2(acreFeet * price), [acreFeet, price]);
 
-  async function handleBuyNow() {
-    setBusy("buy");
-    setMsg(null);
-    try {
-      // minimal payload — adjust to your Transaction model as you wire it up
-      await postJSON("/api/transactions", {
+  React.useEffect(() => {
+    // Reset suggested price when mode changes
+    if (mode === "BUY_NOW" || mode === "SELL_NOW") setPrice(round2(pricePerAf));
+    if (mode === "BID") setPrice(round2(reservePrice ?? pricePerAf));
+    if (mode === "OFFER") setPrice(round2(pricePerAf));
+  }, [mode, pricePerAf, reservePrice]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitting) return;
+
+    setSubmitting(true);
+    setMessage(null);
+
+    // Map modes -> API endpoints (you can change these to match your routes)
+    let url = "/api/transactions";
+    let payload: any = {
+      listingId,
+      acreFeet: Number(acreFeet),
+      pricePerAF: Number(price), // dollars
+    };
+
+    if (mode === "BUY_NOW") {
+      payload.type = "BUY_NOW";
+      payload.intent = "BUY_FROM_SELLER";
+    } else if (mode === "SELL_NOW") {
+      payload.type = "BUY_NOW";
+      payload.intent = "SELL_TO_BUYER";
+    } else if (mode === "OFFER") {
+      payload.type = "OFFER";
+    } else if (mode === "BID") {
+      url = "/api/bids";
+      payload = {
         listingId,
-        type: "BUY_NOW",
-        acreFeet: undefined, // add a selector if you want partial buys
-        pricePerAf: Math.round(pricePerAf * 100), // cents
-      });
-      setMsg("Buy Now initiated! We’ll email next steps.");
-    } catch (e: any) {
-      setMsg(
-        e?.message?.includes("Not Found")
-          ? "Buy Now isn’t set up yet. (Missing /api/transactions)"
-          : `Buy Now failed: ${e?.message || "Unknown error"}`
-      );
-    } finally {
-      setBusy(null);
+        pricePerAF: Number(price),
+        acreFeet: Number(acreFeet),
+      };
     }
-  }
 
-  async function handleOffer() {
-    setBusy("offer");
-    setMsg(null);
     try {
-      await postJSON("/api/offers", {
-        listingId,
-        // you could add a form for custom $/AF and AF — this is a stub
-        pricePerAf: Math.round(pricePerAf * 100),
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
       });
-      setMsg("Offer submitted!");
-    } catch (e: any) {
-      setMsg(
-        e?.message?.includes("Not Found")
-          ? "Offers aren’t set up yet. (Missing /api/offers)"
-          : `Offer failed: ${e?.message || "Unknown error"}`
-      );
+
+      if (!res.ok) {
+        let msg = "Request failed";
+        try {
+          const j = await res.json();
+          msg = j?.error || msg;
+        } catch {
+          msg = await res.text();
+        }
+        throw new Error(msg);
+      }
+
+      setMessage(successText(mode));
+    } catch (err: any) {
+      setMessage(err?.message || "Something went wrong");
     } finally {
-      setBusy(null);
+      setSubmitting(false);
     }
   }
 
-  async function handleBid() {
-    setBusy("bid");
-    setMsg(null);
-    try {
-      await postJSON("/api/bids", {
-        listingId,
-        // add an input for custom bid if you like; here we use asking as placeholder
-        pricePerAf: Math.round(pricePerAf * 100),
-      });
-      setMsg("Bid placed!");
-    } catch (e: any) {
-      setMsg(
-        e?.message?.includes("Not Found")
-          ? "Auctions aren’t set up yet. (Missing /api/bids)"
-          : `Bid failed: ${e?.message || "Unknown error"}`
-      );
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const selling = kind === "SELL";
-  const buying = kind === "BUY";
+  const canBuyNow = kind === "SELL";
+  const canSellNow = kind === "BUY";
+  const minBid = reservePrice ?? pricePerAf;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center gap-3">
-        {/* SELL listing (buyer’s perspective) */}
-        {selling && (
-          <>
-            <button
-              onClick={handleBuyNow}
-              disabled={busy !== null}
-              className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] disabled:opacity-50"
-            >
-              {busy === "buy" ? "Processing…" : "Buy Now"}
-            </button>
-
-            <button
-              onClick={handleOffer}
-              disabled={busy !== null}
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              {busy === "offer" ? "Submitting…" : "Make Offer"}
-            </button>
-          </>
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-2">
+        {canBuyNow && (
+          <Tab selected={mode === "BUY_NOW"} onClick={() => setMode("BUY_NOW")}>
+            Buy Now
+          </Tab>
         )}
-
-        {/* BUY listing (seller’s perspective) */}
-        {buying && (
-          <button
-            onClick={handleOffer}
-            disabled={busy !== null}
-            className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] disabled:opacity-50"
-          >
-            {busy === "offer" ? "Submitting…" : "Offer to Sell"}
-          </button>
+        {canSellNow && (
+          <Tab selected={mode === "SELL_NOW"} onClick={() => setMode("SELL_NOW")}>
+            Sell to Buyer
+          </Tab>
         )}
-
-        {/* Auction actions */}
+        <Tab selected={mode === "OFFER"} onClick={() => setMode("OFFER")}>
+          Make Offer
+        </Tab>
         {isAuction && (
-          <>
-            <button
-              onClick={handleBid}
-              disabled={busy !== null}
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              {busy === "bid" ? "Placing…" : "Place Bid"}
-            </button>
-            {reservePrice != null && (
-              <span className="text-xs text-slate-500">
-                Reserve: ${new Intl.NumberFormat("en-US").format(reservePrice)} / AF
-              </span>
-            )}
-          </>
+          <Tab selected={mode === "BID"} onClick={() => setMode("BID")}>
+            Place Bid
+          </Tab>
         )}
       </div>
 
-      {msg && <p className="mt-3 text-xs text-slate-600">{msg}</p>}
+      {/* Form */}
+      <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Field label="Acre-Feet">
+          <input
+            type="number"
+            min={1}
+            step={1}
+            required
+            value={acreFeet}
+            onChange={(e) => setAcreFeet(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2"
+          />
+        </Field>
 
-      {/* Developer hint when endpoints aren’t implemented yet */}
-      {!isAuction && (
-        <p className="mt-3 text-[11px] text-slate-400">
-          Tip: Wire up <code>/api/transactions</code> and <code>/api/offers</code> to persist actions.
-        </p>
-      )}
-      {isAuction && (
-        <p className="mt-3 text-[11px] text-slate-400">
-          Tip: Wire up <code>/api/bids</code> to persist bids.
-        </p>
-      )}
+        <Field label={mode === "BID" ? "Your Bid $/AF" : "Price $/AF"}>
+          <input
+            type="number"
+            min={mode === "BID" ? minBid : 0}
+            step="0.01"
+            required
+            value={price}
+            onChange={(e) => setPrice(Math.max(0, Number(e.target.value) || 0))}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2"
+          />
+          {mode === "BID" && (
+            <p className="mt-1 text-xs text-slate-500">Minimum: ${format2(minBid)} / AF</p>
+          )}
+        </Field>
+
+        <Field label="Estimated Total">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium">
+            ${format2(total)}
+          </div>
+        </Field>
+
+        <div className="sm:col-span-3 flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-medium text-white hover:bg-[#00392f] disabled:opacity-50"
+          >
+            {submitting ? actionText(mode) + "…" : actionText(mode)}
+          </button>
+          {message && <p className="text-sm text-slate-600">{message}</p>}
+        </div>
+      </form>
     </div>
   );
+}
+
+/* ----------------- helpers & bits ----------------- */
+
+function Tab({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "h-9 rounded-full px-4 text-sm " +
+        (selected
+          ? "bg-[#0A6B58] text-white"
+          : "bg-slate-100 text-slate-700 hover:bg-slate-200")
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="mt-1">{children}</div>
+    </label>
+  );
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+function format2(n: number) {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function actionText(mode: Mode) {
+  switch (mode) {
+    case "BUY_NOW":
+      return "Buy Now";
+    case "SELL_NOW":
+      return "Sell Now";
+    case "OFFER":
+      return "Send Offer";
+    case "BID":
+      return "Place Bid";
+  }
+}
+
+function successText(mode: Mode) {
+  switch (mode) {
+    case "BUY_NOW":
+      return "Created transaction — check your dashboard";
+    case "SELL_NOW":
+      return "Submitted sale — buyer will be notified";
+    case "OFFER":
+      return "Offer sent to the counterparty";
+    case "BID":
+      return "Bid placed";
+  }
 }
