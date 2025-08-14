@@ -21,7 +21,8 @@ const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] 
 export default function OnboardingPage() {
   const router = useRouter();
   const sp = useSearchParams();
-  const next = sp.get("next") || "/dashboard"; // 👈 honor ?next=
+  const nextPath = sp?.get("next") ?? "/dashboard"; // 👈 guard null, fallback
+
   const { session, isLoaded: sessionLoaded } = useSession();
   const { user, isLoaded: userLoaded } = useUser();
 
@@ -31,7 +32,8 @@ export default function OnboardingPage() {
 
   // helper: timeout wrapper so we don't hang forever
   function withTimeout<T>(p: Promise<T>, ms = 15000) {
-    const t = setTimeout(() => {}, ms); // no AbortController in fetch init here
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort("timeout"), ms);
     return Promise.race([
       p,
       new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
@@ -43,10 +45,10 @@ export default function OnboardingPage() {
   const goNext = React.useCallback(() => {
     if (redirectedRef.current) return;
     redirectedRef.current = true;
-    router.replace(next);
-  }, [router, next]);
+    router.replace(nextPath); // 👈 use nextPath instead of hard-coded /dashboard
+  }, [router, nextPath]);
 
-  // If profile exists -> skip to `next`
+  // If profile exists -> skip
   React.useEffect(() => {
     if (!sessionLoaded || !userLoaded) return;
     let live = true;
@@ -58,7 +60,6 @@ export default function OnboardingPage() {
         if (!live) return;
 
         if (json?.profile) {
-          // set cookie for middleware fallback
           if (user?.id) document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
           session?.reload?.().catch(() => {});
           goNext();
@@ -85,7 +86,7 @@ export default function OnboardingPage() {
     const payload = {
       fullName: String(fd.get("fullName") || "").trim(),
       company: String(fd.get("company") || ""),
-      role: String(fd.get("role") || ""), // server maps "role" -> tradeRole
+      role: String(fd.get("role") || ""),
       phone: String(fd.get("phone") || ""),
       primaryDistrict: String(fd.get("primaryDistrict") || ""),
       waterTypes: Array.from(fd.getAll("waterTypes")) as string[],
@@ -114,7 +115,6 @@ export default function OnboardingPage() {
         throw new Error(msg);
       }
 
-      // cookie for middleware fallback
       if (user?.id) document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
       session?.reload?.().catch(() => {});
       goNext();
