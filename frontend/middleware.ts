@@ -36,6 +36,14 @@ export default withClerkMiddleware((req) => {
 
   const { userId, sessionClaims } = getAuth(req);
 
+  // If onboarding page without auth -> sign in
+  if (isOnboarding(pathname) && !userId) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/sign-in";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   // If a protected page is hit without auth, send to sign-in
   if (isProtected(pathname) && !userId) {
     const url = req.nextUrl.clone();
@@ -44,9 +52,9 @@ export default withClerkMiddleware((req) => {
     return NextResponse.redirect(url);
   }
 
-  // Determine onboarding status
-  const onboardedFromClerk =
-    (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.onboarded === true;
+  // Determine onboarding status (read from unsafeMetadata)
+  const claims = sessionClaims as any;
+  const onboardedFromClerk = claims?.unsafeMetadata?.onboarded === true;
 
   // Optional cookie fallback (kept from your version)
   const cookieVal = req.cookies.get("onboarded")?.value;
