@@ -15,7 +15,14 @@ type ExistingProfile = {
   acceptTerms: boolean;
 };
 
-const DISTRICTS = ["", "Westlands Water District", "San Luis Water District", "Panoche Water District", "Arvin Edison Water District"] as const;
+const DISTRICTS = [
+  "",
+  "Westlands Water District",
+  "San Luis Water District",
+  "Panoche Water District",
+  "Arvin Edison Water District",
+] as const;
+
 const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] as const;
 
 export default function OnboardingPage() {
@@ -27,10 +34,11 @@ export default function OnboardingPage() {
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // helper: timeout wrapper so we don't hang forever
+  // --- helpers ---
   function withTimeout<T>(p: Promise<T>, ms = 15000) {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort("timeout"), ms);
+    const t = setTimeout(() => {
+      // We don't pass a signal; we race instead.
+    }, ms);
     return Promise.race([
       p,
       new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
@@ -45,21 +53,54 @@ export default function OnboardingPage() {
     router.replace("/dashboard");
   }, [router]);
 
-  // If profile exists -> skip
+  // Persist onboarded in Clerk + cookie, then refresh session and go
+  const markOnboardedAndProceed = React.useCallback(
+    async (uid?: string | null) => {
+      try {
+        // Merge existing publicMetadata to avoid overwriting other keys
+        const currentMeta = (user?.publicMetadata ?? {}) as Record<string, unknown>;
+        await user?.update?.({ publicMetadata: { ...currentMeta, onboarded: true } });
+      } catch {
+        // Non-fatal: middleware also accepts cookie fallback
+      }
+
+      // Optional cookie fallback for your current middleware
+      if (uid) {
+        try {
+          document.cookie = `onboarded=${uid}; Path=/; Max-Age=1800; SameSite=Lax`;
+        } catch {
+          // ignore
+        }
+      }
+
+      try {
+        await session?.reload?.();
+      } catch {
+        // ignore
+      }
+
+      goDashboard();
+    },
+    [goDashboard, session, user]
+  );
+
+  // If profile exists -> skip form
   React.useEffect(() => {
     if (!sessionLoaded || !userLoaded) return;
     let live = true;
+
     (async () => {
       try {
-        const res = await withTimeout(fetch("/api/profile", { cache: "no-store", credentials: "include" }), 10000);
+        const res = await withTimeout(
+          fetch("/api/profile", { cache: "no-store", credentials: "include" }),
+          10000
+        );
         if (!res.ok) throw new Error(await res.text());
         const json = await res.json();
         if (!live) return;
 
         if (json?.profile) {
-          if (user?.id) document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
-          session?.reload?.().catch(() => {});
-          goDashboard();
+          await markOnboardedAndProceed(user?.id);
           return;
         }
       } catch {
@@ -68,10 +109,11 @@ export default function OnboardingPage() {
         if (live) setLoadingProfile(false);
       }
     })();
+
     return () => {
       live = false;
     };
-  }, [sessionLoaded, userLoaded, session, user?.id, goDashboard]);
+  }, [sessionLoaded, userLoaded, user?.id, markOnboardedAndProceed]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -105,16 +147,18 @@ export default function OnboardingPage() {
         let msg = "Failed to save profile";
         try {
           const j = await res.json();
-          msg = j?.error || msg;
+          msg = (j as any)?.error || msg;
         } catch {
-          msg = await res.text();
+          try {
+            msg = await res.text();
+          } catch {
+            // keep default
+          }
         }
         throw new Error(msg);
       }
 
-      if (user?.id) document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
-      session?.reload?.().catch(() => {});
-      goDashboard();
+      await markOnboardedAndProceed(user?.id);
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
     } finally {
@@ -134,19 +178,39 @@ export default function OnboardingPage() {
       <form onSubmit={onSubmit} className="mt-6 space-y-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="fullName">Full name *</label>
-            <input id="fullName" name="fullName" required className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+            <label className="block text-sm text-slate-600" htmlFor="fullName">
+              Full name *
+            </label>
+            <input
+              id="fullName"
+              name="fullName"
+              required
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            />
           </div>
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="company">Company</label>
-            <input id="company" name="company" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+            <label className="block text-sm text-slate-600" htmlFor="company">
+              Company
+            </label>
+            <input
+              id="company"
+              name="company"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            />
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="role">Role *</label>
-            <select id="role" name="role" required className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2">
+            <label className="block text-sm text-slate-600" htmlFor="role">
+              Role *
+            </label>
+            <select
+              id="role"
+              name="role"
+              required
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            >
               <option value="">Select…</option>
               <option value="BUYER">Buyer</option>
               <option value="SELLER">Seller</option>
@@ -155,17 +219,32 @@ export default function OnboardingPage() {
             </select>
           </div>
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="phone">Phone</label>
-            <input id="phone" name="phone" inputMode="tel" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+            <label className="block text-sm text-slate-600" htmlFor="phone">
+              Phone
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              inputMode="tel"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            />
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="primaryDistrict">Primary District</label>
-            <select id="primaryDistrict" name="primaryDistrict" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2">
+            <label className="block text-sm text-slate-600" htmlFor="primaryDistrict">
+              Primary District
+            </label>
+            <select
+              id="primaryDistrict"
+              name="primaryDistrict"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            >
               {DISTRICTS.map((d) => (
-                <option key={d} value={d}>{d ? d : "Select…"}</option>
+                <option key={d} value={d}>
+                  {d ? d : "Select…"}
+                </option>
               ))}
             </select>
           </div>
@@ -189,7 +268,11 @@ export default function OnboardingPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <button type="submit" disabled={submitting} className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50">
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50"
+        >
           {submitting ? "Saving…" : "Save & Continue"}
         </button>
       </form>
