@@ -103,7 +103,7 @@ export default async function AdminTransactionsPage() {
           href="/admin/export"
           className="inline-flex h-10 items-center rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#00392f]"
         >
-          Download .xlsx
+          Download Excel
         </a>
       </div>
 
