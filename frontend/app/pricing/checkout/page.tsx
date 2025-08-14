@@ -29,8 +29,8 @@ export default async function CheckoutStart() {
   const priceId = process.env.STRIPE_PRICE_ID;
   if (!key || !priceId) throw new Error("Missing STRIPE_SECRET_KEY or STRIPE_PRICE_ID");
 
-  // 🔽 dynamic import
-  const Stripe = (await import("stripe")).default;
+  const StripeMod = await import("stripe");
+  const Stripe = (StripeMod as any).default || StripeMod;
   const stripe = new Stripe(key, { apiVersion: "2024-06-20" });
 
   const session = await stripe.checkout.sessions.create({
@@ -40,7 +40,7 @@ export default async function CheckoutStart() {
     cancel_url: appUrl("/pricing"),
     client_reference_id: me.id,
     customer_email: me.email || undefined,
-    metadata: { clerkId: userId },
+    metadata: { clerkId: userId }
   });
 
   if (!session.url) throw new Error("Failed to create Stripe Checkout Session");
