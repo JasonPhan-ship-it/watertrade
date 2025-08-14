@@ -1,78 +1,47 @@
-// app/listings/[id]/page.tsx
+// frontend/app/create-listing/[id]/page.tsx
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { headers } from "next/headers";
-
-type Listing = {
-  id: string;
-  district: string;
-  acreFeet: number;
-  pricePerAf: number;
-  availabilityStart: string;
-  availabilityEnd: string;
-  waterType: string;
-  createdAt: string;
-};
-
-// Build absolute URL for server-side fetches
-function getBaseUrl() {
-  const h = headers();
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  return `${proto}://${host}`;
-}
-
-async function getListing(id: string): Promise<Listing | null> {
-  const base = getBaseUrl();
-
-  // Try /api/listings/[id]
-  try {
-    const res = await fetch(`${base}/api/listings/${encodeURIComponent(id)}`, {
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const json = await res.json();
-      const one = (json?.listing ?? json) as Listing | undefined;
-      if (one && one.id) return one;
-    }
-  } catch {}
-
-  // Fallback: /api/listings?id=...
-  try {
-    const res = await fetch(`${base}/api/listings?id=${encodeURIComponent(id)}`, {
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const json = await res.json();
-      if (json?.listing?.id) return json.listing as Listing;
-      if (json?.id) return json as Listing;
-      if (Array.isArray(json?.listings)) {
-        const found = (json.listings as Listing[]).find((x) => x.id === id);
-        if (found) return found;
-      }
-    }
-  } catch {}
-
-  return null;
-}
+import { prisma } from "@/lib/prisma";
+import BuyNow from "./parts/BuyNow";
+import MakeOffer from "./parts/MakeOffer";
+import AuctionBid from "./parts/AuctionBid";
 
 export default async function ListingDetailPage({
   params,
 }: {
   params: { id: string };
 }) {
-  const listing = await getListing(params.id);
+  const listing = await prisma.listing.findUnique({
+    where: { id: params.id },
+    select: {
+      id: true,
+      title: true,
+      district: true,
+      acreFeet: true,
+      pricePerAF: true,            // cents
+      availabilityStart: true,     // Date
+      availabilityEnd: true,       // Date
+      waterType: true,
+      createdAt: true,
+      isAuction: true,
+    },
+  });
 
   if (!listing) {
-    // Temporarily show a placeholder instead of a 404 while wiring API:
-    // return <main className="container mx-auto px-4 py-10">Coming soon… ({params.id})</main>
     notFound();
   }
+
+  const priceDollars = (listing.pricePerAF / 100).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
   return (
     <main className="container mx-auto px-4 py-10">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900">Listing Details</h1>
+        <h1 className="text-2xl font-semibold text-slate-900">
+          {listing.title || "Listing Details"}
+        </h1>
         <Link
           href="/dashboard"
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
@@ -97,9 +66,7 @@ export default async function ListingDetailPage({
             </div>
             <div>
               <dt className="text-xs text-slate-500">$ / AF</dt>
-              <dd className="text-sm font-medium text-slate-900">
-                ${new Intl.NumberFormat("en-US").format(listing.pricePerAf)}
-              </dd>
+              <dd className="text-sm font-medium text-slate-900">${priceDollars}</dd>
             </div>
             <div>
               <dt className="text-xs text-slate-500">Availability</dt>
@@ -124,22 +91,42 @@ export default async function ListingDetailPage({
           </dl>
         </div>
 
-        {/* Right column: next steps */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        {/* Right column: actions */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
           <h2 className="text-sm font-semibold text-slate-900">Next Steps</h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Add “Request Info” / “Make Offer” actions here and show district-specific
-            forms or docs as needed.
-          </p>
+
+          {/* Buy Now: fetches AF and Price/AF from DB, no inputs */}
+          <BuyNow listingId={listing.id} />
+
+          {/* Make Offer: user-entered qty + $/AF (UI in dollars) */}
+          <MakeOffer
+            listing={{
+              id: listing.id,
+              title: listing.title || undefined,
+              acreFeet: listing.acreFeet,
+              pricePerAF: listing.pricePerAF, // cents; component shows dollars
+            }}
+          />
+
+          {/* Optional: Auction bid, only if listing is auction */}
+          {listing.isAuction ? (
+            <AuctionBid
+              listing={{
+                id: listing.id,
+                pricePerAF: listing.pricePerAF, // cents
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </main>
   );
 }
 
-function formatWindow(startIso: string, endIso: string) {
-  const s = new Date(startIso);
-  const e = new Date(endIso);
+/* ---------- Helpers ---------- */
+function formatWindow(start: Date | string, end: Date | string) {
+  const s = new Date(start);
+  const e = new Date(end);
   const sameYear = s.getFullYear() === e.getFullYear();
   const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
   return sameYear
