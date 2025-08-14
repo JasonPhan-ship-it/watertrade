@@ -52,7 +52,7 @@ export default function ProfilePage() {
           <div><dt className="text-slate-500 text-xs">Water Types</dt><dd className="font-medium">{(profile.waterTypes || []).join(", ") || "—"}</dd></div>
         </dl>
 
-        <a href="/onboarding" className="inline-flex mt-5 rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <a href="/profile/edit" className="inline-flex mt-5 rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
           Edit profile
         </a>
       </div>
