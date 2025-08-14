@@ -1,3 +1,4 @@
+// app/onboarding/page.tsx
 "use client";
 
 import * as React from "react";
@@ -14,7 +15,14 @@ type ExistingProfile = {
   acceptTerms: boolean;
 };
 
-const DISTRICTS = ["", "Westlands Water District", "San Luis Water District", "Panoche Water District", "Arvin Edison Water District"] as const;
+const DISTRICTS = [
+  "",
+  "Westlands Water District",
+  "San Luis Water District",
+  "Panoche Water District",
+  "Arvin Edison Water District",
+] as const;
+
 const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] as const;
 
 export default function OnboardingPage() {
@@ -27,33 +35,27 @@ export default function OnboardingPage() {
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Remove any stale 'onboarded' cookie if it belongs to a different user
+  // Clear any stale 'onboarded' cookie if it belongs to a different user
   React.useEffect(() => {
     if (typeof document === "undefined" || !user?.id) return;
-    const existing = document.cookie.split("; ").find((c) => c.startsWith("onboarded="))?.split("=")[1];
+    const existing = document.cookie
+      .split("; ")
+      .find((c) => c.startsWith("onboarded="))
+      ?.split("=")[1];
     if (existing && existing !== user.id) {
       document.cookie = "onboarded=; Max-Age=0; Path=/; SameSite=Lax";
     }
   }, [user?.id]);
 
-  const goDashOnce = React.useRef(false);
-  const goDash = React.useCallback(() => {
-    if (goDashOnce.current) return;
-    goDashOnce.current = true;
-    router.push("/dashboard");
-    setTimeout(() => {
-      if (typeof window !== "undefined" && window.location.pathname === "/onboarding") {
-        window.location.assign("/dashboard");
-      }
-    }, 150);
+  // One-shot redirect helper
+  const redirectedRef = React.useRef(false);
+  const goDashboard = React.useCallback(() => {
+    if (redirectedRef.current) return;
+    redirectedRef.current = true;
+    router.replace("/dashboard");
   }, [router]);
 
-  // If Clerk says onboarded, skip
-  React.useEffect(() => {
-    if (user?.publicMetadata?.onboarded === true) goDash();
-  }, [user?.publicMetadata, goDash]);
-
-  // Prefill or stay on form for brand new users
+  // Prefill + redirect only if a profile already exists
   React.useEffect(() => {
     let live = true;
     (async () => {
@@ -61,26 +63,31 @@ export default function OnboardingPage() {
         const res = await fetch("/api/profile", { cache: "no-store", credentials: "include" });
         if (!res.ok) throw new Error(await res.text());
         const json = await res.json();
+
         if (!live) return;
 
         if (json?.profile) {
-          // returning user — ensure cookie, refresh claims, then skip
-          document.cookie = `onboarded=${user?.id ?? ""}; Path=/; Max-Age=1800; SameSite=Lax`;
+          // returning user: set cookie for this user and go to dashboard
+          if (user?.id) {
+            document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
+          }
           session?.reload?.().catch(() => {});
-          goDash();
+          goDashboard();
           return;
         }
 
         // no profile — show form
         setPrefill(null);
       } catch {
-        // likely first-time — show form
+        // first-time users will land here — show form
       } finally {
         if (live) setLoadingProfile(false);
       }
     })();
-    return () => { live = false; };
-  }, [session, user?.id, goDash]);
+    return () => {
+      live = false;
+    };
+  }, [session, user?.id, goDashboard]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -95,7 +102,7 @@ export default function OnboardingPage() {
     const payload = {
       fullName: String(fd.get("fullName") || "").trim(),
       company: String(fd.get("company") || ""),
-      role, // BUYER | SELLER | BOTH | DISTRICT_ADMIN
+      role,
       phone: String(fd.get("phone") || ""),
       primaryDistrict: String(fd.get("primaryDistrict") || ""),
       waterTypes: Array.from(fd.getAll("waterTypes")) as string[],
@@ -109,6 +116,7 @@ export default function OnboardingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
       if (!res.ok) {
         let msg = "Failed to save profile";
         try {
@@ -120,15 +128,13 @@ export default function OnboardingPage() {
         throw new Error(msg);
       }
 
-      // set cookie for current user; stop spinner before nav
+      // set user-bound cookie and go
       if (user?.id) {
         document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
       }
       setSubmitting(false);
-
-      // don’t wait on claim refresh; navigate now
       session?.reload?.().catch(() => {});
-      goDash();
+      goDashboard();
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
       setSubmitting(false);
@@ -204,6 +210,7 @@ export default function OnboardingPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
+        {/* Button below the checkbox */}
         <button
           type="submit"
           disabled={submitting}
