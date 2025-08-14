@@ -27,56 +27,64 @@ export default function OnboardingPage() {
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Avoid double navigation
+  // ensure we only navigate once
   const navigatedRef = React.useRef(false);
-  const navigateOnce = (to: string) => {
+  const navigateToDashboard = React.useCallback(() => {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
-    router.replace(to);
-  };
 
-  // Client-side bypass if Clerk already says we're onboarded
+    // try SPA navigation first
+    router.push("/dashboard");
+
+    // hard fallback (in case middleware timing/cookies race)
+    setTimeout(() => {
+      if (typeof window !== "undefined" && window.location.pathname === "/onboarding") {
+        window.location.assign("/dashboard");
+      }
+    }, 200);
+  }, [router]);
+
+  // If Clerk already knows we're onboarded, skip immediately
   React.useEffect(() => {
     if (user?.publicMetadata?.onboarded === true) {
-      navigateOnce("/dashboard");
+      navigateToDashboard();
     }
-  }, [user]);
+  }, [user, navigateToDashboard]);
 
-  // Prefill / bypass via API (also sets a short-lived cookie server-side)
+  // Ask the API for an existing profile; if found, skip this screen
   React.useEffect(() => {
-    let mounted = true;
+    let live = true;
     (async () => {
       try {
         const res = await fetch("/api/profile", { cache: "no-store", credentials: "include" });
         if (!res.ok) throw new Error(await res.text());
         const json = await res.json();
+        if (!live) return;
 
-        if (!mounted) return;
-
-        // If the profile exists, skip this page entirely
         if (json?.profile) {
-          // Small nudge to Clerk so middleware soon sees metadata
+          // nudge Clerk claims to refresh and then bypass
           await session?.reload?.().catch(() => {});
-          navigateOnce("/dashboard");
+          // set a client cookie as local fallback for middleware
+          document.cookie = "onboarded=1; path=/; max-age=1800; samesite=lax";
+          navigateToDashboard();
           return;
         }
 
-        // If no profile, we proceed with the form (prefill remains null)
-        setPrefill(null);
+        setPrefill(null); // no profile; show form
       } catch {
-        // first-time users (no profile) land here
+        // first-time users commonly land here; show empty form
       } finally {
-        if (mounted) setLoadingProfile(false);
+        if (live) setLoadingProfile(false);
       }
     })();
     return () => {
-      mounted = false;
+      live = false;
     };
-  }, [session]);
+  }, [session, navigateToDashboard]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting) return; // guard against double clicks
     setSubmitting(true);
     setError(null);
 
@@ -95,16 +103,14 @@ export default function OnboardingPage() {
     };
 
     try {
-      // Ask API to save AND set cookies/metadata, but don't follow redirects implicitly.
       const res = await fetch("/api/profile", {
         method: "POST",
         credentials: "include",
-        redirect: "manual", // important if server ever returns 303
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      if (!(res.status === 200 || res.status === 201 || res.status === 204 || res.status === 303)) {
+      if (!res.ok) {
         let msg = "Failed to save profile";
         try {
           const j = await res.json();
@@ -115,11 +121,16 @@ export default function OnboardingPage() {
         throw new Error(msg || "Failed to save profile");
       }
 
-      // Client cookie as instant fallback for middleware check
+      // local fallback cookie so middleware passes immediately
       document.cookie = "onboarded=1; path=/; max-age=1800; samesite=lax";
 
-      await session?.reload?.().catch(() => {});
-      navigateOnce("/dashboard");
+      // reload Clerk claims but don't block on it
+      session?.reload?.().catch(() => {});
+
+      // stop spinner before navigating (so if anything bounces, user isn’t stuck)
+      setSubmitting(false);
+
+      navigateToDashboard();
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
       setSubmitting(false);
@@ -188,14 +199,20 @@ export default function OnboardingPage() {
           </div>
         </div>
 
+        {/* Terms checkbox */}
         <label className="inline-flex items-center gap-2 text-sm">
           <input id="acceptTerms" name="acceptTerms" type="checkbox" required defaultChecked={prefill?.acceptTerms ?? false} />
           <span>I agree to the Terms and acknowledge the Privacy Policy *</span>
         </label>
 
+        {/* Button is explicitly below the checkbox now */}
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <button type="submit" disabled={submitting} className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50">
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50"
+        >
           {submitting ? "Saving…" : "Save & Continue"}
         </button>
       </form>
