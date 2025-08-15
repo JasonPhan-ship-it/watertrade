@@ -85,29 +85,27 @@ export default async function ListingDetailPage({ params }: PageProps) {
           )}
         </section>
 
-        {/* Right: Actions */}
-        <aside className="sticky top-4 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3">
-            <div className="text-sm font-semibold text-slate-900">
-              {row.kind === "BUY" ? "Sell to Buyer" : "Buy Now / Offer"}
-            </div>
-            <div className="mt-1 text-xs text-slate-500">
-              {row.isAuction
-                ? "Auction available — place a bid or submit an offer."
-                : row.kind === "BUY"
-                  ? "Sell it now or send an offer to the counterparty."
+        {/* Right: Actions (SELL listings only) */}
+        {row.kind === "SELL" && (
+          <aside className="sticky top-4 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3">
+              <div className="text-sm font-semibold text-slate-900">Buy Now / Offer</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {row.isAuction
+                  ? "Auction available — place a bid or submit an offer."
                   : "Buy it now or send an offer to the counterparty."}
+              </div>
             </div>
-          </div>
 
-          <ListingsActions
-            listingId={row.id}
-            kind={row.kind}                         // "SELL" | "BUY"
-            pricePerAf={pricePerAfDollars}         // dollars for UI
-            isAuction={!!row.isAuction}
-            reservePrice={reservePriceDollars}     // dollars | null
-          />
-        </aside>
+            <ListingsActions
+              listingId={row.id}
+              kind="SELL"                         // actions are only for SELL now
+              pricePerAf={pricePerAfDollars}      // dollars for UI
+              isAuction={!!row.isAuction}
+              reservePrice={reservePriceDollars}  // dollars | null
+            />
+          </aside>
+        )}
       </div>
 
       {/* Back link */}
