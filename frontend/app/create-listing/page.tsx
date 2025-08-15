@@ -35,8 +35,9 @@ export default function CreateListingPage() {
         description: String(formData.get("description") || ""),
         volumeAF: Number(formData.get("volumeAF") || 0),
         pricePerAF: Number(formData.get("pricePerAF") || 0),
+        // Only "sell" is allowed now
         type: String(formData.get("type") || "sell"),
-        district: String(formData.get("district") || ""), // <-- NEW
+        district: String(formData.get("district") || ""),
       };
 
       const res = await fetch("/api/listings", {
@@ -81,7 +82,7 @@ export default function CreateListingPage() {
               />
             </div>
 
-            {/* NEW: Water District */}
+            {/* Water District */}
             <div className="space-y-2">
               <Label htmlFor="district">Water District</Label>
               <Input
@@ -123,7 +124,7 @@ export default function CreateListingPage() {
               </div>
             </div>
 
-            {/* Native select so FormData includes "type" */}
+            {/* Type: only Sell */}
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
               <select
@@ -134,7 +135,7 @@ export default function CreateListingPage() {
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
               >
                 <option value="sell">Sell</option>
-                <option value="buy">Buy</option>
+                {/* "buy" removed */}
               </select>
             </div>
 
