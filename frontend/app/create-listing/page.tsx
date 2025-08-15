@@ -19,12 +19,14 @@ export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
 
+  // NEW: auction toggle & local reserve value (in dollars)
+  const [auction, setAuction] = React.useState(false);
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
 
-    // Capture the form element BEFORE any await so reset() is safe later
     const formEl = e.currentTarget;
 
     try {
@@ -34,10 +36,19 @@ export default function CreateListingPage() {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
         volumeAF: Number(formData.get("volumeAF") || 0),
-        pricePerAF: Number(formData.get("pricePerAF") || 0),
+        pricePerAF: Number(formData.get("pricePerAF") || 0), // dollars in UI; server can convert to cents
         // Only "sell" is allowed now
         type: String(formData.get("type") || "sell"),
         district: String(formData.get("district") || ""),
+        // NEW auction fields
+        isAuction: auction,
+        reservePrice: auction
+          ? (() => {
+              const r = formData.get("reservePrice");
+              const n = r == null || String(r).trim() === "" ? null : Number(r);
+              return Number.isFinite(n as number) ? (n as number) : null; // dollars in UI
+            })()
+          : null,
       };
 
       const res = await fetch("/api/listings", {
@@ -53,8 +64,9 @@ export default function CreateListingPage() {
         );
       }
 
-      setMessage("Listing created!");
-      formEl.reset(); // ✅ safe because we captured formEl before the await
+      setMessage(auction ? "Auction listing created!" : "Listing created!");
+      formEl.reset();
+      setAuction(false);
     } catch (err: any) {
       console.error(err);
       setMessage(err?.message || "Failed to create listing.");
@@ -71,7 +83,8 @@ export default function CreateListingPage() {
         </CardHeader>
 
         <form onSubmit={handleSubmit} className="contents">
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
+            {/* Title */}
             <div className="space-y-2">
               <Label htmlFor="title">Title</Label>
               <Input
@@ -99,6 +112,7 @@ export default function CreateListingPage() {
               </datalist>
             </div>
 
+            {/* Core numbers */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="volumeAF">Volume (AF)</Label>
@@ -112,7 +126,9 @@ export default function CreateListingPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="pricePerAF">Price per AF ($)</Label>
+                <Label htmlFor="pricePerAF">
+                  {auction ? "Starting Price / AF ($)" : "Price per AF ($)"}
+                </Label>
                 <Input
                   id="pricePerAF"
                   name="pricePerAF"
@@ -135,10 +151,10 @@ export default function CreateListingPage() {
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
               >
                 <option value="sell">Sell</option>
-                {/* "buy" removed */}
               </select>
             </div>
 
+            {/* Description */}
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
               <Textarea
@@ -147,11 +163,59 @@ export default function CreateListingPage() {
                 placeholder="Add context, district window, timing, terms..."
               />
             </div>
+
+            {/* ---------- NEW: Auction Section ---------- */}
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">List as Auction</div>
+                  <p className="mt-0.5 text-xs text-slate-600">
+                    Buyers can place bids. Optionally add a reserve price (minimum you’ll accept).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAuction((v) => !v)}
+                  className={[
+                    "h-9 rounded-xl px-3 text-sm font-medium ring-1",
+                    auction
+                      ? "bg-[#0E6A59] text-white ring-[#0E6A59]"
+                      : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  {auction ? "Auction Enabled" : "Enable Auction"}
+                </button>
+              </div>
+
+              {/* Reserve appears only when auction is on */}
+              {auction && (
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="reservePrice">Reserve Price / AF ($)</Label>
+                    <Input
+                      id="reservePrice"
+                      name="reservePrice"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="Optional"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="invisible block">_</Label>
+                    <div className="text-xs text-slate-600">
+                      Leave blank for <span className="font-medium">no reserve</span>.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* ---------- /NEW Auction Section ---------- */}
           </CardContent>
 
           <CardFooter className="flex items-center gap-3">
             <Button type="submit" disabled={loading}>
-              {loading ? "Submitting..." : "Create"}
+              {loading ? "Submitting..." : auction ? "Create Auction" : "Create"}
             </Button>
             {message && (
               <p className="text-sm text-gray-600" aria-live="polite">
