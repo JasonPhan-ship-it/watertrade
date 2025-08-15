@@ -1,11 +1,18 @@
-// app/profile/edit/page.tsx  (your EditProfilePage)
+// app/profile/edit/page.tsx
 "use client";
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 
-const DISTRICTS = ["", "Westlands Water District", "San Luis Water District", "Panoche Water District", "Arvin Edison Water District"] as const;
+const DISTRICTS = [
+  "",
+  "Westlands Water District",
+  "San Luis Water District",
+  "Panoche Water District",
+  "Arvin Edison Water District",
+] as const;
+
 const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] as const;
 
 export default function EditProfilePage() {
@@ -28,12 +35,18 @@ export default function EditProfilePage() {
 
   const isPremium = Boolean(user?.publicMetadata?.premium);
 
+  // Load profile
   React.useEffect(() => {
     let live = true;
     (async () => {
       try {
         const res = await fetch("/api/profile", { cache: "no-store", credentials: "include" });
+        if (res.status === 401) {
+          router.push(`/sign-in?redirect_url=${encodeURIComponent("/profile/edit")}`);
+          return;
+        }
         if (!res.ok) throw new Error(await res.text());
+
         const { profile } = await res.json();
         if (live && profile) {
           setForm({
@@ -51,9 +64,12 @@ export default function EditProfilePage() {
         if (live) setLoading(false);
       }
     })();
-    return () => { live = false; };
-  }, []);
+    return () => {
+      live = false;
+    };
+  }, [router]);
 
+  // Save profile
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (saving) return;
@@ -68,13 +84,17 @@ export default function EditProfilePage() {
         body: JSON.stringify({
           fullName: form.fullName,
           company: form.company,
-          role: form.role,
+          role: form.role, // server maps to tradeRole
           phone: form.phone,
           primaryDistrict: form.primaryDistrict,
           waterTypes: form.waterTypes,
         }),
       });
 
+      if (res.status === 401) {
+        router.push(`/sign-in?redirect_url=${encodeURIComponent("/profile/edit")}`);
+        return;
+      }
       if (!res.ok) {
         let msg = "Failed to save changes";
         try {
@@ -93,6 +113,7 @@ export default function EditProfilePage() {
     }
   }
 
+  // Open Stripe Billing Portal
   async function openBillingPortal() {
     if (portalLoading) return;
     setPortalLoading(true);
@@ -118,38 +139,41 @@ export default function EditProfilePage() {
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-semibold tracking-tight">Edit Profile</h1>
 
-      {/* Premium Subscription card */}
+      {/* Subscription card */}
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-slate-900">Premium Subscription</div>
             <div className="mt-1 text-xs text-slate-600">
               {isPremium ? "Your Premium plan is active." : "You are currently on the Free plan."}
             </div>
           </div>
-          {isPremium ? (
+          <div className="flex items-center gap-2">
             <button
               onClick={openBillingPortal}
               disabled={portalLoading}
               className="h-9 rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#003a2f] disabled:opacity-50"
             >
-              {portalLoading ? "Opening…" : "Manage Subscription"}
+              {portalLoading ? "Opening…" : "Manage Billing"}
             </button>
-          ) : (
-            <a
-              href="/pricing/checkout"
-              className="h-9 rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#003a2f]"
-            >
-              Upgrade to Premium
-            </a>
-          )}
+            {!isPremium && (
+              <a
+                href="/pricing/checkout"
+                className="h-9 rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Upgrade to Premium
+              </a>
+            )}
+          </div>
         </div>
       </section>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-6">
+      <form onSubmit={onSubmit} className="mt-6 space-y-6" aria-live="polite">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="fullName">Full name *</label>
+            <label className="block text-sm text-slate-600" htmlFor="fullName">
+              Full name *
+            </label>
             <input
               id="fullName"
               required
@@ -159,7 +183,9 @@ export default function EditProfilePage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="company">Company</label>
+            <label className="block text-sm text-slate-600" htmlFor="company">
+              Company
+            </label>
             <input
               id="company"
               value={form.company}
@@ -171,7 +197,9 @@ export default function EditProfilePage() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="role">Role *</label>
+            <label className="block text-sm text-slate-600" htmlFor="role">
+              Role *
+            </label>
             <select
               id="role"
               required
@@ -187,7 +215,9 @@ export default function EditProfilePage() {
             </select>
           </div>
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="phone">Phone</label>
+            <label className="block text-sm text-slate-600" htmlFor="phone">
+              Phone
+            </label>
             <input
               id="phone"
               value={form.phone}
@@ -200,7 +230,9 @@ export default function EditProfilePage() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="primaryDistrict">Primary District</label>
+            <label className="block text-sm text-slate-600" htmlFor="primaryDistrict">
+              Primary District
+            </label>
             <select
               id="primaryDistrict"
               value={form.primaryDistrict}
@@ -208,7 +240,9 @@ export default function EditProfilePage() {
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             >
               {DISTRICTS.map((d) => (
-                <option key={d} value={d}>{d ? d : "Select…"}</option>
+                <option key={d} value={d}>
+                  {d ? d : "Select…"}
+                </option>
               ))}
             </select>
           </div>
