@@ -27,12 +27,9 @@ model User {
   buyerTransactions   Transaction[] @relation("BuyerTransactions")
   sellerTransactions  Transaction[] @relation("SellerTransactions")
   bids                Bid[]                      // back-relation for Bid.bidder
-
-  // NEW: in-app notifications (optional but useful)
-  notifications       Notification[]
-
-  // NEW: One-to-one profile created via onboarding
-  profile   UserProfile?
+  notifications       Notification[]             // in-app notifications (optional)
+  profile             UserProfile?              // one-to-one profile created via onboarding
+  farms               Farm[]                    // NEW: farms owned by the user
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -170,17 +167,42 @@ model UserProfile {
   user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId           String       @unique
 
-  fullName         String
-  company          String?
-  tradeRole        ProfileRole  // Buyer, Seller, Both, District Admin
+  // NEW onboarding-friendly fields
+  firstName        String?
+  lastName         String?
+  fullName         String        // keep required; we compose from first+last in API
+  address          String?
+  email            String?
   phone            String?
+  cellPhone        String?
+  smsOptIn         Boolean       @default(false)
+  districts        String[]      @default([])   // multi-districts selected
+
+  // Legacy/optional fields retained for back-compat
+  company          String?
+  tradeRole        ProfileRole   // Buyer, Seller, Both, District Admin
   primaryDistrict  String?
-  waterTypes       String[]     @default([]) // e.g. ["CVP Allocation","Pumping Credits"]
+  waterTypes       String[]      @default([])   // e.g. ["CVP Allocation","Pumping Credits"]
 
   acceptTerms      Boolean
 
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
+
+  @@index([userId])
+}
+
+// -------- NEW: Farm records tied to a user --------
+
+model Farm {
+  id            String   @id @default(cuid())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  name          String?
+  accountNumber String?
+  district      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([userId])
 }
