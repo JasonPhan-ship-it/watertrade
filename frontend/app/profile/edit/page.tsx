@@ -1,15 +1,20 @@
+// app/profile/edit/page.tsx  (your EditProfilePage)
 "use client";
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 
 const DISTRICTS = ["", "Westlands Water District", "San Luis Water District", "Panoche Water District", "Arvin Edison Water District"] as const;
 const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] as const;
 
 export default function EditProfilePage() {
   const router = useRouter();
+  const { user, isLoaded: userLoaded } = useUser();
+
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [portalLoading, setPortalLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const [form, setForm] = React.useState({
@@ -20,6 +25,8 @@ export default function EditProfilePage() {
     primaryDistrict: "",
     waterTypes: [] as string[],
   });
+
+  const isPremium = Boolean(user?.publicMetadata?.premium);
 
   React.useEffect(() => {
     let live = true;
@@ -86,11 +93,58 @@ export default function EditProfilePage() {
     }
   }
 
-  if (loading) return <div className="mx-auto max-w-2xl p-6">Loading…</div>;
+  async function openBillingPortal() {
+    if (portalLoading) return;
+    setPortalLoading(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/billing/portal", { method: "POST" });
+      if (!r.ok) {
+        const text = await r.text().catch(() => "Failed to open billing portal");
+        throw new Error(text);
+      }
+      const { url } = await r.json();
+      if (!url) throw new Error("No billing portal URL returned");
+      window.location.href = url;
+    } catch (e: any) {
+      setError(e?.message || "Failed to open billing portal");
+      setPortalLoading(false);
+    }
+  }
+
+  if (loading || !userLoaded) return <div className="mx-auto max-w-2xl p-6">Loading…</div>;
 
   return (
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-semibold tracking-tight">Edit Profile</h1>
+
+      {/* Premium Subscription card */}
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Premium Subscription</div>
+            <div className="mt-1 text-xs text-slate-600">
+              {isPremium ? "Your Premium plan is active." : "You are currently on the Free plan."}
+            </div>
+          </div>
+          {isPremium ? (
+            <button
+              onClick={openBillingPortal}
+              disabled={portalLoading}
+              className="h-9 rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#003a2f] disabled:opacity-50"
+            >
+              {portalLoading ? "Opening…" : "Manage Subscription"}
+            </button>
+          ) : (
+            <a
+              href="/pricing/checkout"
+              className="h-9 rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#003a2f]"
+            >
+              Upgrade to Premium
+            </a>
+          )}
+        </div>
+      </section>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
