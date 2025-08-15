@@ -18,10 +18,8 @@ function useTypewriter(
     let t: ReturnType<typeof setTimeout>;
 
     if (!deleting && text === current) {
-      // full phrase shown → pause, then start deleting
       t = setTimeout(() => setDeleting(true), pauseMs);
     } else if (deleting && text.length === 0) {
-      // finished deleting → advance phrase, start typing
       t = setTimeout(() => {
         setDeleting(false);
         setI((prev) => (prev + 1) % phrases.length);
@@ -162,7 +160,6 @@ export default function HomePage() {
                         <th className="px-4 py-3 font-medium">District</th>
                         <th className="px-4 py-3 text-right font-medium">Acre-Feet</th>
                         <th className="px-4 py-3 text-right font-medium">$ / AF</th>
-                        <th className="px-4 py-3 font-medium">Availability</th>
                         <th className="px-4 py-3 font-medium">Water Type</th>
                         <th className="px-4 py-3 text-right font-medium w-36">Action</th>
                       </tr>
@@ -176,9 +173,6 @@ export default function HomePage() {
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums text-slate-900">
                             ${formatNumber(l.pricePerAf)}
-                          </td>
-                          <td className="px-4 py-3 text-slate-900">
-                            {formatWindow(l.availabilityStart, l.availabilityEnd)}
                           </td>
                           <td className="px-4 py-3">
                             <WaterTypeBadge type={l.waterType} />
@@ -459,14 +453,4 @@ function CheckIcon({ className = "" }: { className?: string }) {
 function formatNumber(n: number | string) {
   const num = typeof n === "string" ? Number(n) : n;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
-}
-
-function formatWindow(startIso: string, endIso: string) {
-  const s = new Date(startIso);
-  const e = new Date(endIso);
-  const sameYear = s.getFullYear() === e.getFullYear();
-  const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-  return sameYear
-    ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
-    : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
 }
