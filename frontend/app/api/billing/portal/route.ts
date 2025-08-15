@@ -1,55 +1,61 @@
-// app/api/billing/portal/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
 import { appUrl } from "@/lib/email";
 
 export const runtime = "nodejs";
 
-export async function POST() {
-  const { userId } = auth();
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function POST(_req: NextRequest) {
+  try {
+    const { userId } = auth();
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return NextResponse.json({ error: "Stripe not configured" }, { status: 500 });
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) return NextResponse.json({ error: "Missing STRIPE_SECRET_KEY" }, { status: 500 });
 
-  const Stripe = (await import("stripe")).default;
-  const stripe = new Stripe(key, { apiVersion: "2024-06-20" });
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(key, { apiVersion: "2024-06-20" });
 
-  // Ensure we have a local user w/ email
-  let me = await prisma.user.findUnique({ where: { clerkId: userId } });
-  if (!me) {
+    // Get Clerk user + email
     const cu = await clerkClient.users.getUser(userId);
     const email =
       cu?.emailAddresses?.find(e => e.id === cu.primaryEmailAddressId)?.emailAddress ||
-      cu?.emailAddresses?.[0]?.emailAddress ||
-      `${userId}@example.local`;
-    const name = [cu?.firstName, cu?.lastName].filter(Boolean).join(" ") || cu?.username || null;
-    me = await prisma.user.create({ data: { clerkId: userId, email, name: name ?? undefined } });
-  }
+      cu?.emailAddresses?.[0]?.emailAddress;
+    if (!email) return NextResponse.json({ error: "No email on account" }, { status: 400 });
 
-  // Find or create Stripe Customer (by email)
-  let customerId: string | null = null;
-  if (me.email) {
-    const list = await stripe.customers.list({ email: me.email, limit: 1 });
-    if (list.data.length) customerId = list.data[0]!.id;
-  }
-  if (!customerId) {
-    const c = await stripe.customers.create({
-      email: me.email || undefined,
-      name: me.name || undefined,
-      metadata: { userId: me.id, clerkId: userId },
+    // Prefer previously-saved Stripe customer id (stored in Clerk publicMetadata)
+    let customerId =
+      (cu.publicMetadata?.stripeCustomerId as string | undefined) ?? undefined;
+
+    if (!customerId) {
+      // Try to find an existing customer by email
+      const found = await stripe.customers.list({ email, limit: 1 });
+      if (found.data[0]) {
+        customerId = found.data[0].id;
+      } else {
+        // Create a customer so the portal can open (even if no sub yet)
+        const created = await stripe.customers.create({
+          email,
+          name: [cu.firstName, cu.lastName].filter(Boolean).join(" ") || cu.username || undefined,
+          metadata: { clerkId: userId },
+        });
+        customerId = created.id;
+      }
+
+      // Save for next time
+      await clerkClient.users.updateUser(userId, {
+        publicMetadata: { ...(cu.publicMetadata || {}), stripeCustomerId: customerId },
+      });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId!,
+      return_url: appUrl("/profile"),
     });
-    customerId = c.id;
-  }
 
-  const session = await stripe.billingPortal.sessions.create({
-    customer: customerId!,
-    return_url: appUrl("/profile"), // where to go after portal
-  });
-
-  if (!session.url) {
-    return NextResponse.json({ error: "Failed to create billing portal session" }, { status: 500 });
+    return NextResponse.json({ url: session.url }, { status: 200 });
+  } catch (err: any) {
+    console.error("POST /api/billing/portal error:", err);
+    const msg = typeof err?.message === "string" ? err.message : "Failed to open billing portal";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
-  return NextResponse.json({ url: session.url });
 }
