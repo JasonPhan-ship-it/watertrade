@@ -133,9 +133,14 @@ export default function DashboardPage() {
       {/* Hero / Filters */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
-          <div className="text-2xl font-semibold tracking-tight">Active Water Sales</div>
-          <div className="mt-1 text-sm text-white/80">
-            Westlands · San Luis · Panoche · Arvin Edison
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-2xl font-semibold tracking-tight">Active Water Sales</div>
+              <div className="mt-1 text-sm text-white/80">
+                Westlands · San Luis · Panoche · Arvin Edison
+              </div>
+            </div>
+            {/* Optional secondary CTA (outline) could go here if you want one above the fold */}
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -214,8 +219,19 @@ export default function DashboardPage() {
         <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
             <div className="font-medium">Listings</div>
-            <div className="text-xs text-slate-500">
-              {premium ? "You have early access." : "Premium users see full details & early access"}
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:block text-xs text-slate-500">
+                {premium ? "You have early access." : "Premium users see full details & early access"}
+              </div>
+              {/* Primary CTA — stands out on white, consistent green */}
+              <Link
+                href="/create-listing"
+                title="Create a new listing"
+                aria-label="Create a new listing"
+                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-[#004434]/30"
+              >
+                + Create Listing
+              </Link>
             </div>
           </div>
 
@@ -288,8 +304,23 @@ export default function DashboardPage() {
                     ))}
                     {(data?.listings?.length ?? 0) === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-6 py-10 text-center text-slate-500">
-                          No listings match your filters.
+                        <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
+                          <div className="mx-auto max-w-md">
+                            <div className="text-sm">
+                              No listings match your filters.
+                              {district !== "All Districts" || waterType !== "Any Water Type"
+                                ? " Try clearing filters, or create a new listing."
+                                : " Get started by creating your first listing."}
+                            </div>
+                            <div className="mt-4">
+                              <Link
+                                href="/create-listing"
+                                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-[#004434]/30"
+                              >
+                                + Create Listing
+                              </Link>
+                            </div>
+                          </div>
                         </td>
                       </tr>
                     )}
