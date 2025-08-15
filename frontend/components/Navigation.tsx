@@ -1,3 +1,4 @@
+// components/Navigation.tsx (or wherever your component lives)
 "use client";
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
@@ -8,13 +9,13 @@ import Link from "next/link";
 
 export default function Navigation() {
   const { user, isSignedIn } = useUser();
+  const isPremium = Boolean(user?.publicMetadata?.premium);
 
   return (
     <nav className="bg-white shadow-sm border-b mt-8 sm:mt-10 md:mt-14 pb-4 md:pb-6">
       <div className="container mx-auto px-4">
-        {/* Taller header */}
         <div className="flex items-center h-20 md:h-24">
-          {/* Left: Logo lockup */}
+          {/* Left: Logo */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <Link href="/" className="flex items-center gap-3" aria-label="Water Traders home">
               <Image
@@ -56,6 +57,16 @@ export default function Navigation() {
                   <User className="w-4 h-4 mr-1" />
                   {user?.firstName || user?.username || "Profile"}
                 </Link>
+
+                {isPremium && (
+                  <span
+                    title="Premium active"
+                    className="inline-flex items-center rounded-full bg-[#0E6A59] px-2.5 py-1 text-[11px] font-semibold text-white"
+                  >
+                    Premium
+                  </span>
+                )}
+
                 <SignOutButton>
                   <Button variant="outline">
                     <LogOut className="w-4 h-4 mr-2" />
