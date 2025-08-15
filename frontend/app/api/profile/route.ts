@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import { ProfileRole } from "@prisma/client"; // ➜ enum for tradeRole
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -50,6 +51,13 @@ function uniqStrings(arr: string[] | undefined | null) {
     if (s) set.add(s);
   }
   return Array.from(set);
+}
+
+function parseProfileRole(val: unknown): ProfileRole | null {
+  if (typeof val !== "string") return null;
+  const key = val.toUpperCase().replace(/\s+/g, "_");
+  // @ts-expect-error index by dynamic key
+  return ProfileRole[key] ?? null;
 }
 
 // --- Routes ---------------------------------------------------------------
@@ -108,7 +116,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Optional: if you still receive legacy payloads, pick them up (no hard validation)
+    // Legacy/optional fields
     const company: string | undefined = body.company ? String(body.company) : undefined;
     const waterTypes: string[] | undefined = Array.isArray(body.waterTypes)
       ? body.waterTypes.map((w: any) => String(w))
@@ -116,6 +124,10 @@ export async function POST(req: Request) {
     const primaryDistrict: string | undefined = body.primaryDistrict
       ? String(body.primaryDistrict)
       : undefined;
+
+    // ➜ Ensure tradeRole present to satisfy schema (defaults to BOTH)
+    const parsedRole =
+      parseProfileRole(body.tradeRole) ?? parseProfileRole(body.role) ?? ProfileRole.BOTH;
 
     // Persist within a transaction: upsert profile, replace farms
     const result = await prisma.$transaction(async (tx) => {
@@ -132,12 +144,12 @@ export async function POST(req: Request) {
           cellPhone,
           smsOptIn,
           districts,
-          // legacy-friendly fields (if your schema still has them; otherwise remove)
+          // legacy-friendly fields (if schema includes them)
           ...(company !== undefined ? { company } : {}),
           ...(primaryDistrict !== undefined ? { primaryDistrict } : {}),
           ...(waterTypes !== undefined ? { waterTypes } : {}),
-          // Mark terms as accepted during onboarding if you do that here
           acceptTerms: true,
+          tradeRole: parsedRole, // ★ required by schema
         },
         update: {
           firstName,
@@ -153,6 +165,7 @@ export async function POST(req: Request) {
           ...(primaryDistrict !== undefined ? { primaryDistrict } : {}),
           ...(waterTypes !== undefined ? { waterTypes } : {}),
           acceptTerms: true,
+          tradeRole: parsedRole, // keep in sync
         },
       });
 
@@ -186,12 +199,12 @@ export async function POST(req: Request) {
       return { profile, farms: savedFarms };
     });
 
-    // Update Clerk metadata and basic fields (non-blocking)
+    // Update Clerk metadata and basics (non-blocking)
     clerkClient.users
       .updateUser(userId, {
         firstName,
         lastName,
-        publicMetadata: { onboarded: true, smsOptIn },
+        publicMetadata: { onboarded: true, smsOptIn, tradeRole: parsedRole },
       })
       .catch(() => {});
 
@@ -254,6 +267,10 @@ export async function PUT(req: Request) {
     const acceptTerms: boolean | undefined =
       typeof body.acceptTerms === "boolean" ? body.acceptTerms : undefined;
 
+    // If provided, parse; otherwise do NOT overwrite existing
+    const parsedRole: ProfileRole | undefined =
+      parseProfileRole(body.tradeRole) ?? parseProfileRole(body.role) ?? undefined;
+
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.userProfile.update({
         where: { userId: localUser.id },
@@ -271,6 +288,7 @@ export async function PUT(req: Request) {
           ...(primaryDistrict !== undefined ? { primaryDistrict } : {}),
           ...(waterTypes !== undefined ? { waterTypes } : {}),
           ...(acceptTerms !== undefined ? { acceptTerms } : {}),
+          ...(parsedRole !== undefined ? { tradeRole: parsedRole } : {}),
         },
       });
 
@@ -304,12 +322,11 @@ export async function PUT(req: Request) {
       return { profile: updated, farms: savedFarms };
     });
 
-    // Keep Clerk basics in sync (non-blocking)
     clerkClient.users
       .updateUser(userId, {
         firstName,
         lastName,
-        publicMetadata: { onboarded: true, smsOptIn },
+        publicMetadata: { onboarded: true, smsOptIn, ...(parsedRole ? { tradeRole: parsedRole } : {}) },
       })
       .catch(() => {});
 
