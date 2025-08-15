@@ -79,8 +79,12 @@ export default function HomePage() {
       })
       .then((json) => active && setData(json))
       .catch((e) => active && setError(e.message || "Failed to load"))
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const stats = useMemo(() => {
@@ -124,7 +128,7 @@ export default function HomePage() {
                 Create Account
               </Link>
               <Link
-                href="/create-listing"
+                href="/sign-in"
                 className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 px-5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Sign In
@@ -235,48 +239,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Membership cards */}
-      <section className="bg-white py-12">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6">
-          <h2 className="text-xl font-bold text-slate-900">Membership</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Start free. Upgrade to unlock early-access listings, analytics, and alerts.
-          </p>
-
-          <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
-            <MembershipCard
-              name="Free"
-              subtitle="For getting started"
-              priceLabel="$0"
-              ctaLabel="Create Free Account"
-              ctaHref="/sign-up"
-              highlights={[
-                "Browse public listings",
-                "Basic search & filters",
-                "Create 1 active listing",
-                "Email support",
-              ]}
-            />
-            <MembershipCard
-              featured
-              name="Premium"
-              subtitle="For active buyers & sellers"
-              priceLabel="Contact for pricing"
-              ctaLabel="Upgrade to Premium"
-              ctaHref="/pricing"
-              highlights={[
-                "Early access to new listings",
-                "Advanced analytics & historical $/AF",
-                "District window alerts (email/SMS)",
-                "Saved searches & instant notifications",
-                "Bulk bid tools & offer history",
-                "Priority support",
-              ]}
-            />
-          </div>
-        </div>
-      </section>
-
       <Footer />
       <CookieBanner />
     </div>
@@ -305,11 +267,16 @@ function CookieBanner() {
   };
 
   return (
-    <div role="dialog" aria-live="polite" className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6">
+    <div
+      role="dialog"
+      aria-live="polite"
+      className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6"
+    >
       <div className="rounded-2xl border border-white/20 bg-[#004434] p-4 text-white shadow-lg">
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm leading-5">
-            We use cookies to improve your experience, analyze traffic, and provide essential site functionality.{" "}
+            We use cookies to improve your experience, analyze traffic, and provide essential site
+            functionality.{" "}
             <Link href="/privacy-policy" className="underline text-white/90 hover:text-white">
               Learn more
             </Link>
@@ -354,65 +321,17 @@ function WaterTypeBadge({ type }: { type: string }) {
   );
 }
 
-function MembershipCard(props: {
-  name: string;
-  subtitle: string;
-  priceLabel: string;
-  ctaLabel: string;
-  ctaHref: string;
-  highlights: string[];
-  featured?: boolean;
-}) {
-  const { name, subtitle, priceLabel, ctaLabel, ctaHref, highlights, featured } = props;
-  return (
-    <div
-      className={[
-        "relative rounded-2xl border bg-white p-6 shadow-sm",
-        featured ? "border-[#0E6A59] ring-1 ring-[#0E6A59]/20" : "border-slate-200",
-      ].join(" ")}
-    >
-      {featured && (
-        <span className="absolute -top-3 left-6 rounded-full bg-[#0E6A59] px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-          Most Popular
-        </span>
-      )}
-      <div className="flex items-baseline justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-slate-900">{name}</h3>
-          <p className="text-xs text-slate-600">{subtitle}</p>
-        </div>
-        <div className="text-sm font-semibold text-slate-900">{priceLabel}</div>
-      </div>
-
-      <ul className="mt-4 space-y-2 text-sm">
-        {highlights.map((h, i) => (
-          <li key={i} className="flex items-start gap-2 text-slate-700">
-            <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#0E6A59]" />
-            <span>{h}</span>
-          </li>
-        ))}
-      </ul>
-
-      <Link
-        href={ctaHref}
-        className={[
-          "mt-5 inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-medium",
-          featured
-            ? "bg-[#0E6A59] text-white hover:bg-[#0c5c4d]"
-            : "border border-slate-300 text-slate-700 hover:bg-slate-50",
-        ].join(" ")}
-      >
-        {ctaLabel}
-      </Link>
-    </div>
-  );
-}
-
 /* ---------------------- Inline SVG Icons ---------------------- */
 
 function TagIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg
+      viewBox="0 0 24 24"
+      className="h-full w-full"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
       <path d="M20 13l-7 7-9-9V4h7l9 9z" />
       <circle cx="7.5" cy="7.5" r="1.5" />
     </svg>
@@ -421,7 +340,13 @@ function TagIcon() {
 
 function ClipboardIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg
+      viewBox="0 0 24 24"
+      className="h-full w-full"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
       <path d="M9 5h6a2 2 0 012 2v12H7V7a2 2 0 012-2z" />
       <path d="M9 3h6v4H9z" />
       <path d="M8 11h8M8 15h8" />
@@ -431,19 +356,17 @@ function ClipboardIcon() {
 
 function ChartIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg
+      viewBox="0 0 24 24"
+      className="h-full w-full"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
       <path d="M4 19h16" />
       <path d="M7 16V9" />
       <path d="M12 16V5" />
       <path d="M17 16v-6" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M20 6L9 17l-5-5" />
     </svg>
   );
 }
