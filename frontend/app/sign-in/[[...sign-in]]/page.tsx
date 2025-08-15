@@ -8,7 +8,7 @@ export default function SignInPage() {
         routing="path"
         path="/sign-in"
         signUpUrl="/sign-up"
-        // ⬇️ After sign-in, we run the checker that sets the cookie or routes to onboarding
+        // After sign-in: checker decides onboarding vs dashboard
         afterSignInUrl="/api/auth/after-sign-in?next=/dashboard"
         appearance={{
           variables: { colorPrimary: "#004434" },
@@ -21,8 +21,7 @@ export default function SignInPage() {
             formFieldLabel: "text-slate-700",
             footerActionLink: "text-[#004434] hover:text-[#00392f]",
             formFieldAction: "text-[#004434] hover:text-[#00392f]",
-            socialButtonsBlockButton:
-              "rounded-xl border-slate-300 hover:bg-slate-50",
+            socialButtonsBlockButton: "rounded-xl border-slate-300 hover:bg-slate-50",
           },
         }}
       />
