@@ -7,24 +7,7 @@ import { prisma } from "@/lib/prisma";
 
 const isProd = process.env.NODE_ENV === "production";
 
-const ROLE_MAP: Record<string, "BUYER" | "SELLER" | "BOTH" | "DISTRICT_ADMIN"> = {
-  buyer: "BUYER",
-  seller: "SELLER",
-  both: "BOTH",
-  "district admin": "DISTRICT_ADMIN",
-  district_admin: "DISTRICT_ADMIN",
-  BUYER: "BUYER",
-  SELLER: "SELLER",
-  BOTH: "BOTH",
-  DISTRICT_ADMIN: "DISTRICT_ADMIN",
-};
-
-function normalizeRole(input: unknown) {
-  if (!input) return null;
-  const s = String(input).trim();
-  const key = s.toLowerCase();
-  return ROLE_MAP[key] ?? ROLE_MAP[s] ?? null;
-}
+// --- Helpers --------------------------------------------------------------
 
 async function getOrCreateLocalUser(clerkUserId: string) {
   let user = await prisma.user.findUnique({ where: { clerkId: clerkUserId } });
@@ -59,71 +42,168 @@ function onboardedCookie(userId: string) {
     .join("; ");
 }
 
-// ---------- GET /api/profile ----------
+function uniqStrings(arr: string[] | undefined | null) {
+  if (!arr) return [];
+  const set = new Set<string>();
+  for (const v of arr) {
+    const s = String(v || "").trim();
+    if (s) set.add(s);
+  }
+  return Array.from(set);
+}
+
+// --- Routes ---------------------------------------------------------------
+
+// GET /api/profile
+// Returns { profile, farms }
 export async function GET() {
   const { userId } = auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const user = await getOrCreateLocalUser(userId);
-  const profile = await prisma.userProfile.findUnique({ where: { userId: user.id } });
 
-  return NextResponse.json({ profile }, { status: 200 });
+  const profile = await prisma.userProfile.findUnique({
+    where: { userId: user.id },
+  });
+
+  const farms = await prisma.farm.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return NextResponse.json({ profile, farms }, { status: 200 });
 }
 
-// ---------- POST /api/profile (create or update) ----------
+// POST /api/profile
+// Creates or replaces profile + replaces farm list (atomic)
 export async function POST(req: Request) {
   try {
     const { userId } = auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     const localUser = await getOrCreateLocalUser(userId);
 
     const body = await req.json().catch(() => ({}));
-    const {
-      fullName,
-      company,
-      role,
-      phone,
-      primaryDistrict,
-      waterTypes = [],
-      acceptTerms,
-    } = body || {};
 
-    const tradeRole = normalizeRole(role);
-    if (!fullName || !tradeRole || acceptTerms !== true) {
+    // Accept new onboarding shape; tolerate legacy fields gracefully
+    const firstName: string = (body.firstName ?? "").trim();
+    const lastName: string = (body.lastName ?? "").trim();
+    const address: string = (body.address ?? "").trim();
+    const email: string = (body.email ?? "").trim();
+    const phone: string = (body.phone ?? "").trim();
+    const cellPhone: string = (body.cellPhone ?? "").trim();
+    const smsOptIn: boolean = Boolean(body.smsOptIn);
+    const districts: string[] = uniqStrings(body.districts);
+
+    const farms: Array<{
+      name?: string;
+      accountNumber?: string;
+      district?: string;
+    }> = Array.isArray(body.farms) ? body.farms : [];
+
+    // Basic validation for the new flow
+    if (!firstName || !lastName || !email) {
       return NextResponse.json(
-        { error: "Missing or invalid fields", details: { fullName, role, acceptTerms } },
+        { error: "First name, last name, and email are required." },
         { status: 400 }
       );
     }
 
-    const profile = await prisma.userProfile.upsert({
-      where: { userId: localUser.id },
-      create: {
-        userId: localUser.id,
-        fullName,
-        company,
-        tradeRole,
-        phone,
-        primaryDistrict,
-        waterTypes,
-        acceptTerms: true,
-      },
-      update: {
-        fullName,
-        company,
-        tradeRole,
-        phone,
-        primaryDistrict,
-        waterTypes,
-        acceptTerms: true,
-      },
+    // Optional: if you still receive legacy payloads, pick them up (no hard validation)
+    const company: string | undefined = body.company ? String(body.company) : undefined;
+    const waterTypes: string[] | undefined = Array.isArray(body.waterTypes)
+      ? body.waterTypes.map((w: any) => String(w))
+      : undefined;
+    const primaryDistrict: string | undefined = body.primaryDistrict
+      ? String(body.primaryDistrict)
+      : undefined;
+
+    // Persist within a transaction: upsert profile, replace farms
+    const result = await prisma.$transaction(async (tx) => {
+      const profile = await tx.userProfile.upsert({
+        where: { userId: localUser.id },
+        create: {
+          userId: localUser.id,
+          firstName,
+          lastName,
+          fullName: `${firstName} ${lastName}`.trim(),
+          address,
+          email,
+          phone,
+          cellPhone,
+          smsOptIn,
+          districts,
+          // legacy-friendly fields (if your schema still has them; otherwise remove)
+          ...(company !== undefined ? { company } : {}),
+          ...(primaryDistrict !== undefined ? { primaryDistrict } : {}),
+          ...(waterTypes !== undefined ? { waterTypes } : {}),
+          // Mark terms as accepted during onboarding if you do that here
+          acceptTerms: true,
+        },
+        update: {
+          firstName,
+          lastName,
+          fullName: `${firstName} ${lastName}`.trim(),
+          address,
+          email,
+          phone,
+          cellPhone,
+          smsOptIn,
+          districts,
+          ...(company !== undefined ? { company } : {}),
+          ...(primaryDistrict !== undefined ? { primaryDistrict } : {}),
+          ...(waterTypes !== undefined ? { waterTypes } : {}),
+          acceptTerms: true,
+        },
+      });
+
+      // Replace farms for this user
+      await tx.farm.deleteMany({ where: { userId: localUser.id } });
+
+      const cleanFarms = farms
+        .map((f) => ({
+          name: String(f?.name ?? "").trim(),
+          accountNumber: String(f?.accountNumber ?? "").trim(),
+          district: String(f?.district ?? "").trim(),
+        }))
+        .filter((f) => f.name || f.accountNumber || f.district);
+
+      if (cleanFarms.length > 0) {
+        await tx.farm.createMany({
+          data: cleanFarms.map((f) => ({
+            userId: localUser.id,
+            name: f.name || null,
+            accountNumber: f.accountNumber || null,
+            district: f.district || null,
+          })),
+        });
+      }
+
+      const savedFarms = await tx.farm.findMany({
+        where: { userId: localUser.id },
+        orderBy: { createdAt: "asc" },
+      });
+
+      return { profile, farms: savedFarms };
     });
 
-    // mark onboarded in Clerk (do not await)
-    clerkClient.users.updateUser(userId, { publicMetadata: { onboarded: true } }).catch(() => {});
+    // Update Clerk metadata and basic fields (non-blocking)
+    clerkClient.users
+      .updateUser(userId, {
+        firstName,
+        lastName,
+        publicMetadata: { onboarded: true, smsOptIn },
+      })
+      .catch(() => {});
 
-    const res = NextResponse.json({ ok: true, profile }, { status: 200 });
+    // Optionally keep local user email in sync if it's empty/placeholder
+    if (!localUser.email || localUser.email.endsWith("@example.invalid")) {
+      await prisma.user.update({
+        where: { id: localUser.id },
+        data: { email },
+      });
+    }
+
+    const res = NextResponse.json({ ok: true, ...result }, { status: 200 });
     res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
   } catch (e: any) {
@@ -131,44 +211,109 @@ export async function POST(req: Request) {
   }
 }
 
-// ---------- PUT /api/profile (edit) ----------
+// PUT /api/profile
+// Full update (same shape as POST). Replaces farms, too.
 export async function PUT(req: Request) {
   try {
     const { userId } = auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     const localUser = await getOrCreateLocalUser(userId);
-    const body = await req.json().catch(() => ({}));
-    const {
-      fullName,
-      company,
-      role,
-      phone,
-      primaryDistrict,
-      waterTypes = [],
-      acceptTerms,
-    } = body || {};
 
-    const tradeRole = normalizeRole(role);
-    if (!fullName || !tradeRole) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+
+    const firstName: string = (body.firstName ?? "").trim();
+    const lastName: string = (body.lastName ?? "").trim();
+    const address: string = (body.address ?? "").trim();
+    const email: string = (body.email ?? "").trim();
+    const phone: string = (body.phone ?? "").trim();
+    const cellPhone: string = (body.cellPhone ?? "").trim();
+    const smsOptIn: boolean = Boolean(body.smsOptIn);
+    const districts: string[] = uniqStrings(body.districts);
+
+    const farms: Array<{
+      name?: string;
+      accountNumber?: string;
+      district?: string;
+    }> = Array.isArray(body.farms) ? body.farms : [];
+
+    if (!firstName || !lastName || !email) {
+      return NextResponse.json(
+        { error: "First name, last name, and email are required." },
+        { status: 400 }
+      );
     }
 
-    const updated = await prisma.userProfile.update({
-      where: { userId: localUser.id },
-      data: {
-        fullName,
-        company,
-        tradeRole,
-        phone,
-        primaryDistrict,
-        waterTypes,
-        // acceptTerms not toggled here unless included:
-        ...(typeof acceptTerms === "boolean" ? { acceptTerms } : {}),
-      },
+    // Legacy optional fields
+    const company: string | undefined = body.company ? String(body.company) : undefined;
+    const waterTypes: string[] | undefined = Array.isArray(body.waterTypes)
+      ? body.waterTypes.map((w: any) => String(w))
+      : undefined;
+    const primaryDistrict: string | undefined = body.primaryDistrict
+      ? String(body.primaryDistrict)
+      : undefined;
+    const acceptTerms: boolean | undefined =
+      typeof body.acceptTerms === "boolean" ? body.acceptTerms : undefined;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.userProfile.update({
+        where: { userId: localUser.id },
+        data: {
+          firstName,
+          lastName,
+          fullName: `${firstName} ${lastName}`.trim(),
+          address,
+          email,
+          phone,
+          cellPhone,
+          smsOptIn,
+          districts,
+          ...(company !== undefined ? { company } : {}),
+          ...(primaryDistrict !== undefined ? { primaryDistrict } : {}),
+          ...(waterTypes !== undefined ? { waterTypes } : {}),
+          ...(acceptTerms !== undefined ? { acceptTerms } : {}),
+        },
+      });
+
+      // Replace farms
+      await tx.farm.deleteMany({ where: { userId: localUser.id } });
+
+      const cleanFarms = farms
+        .map((f) => ({
+          name: String(f?.name ?? "").trim(),
+          accountNumber: String(f?.accountNumber ?? "").trim(),
+          district: String(f?.district ?? "").trim(),
+        }))
+        .filter((f) => f.name || f.accountNumber || f.district);
+
+      if (cleanFarms.length > 0) {
+        await tx.farm.createMany({
+          data: cleanFarms.map((f) => ({
+            userId: localUser.id,
+            name: f.name || null,
+            accountNumber: f.accountNumber || null,
+            district: f.district || null,
+          })),
+        });
+      }
+
+      const savedFarms = await tx.farm.findMany({
+        where: { userId: localUser.id },
+        orderBy: { createdAt: "asc" },
+      });
+
+      return { profile: updated, farms: savedFarms };
     });
 
-    const res = NextResponse.json({ ok: true, profile: updated }, { status: 200 });
+    // Keep Clerk basics in sync (non-blocking)
+    clerkClient.users
+      .updateUser(userId, {
+        firstName,
+        lastName,
+        publicMetadata: { onboarded: true, smsOptIn },
+      })
+      .catch(() => {});
+
+    const res = NextResponse.json({ ok: true, ...result }, { status: 200 });
     res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
   } catch (e: any) {
