@@ -28,8 +28,8 @@ model User {
   sellerTransactions  Transaction[] @relation("SellerTransactions")
   bids                Bid[]                      // back-relation for Bid.bidder
   notifications       Notification[]             // in-app notifications (optional)
-  profile             UserProfile?              // one-to-one profile created via onboarding
-  farms               Farm[]                    // NEW: farms owned by the user
+  profile             UserProfile?               // one-to-one profile created via onboarding
+  farms               Farm[]                     // farms owned by the user
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -41,7 +41,7 @@ model Listing {
   id           String         @id @default(cuid())
 
   // Handy for UI & search
-  title        String         @default("Untitled Listing")    // default added
+  title        String         @default("Untitled Listing")
   description  String?
 
   // Core water trade fields
@@ -52,8 +52,8 @@ model Listing {
   availability String
 
   // Real dates for sorting/filters
-  availabilityStart DateTime  @default(now())                 // default added
-  availabilityEnd   DateTime  @default(now())                 // default added
+  availabilityStart DateTime  @default(now())
+  availabilityEnd   DateTime  @default(now())
 
   acreFeet     Int
   pricePerAF   Int                 // cents
@@ -70,10 +70,10 @@ model Listing {
   // Auction options
   isAuction      Boolean       @default(false)
   auctionEndsAt  DateTime?
-  reservePrice   Int?              // cents per AF
+  reservePrice   Int?          // cents per AF
 
   bids          Bid[]
-  transactions  Transaction[]      // back-relation for Transaction.listing
+  transactions  Transaction[]  // back-relation for Transaction.listing
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -117,14 +117,14 @@ model Transaction {
   pricePerAF  Int        // cents
   totalAmount Int        // cents (acreFeet * pricePerAF)
 
-  // --- NEW: snapshots so emails/audits are stable over time ---
-  listingTitleSnapshot String?   // copy of Listing.title at creation
+  // Snapshots for audits/emails
+  listingTitleSnapshot String?
   sellerNameSnapshot   String?
   sellerEmailSnapshot  String?
   buyerNameSnapshot    String?
   buyerEmailSnapshot   String?
 
-  // --- NEW: offer-specific niceties (optional) ---
+  // Offer niceties (optional)
   offerExpiresAt       DateTime?
 
   paymentMethod PaymentMethod?
@@ -141,7 +141,7 @@ model Transaction {
   @@index([sellerId])
   @@index([status])
   @@index([listingId])
-  @@index([createdAt]) // NEW
+  @@index([createdAt])
 }
 
 model Signature {
@@ -150,7 +150,7 @@ model Signature {
   transaction        Transaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   transactionId      String
 
-  party              Party        // SELLER or BUYER
+  party              Party
   docusignEnvelopeId String?
   status             SignatureStatus @default(PENDING)
   completedAt        DateTime?
@@ -167,24 +167,24 @@ model UserProfile {
   user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId           String       @unique
 
-  // NEW onboarding-friendly fields
+  // Onboarding-friendly fields
   firstName        String?
   lastName         String?
-  fullName         String        // keep required; we compose from first+last in API
+  fullName         String       // required single source of truth
   address          String?
   email            String?
   phone            String?
   cellPhone        String?
-  smsOptIn         Boolean       @default(false)
-  districts        String[]      @default([])   // multi-districts selected
+  smsOptIn         Boolean      @default(false)
+  districts        String[]     @default([])
 
   // Legacy/optional fields retained for back-compat
   company          String?
-  tradeRole        ProfileRole   // Buyer, Seller, Both, District Admin
+  tradeRole        ProfileRole  @default(BOTH)   // <-- default added
   primaryDistrict  String?
-  waterTypes       String[]      @default([])   // e.g. ["CVP Allocation","Pumping Credits"]
+  waterTypes       String[]     @default([])
 
-  acceptTerms      Boolean
+  acceptTerms      Boolean      @default(false)  // <-- default added
 
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -192,7 +192,7 @@ model UserProfile {
   @@index([userId])
 }
 
-// -------- NEW: Farm records tied to a user --------
+// -------- Farm records tied to a user --------
 
 model Farm {
   id            String   @id @default(cuid())
@@ -207,7 +207,7 @@ model Farm {
   @@index([userId])
 }
 
-// -------- NEW: Notifications (optional but recommended) --------
+// -------- Notifications (optional) --------
 
 model Notification {
   id                   String   @id @default(cuid())
@@ -217,10 +217,9 @@ model Notification {
   kind                 NotificationKind
   subject              String
   body                 String?
-  meta                 Json?        // arbitrary payload; e.g., { listingId, transactionId, pricePerAF }
-  deliveredAt          DateTime?    // when email actually went out
+  meta                 Json?
+  deliveredAt          DateTime?
 
-  // Handy cross-links (not FK to keep flexible)
   relatedListingId     String?
   relatedTransactionId String?
 
@@ -293,7 +292,6 @@ enum ListingKind {
   BUY
 }
 
-// NEW: kinds of notifications we send
 enum NotificationKind {
   BID_RECEIVED
   BUY_NOW_STARTED
