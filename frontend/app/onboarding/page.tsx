@@ -5,7 +5,6 @@ import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession, useUser } from "@clerk/nextjs";
 
-// Preset districts (you can expand this list)
 const PRESET_DISTRICTS = [
   "Westlands Water District",
   "San Luis Water District",
@@ -16,14 +15,15 @@ const PRESET_DISTRICTS = [
 type FarmRow = {
   name: string;
   accountNumber: string;
-  district: string; // value or "__OTHER__"
-  otherDistrict?: string; // if district === "__OTHER__"
+  district: string;      // value or "__OTHER__"
+  otherDistrict?: string;
 };
 
 export default function OnboardingPage() {
   const router = useRouter();
   const sp = useSearchParams();
-  const nextPath = sp?.get("next") ?? "/dashboard"; // used only if user already onboarded
+  const force = sp?.get("force") === "1";              // allow QA to force-show the form
+  const nextPath = sp?.get("next") ?? "/dashboard";
 
   const { session, isLoaded: sessionLoaded } = useSession();
   const { user, isLoaded: userLoaded } = useUser();
@@ -32,28 +32,23 @@ export default function OnboardingPage() {
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // District selection state
   const [presetSelected, setPresetSelected] = React.useState<Set<string>>(new Set());
   const [customDistricts, setCustomDistricts] = React.useState<string[]>([]);
   const [customDistrictInput, setCustomDistrictInput] = React.useState("");
 
-  // Farms
   const [farms, setFarms] = React.useState<FarmRow[]>([
     { name: "", accountNumber: "", district: "", otherDistrict: "" },
   ]);
 
-  // helper: timeout wrapper so we don't hang forever
   function withTimeout<T>(p: Promise<T>, ms = 15000) {
-    const t = setTimeout(() => {
-      // just race-reject; the fetch below doesn't take an AbortSignal here
-    }, ms);
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), ms);
     return Promise.race([
       p,
       new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
-    ]).finally(() => clearTimeout(t));
+    ]).finally(() => clearTimeout(to));
   }
 
-  // One-shot redirect
   const redirectedRef = React.useRef(false);
   const goNext = React.useCallback(() => {
     if (redirectedRef.current) return;
@@ -61,33 +56,69 @@ export default function OnboardingPage() {
     router.replace(nextPath);
   }, [router, nextPath]);
 
-  // If profile exists -> skip onboarding
+  const hasOnboardedCookie = React.useCallback(() => {
+    if (typeof document === "undefined") return false;
+    return document.cookie.split("; ").some((c) => c.startsWith("onboarded="));
+  }, []);
+
+  // Auth + short-circuit logic
   React.useEffect(() => {
     if (!sessionLoaded || !userLoaded) return;
+
+    // Not signed in? Send to sign-in (preserve return)
+    if (!session || !user) {
+      router.replace(`/sign-in?redirect_url=${encodeURIComponent("/onboarding?next=" + nextPath)}`);
+      return;
+    }
+
+    // Skip onboarding if forced signals say "onboarded"
+    if (!force) {
+      const metaOnboarded = Boolean(user.publicMetadata?.onboarded);
+      if (metaOnboarded || hasOnboardedCookie()) {
+        goNext();
+        return;
+      }
+    }
+
+    // Otherwise check server profile
     let live = true;
     (async () => {
       try {
-        const res = await withTimeout(fetch("/api/profile", { cache: "no-store", credentials: "include" }), 10000);
-        if (!res.ok) throw new Error(await res.text());
+        const res = await withTimeout(
+          fetch("/api/profile", { cache: "no-store", credentials: "include" }),
+          10000
+        );
+        if (!res.ok) {
+          // If unauthorized, bounce to sign-in
+          if (res.status === 401) {
+            router.replace(`/sign-in?redirect_url=${encodeURIComponent("/onboarding?next=" + nextPath)}`);
+            return;
+          }
+          throw new Error(await res.text());
+        }
         const json = await res.json();
         if (!live) return;
 
-        if (json?.profile) {
-          if (user?.id) document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
+        if (!force && json?.profile) {
+          // set cookie for future short-circuit and move on
+          if (user?.id) {
+            document.cookie = `onboarded=${encodeURIComponent(user.id)}; Path=/; Max-Age=1800; SameSite=Lax`;
+          }
           session?.reload?.().catch(() => {});
           goNext();
           return;
         }
       } catch {
-        // no profile -> show form
+        // fall through to show form
       } finally {
         if (live) setLoadingProfile(false);
       }
     })();
+
     return () => {
       live = false;
     };
-  }, [sessionLoaded, userLoaded, session, user?.id, goNext]);
+  }, [sessionLoaded, userLoaded, session, user, force, goNext, hasOnboardedCookie, router, nextPath]);
 
   // District helpers
   const togglePreset = (d: string) => {
@@ -97,14 +128,12 @@ export default function OnboardingPage() {
       return n;
     });
   };
-
   const addCustomDistrict = () => {
     const v = customDistrictInput.trim();
     if (!v) return;
     if (!customDistricts.includes(v)) setCustomDistricts((a) => [...a, v]);
     setCustomDistrictInput("");
   };
-
   const removeCustomDistrict = (idx: number) => {
     setCustomDistricts((a) => a.filter((_, i) => i !== idx));
   };
@@ -113,7 +142,6 @@ export default function OnboardingPage() {
   const updateFarm = (i: number, patch: Partial<FarmRow>) => {
     setFarms((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
-
   const addFarm = () => setFarms((rows) => [...rows, { name: "", accountNumber: "", district: "", otherDistrict: "" }]);
   const removeFarm = (i: number) => setFarms((rows) => rows.filter((_, idx) => idx !== i));
 
@@ -124,29 +152,25 @@ export default function OnboardingPage() {
     setError(null);
 
     const fd = new FormData(e.currentTarget);
-
     const firstName = String(fd.get("firstName") || "").trim();
-    const lastName = String(fd.get("lastName") || "").trim();
-    const address = String(fd.get("address") || "").trim();
-    const email = String(fd.get("email") || "").trim();
-    const phone = String(fd.get("phone") || "").trim();
+    const lastName  = String(fd.get("lastName") || "").trim();
+    const address   = String(fd.get("address") || "").trim();
+    const email     = String(fd.get("email") || "").trim();
+    const phone     = String(fd.get("phone") || "").trim();
     const cellPhone = String(fd.get("cellPhone") || "").trim();
-    const smsOptIn = fd.get("smsOptIn") === "on";
+    const smsOptIn  = fd.get("smsOptIn") === "on";
 
-    // Selected districts = presets + customs
     const selectedDistricts = Array.from(presetSelected);
     for (const d of customDistricts) if (!selectedDistricts.includes(d)) selectedDistricts.push(d);
 
-    // Normalize farms: keep only meaningful rows
     const farmsPayload = farms
       .map((f) => ({
-        name: f.name?.trim() || "",
-        accountNumber: f.accountNumber?.trim() || "",
+        name: (f.name || "").trim(),
+        accountNumber: (f.accountNumber || "").trim(),
         district: f.district === "__OTHER__" ? (f.otherDistrict || "").trim() : (f.district || "").trim(),
       }))
       .filter((f) => f.name || f.accountNumber || f.district);
 
-    // Basic validation
     if (!firstName || !lastName || !email) {
       setSubmitting(false);
       setError("First name, last name, and email are required.");
@@ -162,7 +186,7 @@ export default function OnboardingPage() {
       cellPhone,
       smsOptIn,
       districts: selectedDistricts,
-      farms: farmsPayload, // [{ name, accountNumber, district }]
+      farms: farmsPayload,
     };
 
     try {
@@ -175,22 +199,17 @@ export default function OnboardingPage() {
         }),
         15000
       );
-
       if (!res.ok) {
         let msg = "Failed to save profile";
-        try {
-          const j = await res.json();
-          msg = j?.error || msg;
-        } catch {
-          msg = await res.text();
-        }
+        try { msg = (await res.json())?.error || msg; } catch { msg = await res.text(); }
         throw new Error(msg);
       }
 
-      if (user?.id) document.cookie = `onboarded=${user.id}; Path=/; Max-Age=1800; SameSite=Lax`;
+      if (user?.id) {
+        document.cookie = `onboarded=${encodeURIComponent(user.id)}; Path=/; Max-Age=1800; SameSite=Lax`;
+      }
       session?.reload?.().catch(() => {});
-      // After initial onboarding, go to Membership selection step
-      router.push("/onboarding/membership");
+      router.push(`/onboarding/membership?next=${encodeURIComponent(nextPath)}`);
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
     } finally {
@@ -202,7 +221,6 @@ export default function OnboardingPage() {
     return <div className="mx-auto max-w-2xl p-6">Loading…</div>;
   }
 
-  // Build a suggested list for farm district selects
   const suggestedFarmDistricts = Array.from(new Set(["", ...PRESET_DISTRICTS, ...customDistricts]));
 
   return (
@@ -254,7 +272,7 @@ export default function OnboardingPage() {
           </div>
         </div>
 
-        {/* Water Districts (multi with customs) */}
+        {/* Water Districts */}
         <div>
           <div className="text-sm font-medium text-slate-700">Water Districts (select all that apply)</div>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
