@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
-// Optional: common districts for suggestions (free-text still allowed)
+// Optional suggestions (free-text is allowed)
 const DISTRICTS = [
   "Westlands Water District",
   "San Luis Water District",
@@ -15,12 +15,16 @@ const DISTRICTS = [
   "Arvin Edison Water District",
 ];
 
+type DurationUnit = "hours" | "days";
+
 export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
-
-  // NEW: auction toggle & local reserve value (in dollars)
   const [auction, setAuction] = React.useState(false);
+
+  // NEW: auction duration controls
+  const [auctionDuration, setAuctionDuration] = React.useState<number>(24); // sensible default
+  const [auctionDurationUnit, setAuctionDurationUnit] = React.useState<DurationUnit>("hours");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -32,23 +36,59 @@ export default function CreateListingPage() {
     try {
       const formData = new FormData(formEl);
 
+      const title = String(formData.get("title") || "");
+      const description = String(formData.get("description") || "");
+      const volumeAF = Number(formData.get("volumeAF") || 0);
+      const pricePerAF = Number(formData.get("pricePerAF") || 0); // dollars in UI; convert server-side
+      const district = String(formData.get("district") || "");
+
+      // Build auctionEndsAt if auction is enabled
+      let auctionEndsAt: string | null = null;
+      if (auction) {
+        const n = Number(auctionDuration);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error("Please enter a valid auction duration greater than 0.");
+        }
+        const now = new Date();
+        if (auctionDurationUnit === "days") {
+          now.setUTCDate(now.getUTCDate() + n);
+        } else {
+          // hours
+          now.setUTCHours(now.getUTCHours() + n);
+        }
+        auctionEndsAt = now.toISOString();
+      }
+
+      // Reserve price (optional)
+      const reserveRaw = formData.get("reservePrice");
+      const reservePrice =
+        auction && reserveRaw != null && String(reserveRaw).trim() !== ""
+          ? Number(reserveRaw)
+          : null;
+
+      // Basic client-side validation
+      if (!title.trim()) throw new Error("Title is required.");
+      if (!district.trim()) throw new Error("Water District is required.");
+      if (!volumeAF || volumeAF <= 0) throw new Error("Volume (AF) must be greater than 0.");
+      if (!auction && (!pricePerAF || pricePerAF <= 0)) {
+        throw new Error("Price per AF must be greater than 0 for non-auction listings.");
+      }
+      if (auction && !auctionEndsAt) {
+        throw new Error("Auction duration must be specified.");
+      }
+
       const payload = {
-        title: String(formData.get("title") || ""),
-        description: String(formData.get("description") || ""),
-        volumeAF: Number(formData.get("volumeAF") || 0),
-        pricePerAF: Number(formData.get("pricePerAF") || 0), // dollars in UI; server can convert to cents
-        // Only "sell" is allowed now
-        type: String(formData.get("type") || "sell"),
-        district: String(formData.get("district") || ""),
-        // NEW auction fields
+        title,
+        description,
+        volumeAF,
+        pricePerAF, // starting price if auction
+        type: "sell", // only sell for now
+        district,
+
+        // auction fields
         isAuction: auction,
-        reservePrice: auction
-          ? (() => {
-              const r = formData.get("reservePrice");
-              const n = r == null || String(r).trim() === "" ? null : Number(r);
-              return Number.isFinite(n as number) ? (n as number) : null; // dollars in UI
-            })()
-          : null,
+        reservePrice,       // dollars (server converts to cents)
+        auctionEndsAt,      // ISO (server should validate > now)
       };
 
       const res = await fetch("/api/listings", {
@@ -67,6 +107,8 @@ export default function CreateListingPage() {
       setMessage(auction ? "Auction listing created!" : "Listing created!");
       formEl.reset();
       setAuction(false);
+      setAuctionDuration(24);
+      setAuctionDurationUnit("hours");
     } catch (err: any) {
       console.error(err);
       setMessage(err?.message || "Failed to create listing.");
@@ -140,7 +182,7 @@ export default function CreateListingPage() {
               </div>
             </div>
 
-            {/* Type: only Sell */}
+            {/* Type: only Sell (kept for future flexibility) */}
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
               <select
@@ -164,13 +206,13 @@ export default function CreateListingPage() {
               />
             </div>
 
-            {/* ---------- NEW: Auction Section ---------- */}
+            {/* ---------- Auction Section ---------- */}
             <div className="rounded-2xl border border-slate-200 p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">List as Auction</div>
                   <p className="mt-0.5 text-xs text-slate-600">
-                    Buyers can place bids. Optionally add a reserve price (minimum you’ll accept).
+                    Buyers can place bids. Set starting price, optional reserve, and how long the auction runs.
                   </p>
                 </div>
                 <button
@@ -187,9 +229,9 @@ export default function CreateListingPage() {
                 </button>
               </div>
 
-              {/* Reserve appears only when auction is on */}
               {auction && (
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  {/* Reserve price (optional) */}
                   <div className="space-y-2">
                     <Label htmlFor="reservePrice">Reserve Price / AF ($)</Label>
                     <Input
@@ -201,16 +243,42 @@ export default function CreateListingPage() {
                       placeholder="Optional"
                     />
                   </div>
+
+                  {/* Auction duration numeric */}
                   <div className="space-y-2">
-                    <Label className="invisible block">_</Label>
-                    <div className="text-xs text-slate-600">
-                      Leave blank for <span className="font-medium">no reserve</span>.
-                    </div>
+                    <Label htmlFor="auctionDuration">Auction Length</Label>
+                    <Input
+                      id="auctionDuration"
+                      name="auctionDuration"
+                      type="number"
+                      min={1}
+                      step="1"
+                      value={auctionDuration}
+                      onChange={(e) => setAuctionDuration(Number(e.target.value))}
+                      required
+                    />
+                  </div>
+
+                  {/* Auction duration unit */}
+                  <div className="space-y-2">
+                    <Label htmlFor="auctionDurationUnit" className="invisible">
+                      Unit
+                    </Label>
+                    <select
+                      id="auctionDurationUnit"
+                      name="auctionDurationUnit"
+                      value={auctionDurationUnit}
+                      onChange={(e) => setAuctionDurationUnit(e.target.value as DurationUnit)}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="hours">Hours</option>
+                      <option value="days">Days</option>
+                    </select>
                   </div>
                 </div>
               )}
             </div>
-            {/* ---------- /NEW Auction Section ---------- */}
+            {/* ---------- /Auction Section ---------- */}
           </CardContent>
 
           <CardFooter className="flex items-center gap-3">
