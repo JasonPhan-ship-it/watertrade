@@ -1,3 +1,4 @@
+// frontend/app/layout.tsx
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
@@ -15,32 +16,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <ClerkProvider
       appearance={{
-        // Global theme variables
         variables: {
           colorPrimary: "#004434",
-          colorText: "#0f172a",        // slate-900
+          colorText: "#0f172a",
           colorBackground: "white",
-          borderRadius: "1rem",        // ~rounded-2xl
+          borderRadius: "1rem",
           fontFamily: inter.style.fontFamily,
         },
-        // Tailwind-y element overrides
         elements: {
           card: "rounded-2xl border border-slate-200 shadow-lg",
           headerTitle: "text-slate-900",
           headerSubtitle: "text-slate-600",
-
           formButtonPrimary:
             "bg-[#004434] hover:bg-[#00392f] text-white rounded-xl focus:ring-2 focus:ring-[#004434]",
-
           formFieldInput:
             "rounded-xl border-slate-300 focus:ring-2 focus:ring-[#004434] focus:border-[#004434]",
           formFieldLabel: "text-slate-700",
-
           footerActionLink: "text-[#004434] hover:text-[#00392f]",
           formFieldAction: "text-[#004434] hover:text-[#00392f]",
-
-          socialButtonsBlockButton:
-            "rounded-xl border-slate-300 hover:bg-slate-50",
+          socialButtonsBlockButton: "rounded-xl border-slate-300 hover:bg-slate-50",
         },
       }}
     >
