@@ -91,6 +91,7 @@ export default function OnboardingPage() {
     const fd = new FormData(e.currentTarget);
     const firstName = String(fd.get("firstName") || "").trim();
     const lastName  = String(fd.get("lastName")  || "").trim();
+    const fullName  = [firstName, lastName].filter(Boolean).join(" "); // <-- combine here
     const address   = String(fd.get("address")   || "").trim();
     const email     = String(fd.get("email")     || "").trim();
     const phone     = String(fd.get("phone")     || "").trim();
@@ -108,15 +109,14 @@ export default function OnboardingPage() {
       }))
       .filter((f) => f.name || f.accountNumber || f.district);
 
-    if (!firstName || !lastName || !email) {
+    if (!fullName || !email) {
       setSubmitting(false);
-      setError("First name, last name, and email are required.");
+      setError("Full name and email are required.");
       return;
     }
 
     const payload = {
-      firstName,
-      lastName,
+      fullName,   // <-- send fullName instead of separate fields
       address,
       email,
       phone,
@@ -140,14 +140,11 @@ export default function OnboardingPage() {
         throw new Error(msg);
       }
 
-      // Optional cookie (non-HttpOnly) for quick future checks
       if (user?.id) {
         document.cookie = `onboarded=${encodeURIComponent(String(user.id))}; Path=/; Max-Age=1800; SameSite=Lax`;
       }
 
-      // Go to membership or straight to nextPath
       router.push(`/onboarding/membership?next=${encodeURIComponent(nextPath)}`);
-      // or: router.replace(nextPath);
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
       setSubmitting(false);
@@ -156,7 +153,7 @@ export default function OnboardingPage() {
 
   const suggestedFarmDistricts = Array.from(new Set(["", ...PRESET_DISTRICTS, ...customDistricts]));
 
-  // Render form immediately (if user isn’t signed-in, middleware + effect will redirect)
+  // Render form
   return (
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-semibold tracking-tight">Complete your profile</h1>
