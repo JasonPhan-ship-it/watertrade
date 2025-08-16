@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import Footer from "@/components/Footer";
 
@@ -64,6 +65,13 @@ type ApiResponse = {
   limited?: boolean;
 };
 
+const DISTRICT_LOGOS = [
+  { name: "Westlands Water District", src: "/logos/westlands.svg", width: 180, height: 48 },
+  { name: "San Luis Water District",  src: "/logos/san-luis.svg",  width: 180, height: 48 },
+  { name: "Panoche Water District",   src: "/logos/panoche.svg",   width: 180, height: 48 },
+  { name: "Arvin Edison Water District", src: "/logos/arvin-edison.svg", width: 200, height: 48 },
+] as const;
+
 export default function HomePage() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -88,7 +96,7 @@ export default function HomePage() {
   }, []);
 
   const stats = useMemo(() => {
-    const rows = data?.listings ?? [];
+    const rows = (data?.listings ?? []);
     const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
     const avg =
       rows.length > 0
@@ -201,6 +209,33 @@ export default function HomePage() {
             <p className="mt-3 text-center text-xs text-slate-500">
               Preview shows a small subset. Sign in to see full listings &amp; analytics.
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* District logo cloud */}
+      <section aria-label="District partners" className="border-t bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+          <p className="text-center text-xs font-medium tracking-wide text-slate-500">
+            Working with growers across these districts
+          </p>
+
+          <div className="mt-4 grid grid-cols-2 items-center justify-items-center gap-x-8 gap-y-6 sm:grid-cols-4">
+            {DISTRICT_LOGOS.map((logo) => (
+              <div
+                key={logo.name}
+                className="opacity-80 grayscale transition hover:opacity-100 hover:grayscale-0 focus-within:opacity-100"
+              >
+                <Image
+                  src={logo.src}
+                  alt={logo.name}
+                  width={logo.width}
+                  height={logo.height}
+                  className="h-8 w-auto object-contain sm:h-10"
+                  priority={false}
+                />
+              </div>
+            ))}
           </div>
         </div>
       </section>
