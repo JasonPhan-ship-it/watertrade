@@ -1,9 +1,8 @@
-// app/onboarding/page.tsx
 "use client";
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useSession, useUser } from "@clerk/nextjs";
 
 const PRESET_DISTRICTS = [
   "Westlands Water District",
@@ -15,253 +14,104 @@ const PRESET_DISTRICTS = [
 type FarmRow = {
   name: string;
   accountNumber: string;
-  district: string;
+  district: string;      // value or "__OTHER__"
   otherDistrict?: string;
 };
 
 export default function OnboardingPage() {
   const router = useRouter();
   const sp = useSearchParams();
-
-  const force = sp?.get("force") === "1";
+  const force = sp?.get("force") === "1";              // allow QA to force-show the form
   const nextPath = sp?.get("next") ?? "/dashboard";
 
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const { session, isLoaded: sessionLoaded } = useSession();
   const { user, isLoaded: userLoaded } = useUser();
 
-  const [submitting, setSubmitting] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  const [presetSelected, setPresetSelected] = React.useState<Set<string>>(new Set());
-  const [customDistricts, setCustomDistricts] = React.useState<string[]>([]);
-  const [customDistrictInput, setCustomDistrictInput] = React.useState("");
-
-  const [farms, setFarms] = React.useState<FarmRow[]>([
-    { name: "", accountNumber: "", district: "", otherDistrict: "" },
-  ]);
-
-  // If not signed-in, bounce to sign-in
-  React.useEffect(() => {
-    if (!authLoaded) return;
-    if (!isSignedIn) {
-      const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
-      router.replace(`/sign-in?redirect_url=${encodeURIComponent(ret)}`);
-    }
-  }, [authLoaded, isSignedIn, nextPath, router]);
-
-  // If user already onboarded, skip
-  React.useEffect(() => {
-    if (!userLoaded) return;
-    if (!force && user?.publicMetadata?.onboarded === true) {
-      router.replace(nextPath);
-    }
-  }, [userLoaded, user?.publicMetadata?.onboarded, force, nextPath, router]);
-
-  // ---------- Helpers ----------
-  const togglePreset = (d: string) => {
-    setPresetSelected((prev) => {
-      const n = new Set(prev);
-      if (n.has(d)) n.delete(d);
-      else n.add(d);
-      return n;
-    });
-  };
-  const addCustomDistrict = () => {
-    const v = customDistrictInput.trim();
-    if (!v) return;
-    if (!customDistricts.includes(v)) setCustomDistricts((a) => [...a, v]);
-    setCustomDistrictInput("");
-  };
-  const removeCustomDistrict = (idx: number) => {
-    setCustomDistricts((a) => a.filter((_, i) => i !== idx));
-  };
-  const updateFarm = (i: number, patch: Partial<FarmRow>) => {
-    setFarms((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  };
-  const addFarm = () =>
-    setFarms((rows) => [...rows, { name: "", accountNumber: "", district: "", otherDistrict: "" }]);
-  const removeFarm = (i: number) => setFarms((rows) => rows.filter((_, idx) => idx !== i));
-
-  // ---------- Submit ----------
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (submitting) return;
-    setSubmitting(true);
-    setError(null);
-
-    const fd = new FormData(e.currentTarget);
-    const fullName = String(fd.get("fullName") || "").trim();
-    const address = String(fd.get("address") || "").trim();
-    const email = String(fd.get("email") || "").trim();
-    const phone = String(fd.get("phone") || "").trim();
-    const cellPhone = String(fd.get("cellPhone") || "").trim();
-    const smsOptIn = fd.get("smsOptIn") === "on";
-
-    const selectedDistricts = Array.from(presetSelected);
-    for (const d of customDistricts) if (!selectedDistricts.includes(d)) selectedDistricts.push(d);
-
-    const farmsPayload = farms
-      .map((f) => ({
-        name: (f.name || "").trim(),
-        accountNumber: (f.accountNumber || "").trim(),
-        district:
-          f.district === "__OTHER__"
-            ? (f.otherDistrict || "").trim()
-            : (f.district || "").trim(),
-      }))
-      .filter((f) => f.name || f.accountNumber || f.district);
-
-    if (!fullName || !email) {
-      setSubmitting(false);
-      setError("Full name and email are required.");
-      return;
-    }
-
-    const payload = {
-      fullName,
-      address,
-      email,
-      phone,
-      cellPhone,
-      smsOptIn,
-      districts: selectedDistricts,
-      farms: farmsPayload,
-    };
-
-    try {
-      const res = await fetch("/api/onboarding/init", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        let msg = "Failed to save profile";
-        try {
-          msg = (await res.json())?.error || msg;
-        } catch {
-          msg = await res.text();
-        }
-        throw new Error(msg);
-      }
-
-      if (user?.id) {
-        document.cookie = `onboarded=${encodeURIComponent(
-          String(user.id)
-        )}; Path=/; Max-Age=1800; SameSite=Lax`;
-      }
-
-      router.push(`/onboarding/membership?next=${encodeURIComponent(nextPath)}`);
-    } catch (err: any) {
-      setError(err?.message || "Failed to save profile");
-      setSubmitting(false);
-    }
+  if (!sessionLoaded || !userLoaded) {
+    return <div>Loading...</div>;
   }
 
-  const suggestedFarmDistricts = Array.from(
-    new Set(["", ...PRESET_DISTRICTS, ...customDistricts])
-  );
+  // ⚠️ Currently no check for whether onboarding is already completed.
+  // Always renders form, unless you add logic.
 
-  // ---------- Render ----------
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+
+    const body = {
+      firstName: formData.get("firstName"),
+      lastName: formData.get("lastName"),
+      farmName: formData.get("farmName"),
+      accountNumber: formData.get("accountNumber"),
+      district: formData.get("district"),
+    };
+
+    await fetch("/api/onboarding/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    router.push(nextPath);
+  };
+
   return (
     <div className="mx-auto max-w-2xl p-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Complete your profile</h1>
-      <p className="mt-1 text-slate-600">
-        Tell us a bit about you to personalize Water Traders.
-      </p>
-
-      <form onSubmit={onSubmit} className="mt-6 space-y-6">
-        {/* Full Name */}
+      <h1 className="text-2xl font-bold mb-4">Onboarding</h1>
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-slate-600" htmlFor="fullName">
-            Full Name *
-          </label>
+          <label className="block text-sm font-medium">First Name</label>
           <input
-            id="fullName"
-            name="fullName"
+            type="text"
+            name="firstName"
             required
-            defaultValue={user?.fullName || ""}
-            autoComplete="name"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
           />
         </div>
-
-        {/* Address */}
         <div>
-          <label className="block text-sm text-slate-600" htmlFor="address">
-            Address
-          </label>
+          <label className="block text-sm font-medium">Last Name</label>
           <input
-            id="address"
-            name="address"
-            placeholder="Street, City, State ZIP"
-            autoComplete="street-address"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            type="text"
+            name="lastName"
+            required
+            className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
           />
         </div>
-
-        {/* Contact */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="block text-sm text-slate-600" htmlFor="email">
-              Email *
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              defaultValue={user?.primaryEmailAddress?.emailAddress || ""}
-              autoComplete="email"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-600" htmlFor="phone">
-              Phone
-            </label>
-            <input
-              id="phone"
-              name="phone"
-              inputMode="tel"
-              autoComplete="tel"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            />
-          </div>
+        <div>
+          <label className="block text-sm font-medium">Farm Name</label>
+          <input
+            type="text"
+            name="farmName"
+            className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+          />
         </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="block text-sm text-slate-600" htmlFor="cellPhone">
-              Cell Phone
-            </label>
-            <input
-              id="cellPhone"
-              name="cellPhone"
-              inputMode="tel"
-              autoComplete="tel-national"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            />
-          </div>
-          <div className="flex items-end">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input id="smsOptIn" name="smsOptIn" type="checkbox" />
-              <span>SMS Opt-In</span>
-            </label>
-          </div>
+        <div>
+          <label className="block text-sm font-medium">Account Number</label>
+          <input
+            type="text"
+            name="accountNumber"
+            className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+          />
         </div>
-
-        {/* Districts + Farms remain unchanged … */}
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
+        <div>
+          <label className="block text-sm font-medium">District</label>
+          <select
+            name="district"
+            className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+          >
+            {PRESET_DISTRICTS.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+            <option value="__OTHER__">Other</option>
+          </select>
+        </div>
         <button
           type="submit"
-          disabled={submitting}
-          className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50"
+          className="bg-[#0E6A59] text-white px-4 py-2 rounded-md"
         >
-          {submitting ? "Saving…" : "Save & Continue"}
+          Continue
         </button>
       </form>
     </div>
