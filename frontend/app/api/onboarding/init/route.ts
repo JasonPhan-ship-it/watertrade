@@ -12,7 +12,7 @@ const isProd = process.env.NODE_ENV === "production";
 
 function onboardedCookie(userId: string) {
   return [
-    `onboarded=${userId}`,
+    `onboarded=${encodeURIComponent(userId)}`,
     "Path=/",
     "Max-Age=1800", // 30 minutes
     "HttpOnly",
@@ -56,74 +56,81 @@ function uniqStrings(arr: unknown): string[] {
 function parseProfileRole(val: unknown): ProfileRole | null {
   if (typeof val !== "string") return null;
   const key = val.toUpperCase().replace(/\s+/g, "_");
-  // @ts-expect-error dynamic index
+  // @ts-expect-error enum dynamic index
   return ProfileRole[key] ?? null;
 }
 
 /* -------------------------------- GET --------------------------------
-   Returns whether the current user is onboarded.
-   Frontend can call this on /onboarding load and redirect if true.
+   Unified gate: returns { onboarded: boolean } based on Clerk OR DB.
+   Use this in /onboarding to skip returning users immediately, and
+   in gated pages (via a hook) to avoid ping-pong redirects.
 ----------------------------------------------------------------------- */
 export async function GET() {
-  const { userId } = auth();
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { userId, sessionId } = auth();
+  if (!userId || !sessionId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const localUser = await getOrCreateLocalUser(userId);
 
-  const profile = await prisma.userProfile.findUnique({
+  // Clerk signal
+  const cu = await clerkClient.users.getUser(userId).catch(() => null);
+  const clerkOnboarded = cu?.publicMetadata?.onboarded === true;
+
+  // DB signal
+  const db = await prisma.userProfile.findUnique({
     where: { userId: localUser.id },
-    select: {
-      userId: true,
-      firstName: true,
-      lastName: true,
-      fullName: true,
-      email: true,
-      acceptTerms: true,
-      tradeRole: true,
-      districts: true,
-      primaryDistrict: true,
-      waterTypes: true,
-    },
+    select: { acceptTerms: true },
   });
+  const dbOnboarded = Boolean(db?.acceptTerms);
 
-  // Consider "onboarded" if a profile exists and acceptTerms is true (tweak if needed)
-  const onboarded = Boolean(profile?.acceptTerms);
+  const onboarded = clerkOnboarded || dbOnboarded;
 
-  const res = NextResponse.json({ onboarded, profile });
+  const res = NextResponse.json({ onboarded });
   if (onboarded) res.headers.append("Set-Cookie", onboardedCookie(userId));
   return res;
 }
 
 /* -------------------------------- POST ------------------------------- 
    Creates/updates the profile from onboarding form and marks onboarded.
-   This is idempotent; calling it again just updates the profile.
+   Idempotent: calling again updates fields and keeps onboarded=true.
 ----------------------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
-    const { userId } = auth();
-    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { userId, sessionId } = auth();
+    if (!userId || !sessionId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const localUser = await getOrCreateLocalUser(userId);
 
     const body = await req.json().catch(() => ({}));
 
-    // Minimal onboarding fields — adjust to match your form
+    // Minimal identity
     const firstName: string = String(body.firstName ?? "").trim();
     const lastName: string = String(body.lastName ?? "").trim();
     const email: string = String(body.email ?? "").trim();
+
+    // Optional contact
     const phone: string = String(body.phone ?? "").trim();
     const address: string = String(body.address ?? "").trim();
     const smsOptIn: boolean = Boolean(body.smsOptIn);
 
-    // Optional / role + preferences
-    const role = parseProfileRole(body.tradeRole) ?? parseProfileRole(body.role) ?? ProfileRole.BOTH;
+    // Preferences
+    const role =
+      parseProfileRole(body.tradeRole) ??
+      parseProfileRole(body.role) ??
+      ProfileRole.BOTH;
+
     const districts: string[] = uniqStrings(body.districts);
-    const primaryDistrict: string | undefined = body.primaryDistrict ? String(body.primaryDistrict) : undefined;
+    const primaryDistrict: string | undefined =
+      typeof body.primaryDistrict === "string" && body.primaryDistrict.trim()
+        ? String(body.primaryDistrict).trim()
+        : undefined;
     const waterTypes: string[] = uniqStrings(body.waterTypes);
 
     // Farms (optional)
     const farmsIn: any[] = Array.isArray(body.farms) ? body.farms : [];
 
-    // Require minimal identity
     if (!firstName || !lastName || !email) {
       return NextResponse.json(
         { error: "First name, last name, and email are required." },
@@ -131,8 +138,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const profile = await tx.userProfile.upsert({
+    await prisma.$transaction(async (tx) => {
+      // Upsert profile and mark onboarded
+      await tx.userProfile.upsert({
         where: { userId: localUser.id },
         create: {
           userId: localUser.id,
@@ -147,7 +155,7 @@ export async function POST(req: Request) {
           districts,
           ...(primaryDistrict ? { primaryDistrict } : {}),
           ...(waterTypes.length ? { waterTypes } : {}),
-          acceptTerms: true, // <-- mark onboarded
+          acceptTerms: true, // onboarded flag
         },
         update: {
           firstName,
@@ -161,13 +169,14 @@ export async function POST(req: Request) {
           districts,
           ...(primaryDistrict ? { primaryDistrict } : { primaryDistrict: null }),
           ...(waterTypes.length ? { waterTypes } : { waterTypes: [] }),
-          acceptTerms: true, // <-- keep onboarded
+          acceptTerms: true,
         },
       });
 
       // Replace farms if provided
       if (Array.isArray(farmsIn)) {
         await tx.farm.deleteMany({ where: { userId: localUser.id } });
+
         const cleanFarms = farmsIn
           .map((f) => ({
             name: String(f?.name ?? "").trim(),
@@ -187,11 +196,9 @@ export async function POST(req: Request) {
           });
         }
       }
-
-      return profile;
     });
 
-    // Clerk sync (non-blocking)
+    // Sync Clerk metadata (non-blocking)
     clerkClient.users
       .updateUser(userId, {
         firstName,
@@ -208,7 +215,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // Respond + cookie to help client-side redirect logic
     const res = NextResponse.json({ ok: true, onboarded: true });
     res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
