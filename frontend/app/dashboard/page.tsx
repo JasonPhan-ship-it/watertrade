@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useAuth, useUser } from "@clerk/nextjs";
 
 /**
  * Lightweight gate that keeps the dashboard in a "Loading…" state
@@ -10,8 +11,6 @@ import Link from "next/link";
  * or /api/onboarding/init). This mirrors middleware so there’s no
  * client-side redirect ping-pong; it just avoids flicker.
  */
-import { useAuth, useUser } from "@clerk/nextjs";
-
 function useOnboardedGate() {
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { isLoaded: userLoaded, user } = useUser();
@@ -48,13 +47,10 @@ function useOnboardedGate() {
           }
         }
       } catch {
-        // ignore network error; middleware is ultimate gate anyway
+        // ignore; middleware is the ultimate gate anyway
       }
-
-      // If not onboarded, middleware will redirect away from this page.
-      // Keep showing "checking" so we don't flash the dashboard.
+      // Not onboarded → middleware will redirect away; keep "checking".
     })();
-
     return () => {
       active = false;
     };
@@ -194,7 +190,11 @@ export default function DashboardPage() {
 
   if (checking) {
     // This prevents any UI flash while middleware determines routing.
-    return <div className="min-h-screen bg-slate-50"><main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">Loading…</main></div>;
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">Loading…</main>
+      </div>
+    );
   }
 
   return (
@@ -454,8 +454,6 @@ function Stat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-
-type SortDir = "asc" | "desc";
 
 function Th({
   label,
