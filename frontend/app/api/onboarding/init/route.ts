@@ -60,10 +60,15 @@ function parseProfileRole(val: unknown): ProfileRole | null {
   return ProfileRole[key] ?? null;
 }
 
+function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts.slice(-1)[0] };
+}
+
 /* -------------------------------- GET --------------------------------
    Unified gate: returns { onboarded: boolean } based on Clerk OR DB.
-   Use this in /onboarding to skip returning users immediately, and
-   in gated pages (via a hook) to avoid ping-pong redirects.
 ----------------------------------------------------------------------- */
 export async function GET() {
   const { userId, sessionId } = auth();
@@ -92,8 +97,10 @@ export async function GET() {
 }
 
 /* -------------------------------- POST ------------------------------- 
-   Creates/updates the profile from onboarding form and marks onboarded.
-   Idempotent: calling again updates fields and keeps onboarded=true.
+   Expects: { fullName, email, [phone], [address], [smsOptIn], [role|tradeRole],
+              [districts], [primaryDistrict], [waterTypes], [farms] }
+   - Derives firstName/lastName from fullName for Prisma & Clerk.
+   - Idempotent: updates if profile exists; marks acceptTerms=true.
 ----------------------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
@@ -105,9 +112,8 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
-    // Minimal identity
-    const firstName: string = String(body.firstName ?? "").trim();
-    const lastName: string = String(body.lastName ?? "").trim();
+    // Minimal identity (now based on fullName)
+    const fullName: string = String(body.fullName ?? "").trim();
     const email: string = String(body.email ?? "").trim();
 
     // Optional contact
@@ -131,12 +137,14 @@ export async function POST(req: Request) {
     // Farms (optional)
     const farmsIn: any[] = Array.isArray(body.farms) ? body.farms : [];
 
-    if (!firstName || !lastName || !email) {
+    if (!fullName || !email) {
       return NextResponse.json(
-        { error: "First name, last name, and email are required." },
+        { error: "Full name and email are required." },
         { status: 400 }
       );
     }
+
+    const { firstName, lastName } = splitFullName(fullName);
 
     await prisma.$transaction(async (tx) => {
       // Upsert profile and mark onboarded
@@ -146,7 +154,7 @@ export async function POST(req: Request) {
           userId: localUser.id,
           firstName,
           lastName,
-          fullName: `${firstName} ${lastName}`.trim(),
+          fullName,
           email,
           phone,
           address,
@@ -160,7 +168,7 @@ export async function POST(req: Request) {
         update: {
           firstName,
           lastName,
-          fullName: `${firstName} ${lastName}`.trim(),
+          fullName,
           email,
           phone,
           address,
@@ -198,7 +206,7 @@ export async function POST(req: Request) {
       }
     });
 
-    // Sync Clerk metadata (non-blocking)
+    // Sync Clerk profile (non-blocking) with derived names
     clerkClient.users
       .updateUser(userId, {
         firstName,
