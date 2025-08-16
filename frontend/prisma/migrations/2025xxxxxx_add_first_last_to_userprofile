@@ -1,0 +1,36 @@
+-- Migration: 2025xxxxxx_add_first_last_to_userprofile
+-- DB: PostgreSQL
+-- Notes:
+--  - Your tables are PascalCase (quoted). Keep the double quotes.
+--  - This migration is idempotent (IF NOT EXISTS) so re-applying is safe.
+
+-- 1) Add the new columns
+ALTER TABLE "UserProfile"
+  ADD COLUMN IF NOT EXISTS "firstName"  TEXT,
+  ADD COLUMN IF NOT EXISTS "lastName"   TEXT;
+
+-- 2) Optional: backfill first/last from fullName (best-effort split)
+DO $$
+BEGIN
+  -- Only run if fullName exists
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'UserProfile'
+      AND column_name = 'fullName'
+  ) THEN
+    -- Fill firstName using the first word of fullName
+    UPDATE "UserProfile"
+    SET "firstName" = COALESCE(NULLIF(split_part("fullName", ' ', 1), ''), "firstName")
+    WHERE "firstName" IS NULL
+      AND COALESCE("fullName", '') <> '';
+
+    -- Fill lastName with the remainder after the first space
+    UPDATE "UserProfile"
+    SET "lastName" = NULLIF(substring("fullName" FROM position(' ' IN "fullName") + 1), '')
+    WHERE "lastName" IS NULL
+      AND position(' ' IN "fullName") > 0;
+  END IF;
+END$$;
+2025xxxxxx_add_first_last_to_userprofile
