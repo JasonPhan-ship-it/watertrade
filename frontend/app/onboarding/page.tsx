@@ -3,7 +3,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSession, useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 
 const PRESET_DISTRICTS = [
   "Westlands Water District",
@@ -22,10 +22,13 @@ type FarmRow = {
 export default function OnboardingPage() {
   const router = useRouter();
   const sp = useSearchParams();
-  const force = sp?.get("force") === "1";              // allow QA to force-show the form
+
+  // Allow QA to force-show the form; otherwise normal short-circuit applies
+  const force = sp?.get("force") === "1";
   const nextPath = sp?.get("next") ?? "/dashboard";
 
-  const { session, isLoaded: sessionLoaded } = useSession();
+  // Prefer useAuth() for sign-in state; useUser() for profile metadata
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { user, isLoaded: userLoaded } = useUser();
 
   const [submitting, setSubmitting] = React.useState(false);
@@ -40,87 +43,82 @@ export default function OnboardingPage() {
     { name: "", accountNumber: "", district: "", otherDistrict: "" },
   ]);
 
-  function withTimeout<T>(p: Promise<T>, ms = 15000) {
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), ms);
-    return Promise.race([
-      p,
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
-    ]).finally(() => clearTimeout(to));
-  }
-
-  const redirectedRef = React.useRef(false);
+  // Single-navigation guard
+  const didNavigateRef = React.useRef(false);
   const goNext = React.useCallback(() => {
-    if (redirectedRef.current) return;
-    redirectedRef.current = true;
+    if (didNavigateRef.current) return;
+    didNavigateRef.current = true;
     router.replace(nextPath);
   }, [router, nextPath]);
 
-  const hasOnboardedCookie = React.useCallback(() => {
-    if (typeof document === "undefined") return false;
-    return document.cookie.split("; ").some((c) => c.startsWith("onboarded="));
-  }, []);
-
-  // Auth + short-circuit logic
+  // ---------- Auth + onboarding short-circuit ----------
   React.useEffect(() => {
-    if (!sessionLoaded || !userLoaded) return;
+    if (!authLoaded || !userLoaded) return;
 
-    // Not signed in? Send to sign-in (preserve return)
-    if (!session || !user) {
-      router.replace(`/sign-in?redirect_url=${encodeURIComponent("/onboarding?next=" + nextPath)}`);
+    // Not signed in -> to sign-in and come back here
+    if (!isSignedIn) {
+      const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
+      router.replace(`/sign-in?redirect_url=${encodeURIComponent(ret)}`);
       return;
     }
 
-    // Skip onboarding if forced signals say "onboarded"
-    if (!force) {
-      const metaOnboarded = Boolean(user.publicMetadata?.onboarded);
-      if (metaOnboarded || hasOnboardedCookie()) {
-        goNext();
-        return;
-      }
+    // If Clerk metadata already says we're onboarded, skip
+    if (!force && user?.publicMetadata?.onboarded === true) {
+      goNext();
+      return;
     }
 
-    // Otherwise check server profile
-    let live = true;
+    // Otherwise, check the server profile.
+    let active = true;
+    const ctrl = new AbortController();
+
     (async () => {
       try {
-        const res = await withTimeout(
-          fetch("/api/profile", { cache: "no-store", credentials: "include" }),
-          10000
-        );
+        const res = await fetch("/api/profile", {
+          cache: "no-store",
+          credentials: "include",
+          signal: ctrl.signal,
+        });
+
+        if (res.status === 401) {
+          // If somehow unauth'd, bounce to sign-in (keeps us from hanging)
+          const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
+          router.replace(`/sign-in?redirect_url=${encodeURIComponent(ret)}`);
+          return;
+        }
+
         if (!res.ok) {
-          // If unauthorized, bounce to sign-in
-          if (res.status === 401) {
-            router.replace(`/sign-in?redirect_url=${encodeURIComponent("/onboarding?next=" + nextPath)}`);
-            return;
-          }
+          // Non-OK -> show the form (don't hang)
           throw new Error(await res.text());
         }
-        const json = await res.json();
-        if (!live) return;
 
-        if (!force && json?.profile) {
-          // set cookie for future short-circuit and move on
+        const { profile } = await res.json();
+        if (!active) return;
+
+        if (!force && profile) {
+          // Optional: set a non-HttpOnly cookie to speed future client checks
           if (user?.id) {
-            document.cookie = `onboarded=${encodeURIComponent(user.id)}; Path=/; Max-Age=1800; SameSite=Lax`;
+            document.cookie = `onboarded=${encodeURIComponent(
+              String(user.id)
+            )}; Path=/; Max-Age=1800; SameSite=Lax`;
           }
-          session?.reload?.().catch(() => {});
           goNext();
           return;
         }
       } catch {
-        // fall through to show form
+        // Swallow and show the form
       } finally {
-        if (live) setLoadingProfile(false);
+        if (active) setLoadingProfile(false);
       }
     })();
 
     return () => {
-      live = false;
+      active = false;
+      ctrl.abort();
     };
-  }, [sessionLoaded, userLoaded, session, user, force, goNext, hasOnboardedCookie, router, nextPath]);
+  }, [authLoaded, userLoaded, isSignedIn, user?.publicMetadata?.onboarded, user?.id, force, nextPath, router, goNext]);
 
-  // District helpers
+  // ---------- District helpers ----------
   const togglePreset = (d: string) => {
     setPresetSelected((prev) => {
       const n = new Set(prev);
@@ -138,13 +136,15 @@ export default function OnboardingPage() {
     setCustomDistricts((a) => a.filter((_, i) => i !== idx));
   };
 
-  // Farm helpers
+  // ---------- Farm helpers ----------
   const updateFarm = (i: number, patch: Partial<FarmRow>) => {
     setFarms((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
-  const addFarm = () => setFarms((rows) => [...rows, { name: "", accountNumber: "", district: "", otherDistrict: "" }]);
+  const addFarm = () =>
+    setFarms((rows) => [...rows, { name: "", accountNumber: "", district: "", otherDistrict: "" }]);
   const removeFarm = (i: number) => setFarms((rows) => rows.filter((_, idx) => idx !== i));
 
+  // ---------- Submit ----------
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (submitting) return;
@@ -190,25 +190,24 @@ export default function OnboardingPage() {
     };
 
     try {
-      const res = await withTimeout(
-        fetch("/api/profile", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }),
-        15000
-      );
+      const res = await fetch("/api/profile", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       if (!res.ok) {
         let msg = "Failed to save profile";
         try { msg = (await res.json())?.error || msg; } catch { msg = await res.text(); }
         throw new Error(msg);
       }
 
+      // Optional client cookie (non-HttpOnly) for faster client-side checks later
       if (user?.id) {
-        document.cookie = `onboarded=${encodeURIComponent(user.id)}; Path=/; Max-Age=1800; SameSite=Lax`;
+        document.cookie = `onboarded=${encodeURIComponent(String(user.id))}; Path=/; Max-Age=1800; SameSite=Lax`;
       }
-      session?.reload?.().catch(() => {});
+
+      // Clerk publicMetadata is set server-side in /api/profile; no need to do it here
       router.push(`/onboarding/membership?next=${encodeURIComponent(nextPath)}`);
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
