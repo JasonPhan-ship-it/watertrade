@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     let user = await prisma.user.findUnique({ 
       where: { clerkId: userId },
       include: {
-        userProfile: {
+        profile: {
           select: { acceptTerms: true }
         }
       }
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
           clerkId: userId,
         },
         include: {
-          userProfile: {
+          profile: {
             select: { acceptTerms: true }
           }
         }
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Check if user has completed onboarding in database
-    const dbOnboarded = user.userProfile?.acceptTerms === true;
+    const dbOnboarded = user.profile?.acceptTerms === true;
     
     if (dbOnboarded) {
       // Sync Clerk metadata if it's out of date
