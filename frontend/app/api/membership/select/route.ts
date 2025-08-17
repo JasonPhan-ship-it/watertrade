@@ -1,4 +1,4 @@
-// app/api/membership/select/route.ts
+// app/api/membership/select/route.ts - Safe version without subscription fields
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -49,12 +49,8 @@ export async function POST(req: Request) {
           },
         });
 
-        // Update database subscription status (check if columns exist first)
-        const updateData: any = {};
-        
-        // Only update subscription fields if they exist in your schema
+        // Try to update database subscription status (only if columns exist)
         try {
-          // Try to update with subscription fields
           await prisma.user.update({
             where: { id: user.id },
             data: {
@@ -64,10 +60,13 @@ export async function POST(req: Request) {
           });
         } catch (prismaError: any) {
           // If subscription fields don't exist, just log and continue
-          if (prismaError.code === "P2002" || prismaError.message?.includes("Unknown field")) {
-            console.log("Subscription fields not found in schema, skipping database update");
+          if (prismaError.message?.includes("does not exist") || 
+              prismaError.message?.includes("Unknown field") ||
+              prismaError.code === "P2000") {
+            console.log("Subscription fields not found in database schema, skipping database update");
           } else {
-            throw prismaError; // Re-throw if it's a different error
+            // Re-throw if it's a different error
+            throw prismaError;
           }
         }
 
@@ -79,7 +78,7 @@ export async function POST(req: Request) {
 
       } catch (clerkError) {
         console.error("Failed to update Clerk metadata:", clerkError);
-        // Still return success if Clerk update fails - user can continue
+        // Still return success if Clerk update fails
         return NextResponse.json({ 
           ok: true, 
           plan: "free",
@@ -90,7 +89,6 @@ export async function POST(req: Request) {
     }
 
     // For premium, this endpoint should not be used
-    // Premium upgrades should go through /pricing/checkout
     if (plan === "premium") {
       return NextResponse.json({ 
         error: "Premium upgrades must go through the checkout flow",
@@ -137,7 +135,7 @@ export async function GET() {
     const clerkPlan = cu?.publicMetadata?.plan || "free";
     const clerkPremium = Boolean(cu?.publicMetadata?.premium);
 
-    // Try to get from database too
+    // Try to get from database too (safely)
     let dbPlan = "free";
     try {
       const user = await prisma.user.findUnique({ 
@@ -145,8 +143,9 @@ export async function GET() {
         select: { subscriptionStatus: true }
       });
       dbPlan = user?.subscriptionStatus || "free";
-    } catch {
-      // Database might not have subscription fields yet
+    } catch (prismaError) {
+      // Database might not have subscription fields yet, that's OK
+      console.log("Subscription fields not available in database");
     }
 
     return NextResponse.json({
