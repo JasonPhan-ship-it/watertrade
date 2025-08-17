@@ -1,60 +1,88 @@
-// frontend/app/dashboard/page.tsx
+// app/dashboard/page.tsx - Fixed version with timeout
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
-/**
- * Lightweight gate that keeps the dashboard in a "Loading…" state
- * until the user's onboarding state is confirmed (Clerk metadata
- * or /api/onboarding/init). This mirrors middleware so there’s no
- * client-side redirect ping-pong; it just avoids flicker.
- */
+// Simplified onboarding gate with timeout
 function useOnboardedGate() {
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { isLoaded: userLoaded, user } = useUser();
+  const router = useRouter();
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
+    let timeoutId: NodeJS.Timeout;
+    
+    // Set a timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      console.log("Onboarding check timeout - showing dashboard anyway");
+      setChecking(false);
+    }, 5000); // 5 second timeout
+
+    const checkOnboarding = async () => {
+      // Wait for Clerk to load
       if (!authLoaded || !userLoaded) return;
 
+      // If not signed in, let middleware handle redirect
       if (!isSignedIn) {
-        // Middleware will handle redirect to /sign-in. Just stay in "checking".
+        router.push("/sign-in");
         return;
       }
 
-      // If Clerk already says onboarded, done.
-      if (user?.publicMetadata?.onboarded === true) {
-        if (active) setChecking(false);
+      // Check Clerk metadata first (fastest)
+      const clerkOnboarded = user?.publicMetadata?.onboarded === true;
+      if (clerkOnboarded) {
+        clearTimeout(timeout);
+        setChecking(false);
         return;
       }
 
-      // Ask server (also sets a short-lived cookie)
+      // Quick server check (with timeout)
       try {
-        const r = await fetch("/api/onboarding/init", {
-          method: "GET",
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        const response = await fetch("/api/onboarding/init", {
           credentials: "include",
           cache: "no-store",
+          signal: controller.signal
         });
-        if (r.ok) {
-          const j = await r.json();
-          if (active && j?.onboarded === true) {
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data?.onboarded) {
+            clearTimeout(timeout);
             setChecking(false);
             return;
           }
         }
-      } catch {
-        // ignore; middleware is the ultimate gate anyway
+        
+        // Not onboarded - redirect to onboarding
+        router.push("/onboarding?next=/dashboard");
+        
+      } catch (error) {
+        console.log("Onboarding check failed:", error);
+        // On error, assume not onboarded if no Clerk signal
+        if (!clerkOnboarded) {
+          router.push("/onboarding?next=/dashboard");
+        } else {
+          clearTimeout(timeout);
+          setChecking(false);
+        }
       }
-      // Not onboarded → middleware will redirect away; keep "checking".
-    })();
-    return () => {
-      active = false;
     };
-  }, [authLoaded, userLoaded, isSignedIn, user?.publicMetadata?.onboarded]);
+
+    checkOnboarding();
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [authLoaded, userLoaded, isSignedIn, user?.publicMetadata?.onboarded, router]);
 
   return checking;
 }
@@ -65,10 +93,10 @@ type Listing = {
   district: string;
   acreFeet: number;
   pricePerAf: number;
-  availabilityStart: string; // ISO (kept in type but unused)
-  availabilityEnd: string;   // ISO (kept in type but unused)
+  availabilityStart: string;
+  availabilityEnd: string;
   waterType: string;
-  createdAt: string;         // ISO
+  createdAt: string;
 };
 
 type ApiResponse = {
@@ -83,7 +111,7 @@ type SortDir = "asc" | "desc";
 /* ---------- Constants ---------- */
 const DISTRICTS = [
   "All Districts",
-  "Westlands Water District",
+  "Westlands Water District", 
   "San Luis Water District",
   "Panoche Water District",
   "Arvin Edison Water District",
@@ -92,7 +120,7 @@ const DISTRICTS = [
 const WATER_TYPES = [
   "Any Water Type",
   "Pumping Credits",
-  "CVP Allocation",
+  "CVP Allocation", 
   "Supplemental Water",
 ] as const;
 
@@ -100,28 +128,21 @@ const PAGE_SIZES = [5, 10, 20] as const;
 
 /* ---------- Page ---------- */
 export default function DashboardPage() {
-  // Keep the page hidden until onboarding state is confirmed
   const checking = useOnboardedGate();
-
-  // filters
+  
+  // Dashboard state
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
-
-  // sort + pagination
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
-
-  // premium demo toggle
   const [premium, setPremium] = useState<boolean>(false);
-
-  // data state
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // build query (no window param)
+  // Build query
   const qs = useMemo(() => {
     const u = new URLSearchParams();
     if (district !== "All Districts") u.set("district", district);
@@ -134,14 +155,19 @@ export default function DashboardPage() {
     return u.toString();
   }, [district, waterType, sortBy, sortDir, page, pageSize, premium]);
 
-  // fetch
+  // Fetch data
   useEffect(() => {
-    if (checking) return; // don't fetch until we're cleared to render
-    let live = true;
+    if (checking) return;
+    
+    let abortController = new AbortController();
     setLoading(true);
     setError(null);
 
-    fetch(`/api/listings?${qs}`, { method: "GET", cache: "no-store" })
+    fetch(`/api/listings?${qs}`, { 
+      method: "GET", 
+      cache: "no-store",
+      signal: abortController.signal
+    })
       .then(async (r) => {
         if (!r.ok) {
           const text = await r.text().catch(() => "");
@@ -149,14 +175,34 @@ export default function DashboardPage() {
         }
         return r.json() as Promise<ApiResponse>;
       })
-      .then((json) => live && setData(json))
-      .catch((e) => live && setError(e.message || "Failed to load"))
-      .finally(() => live && setLoading(false));
+      .then((json) => setData(json))
+      .catch((e) => {
+        if (e.name !== 'AbortError') {
+          setError(e.message || "Failed to load");
+        }
+      })
+      .finally(() => setLoading(false));
 
     return () => {
-      live = false;
+      abortController.abort();
     };
   }, [qs, checking]);
+
+  // Show loading state while checking onboarding
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#004434] mx-auto mb-4"></div>
+              <p className="text-slate-600">Loading dashboard...</p>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   // KPIs
   const stats = useMemo(() => {
@@ -186,15 +232,6 @@ export default function DashboardPage() {
       setSortDir("asc");
     }
     setPage(1);
-  }
-
-  if (checking) {
-    // This prevents any UI flash while middleware determines routing.
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">Loading…</main>
-      </div>
-    );
   }
 
   return (
@@ -251,7 +288,7 @@ export default function DashboardPage() {
           <Stat label="Avg $/AF" value={stats.avgPrice} />
         </section>
 
-        {/* Premium card (demo toggle) */}
+        {/* Premium demo toggle */}
         <section className="mt-4">
           <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm text-slate-600">
@@ -262,7 +299,7 @@ export default function DashboardPage() {
                 </>
               ) : (
                 <>
-                  <span className="font-medium text-slate-900">Premium:</span> You’re viewing a
+                  <span className="font-medium text-slate-900">Premium:</span> You're viewing a
                   limited set. Upgrade to see full details & early access.
                 </>
               )}
@@ -293,9 +330,7 @@ export default function DashboardPage() {
               </div>
               <Link
                 href="/create-listing"
-                title="Create a new listing"
-                aria-label="Create a new listing"
-                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-[#004434]/30"
+                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
               >
                 + Create Listing
               </Link>
@@ -362,7 +397,6 @@ export default function DashboardPage() {
                           <Link
                             href={`/listings/${l.id}`}
                             className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                            title="View details"
                           >
                             View Details
                           </Link>
@@ -375,14 +409,11 @@ export default function DashboardPage() {
                           <div className="mx-auto max-w-md">
                             <div className="text-sm">
                               No listings match your filters.
-                              {district !== "All Districts" || waterType !== "Any Water Type"
-                                ? " Try clearing filters, or create a new listing."
-                                : " Get started by creating your first listing."}
                             </div>
                             <div className="mt-4">
                               <Link
                                 href="/create-listing"
-                                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-[#004434]/30"
+                                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
                               >
                                 + Create Listing
                               </Link>
@@ -401,7 +432,6 @@ export default function DashboardPage() {
                   Page <span className="font-medium text-slate-700">{page}</span> of{" "}
                   <span className="font-medium text-slate-700">{Math.max(1, totalPages)}</span> •{" "}
                   {data?.total ?? 0} total listings
-                  {data?.limited ? " (limited for non-premium)" : ""}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -445,7 +475,7 @@ export default function DashboardPage() {
   );
 }
 
-/* ---------- Presentational bits ---------- */
+/* ---------- UI Components ---------- */
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -501,7 +531,6 @@ function Td({
   );
 }
 
-/* ---------- Format helper ---------- */
 function formatNumber(n: number | string) {
   const num = typeof n === "string" ? Number(n) : n;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
