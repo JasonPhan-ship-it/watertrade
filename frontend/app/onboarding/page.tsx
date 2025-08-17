@@ -68,13 +68,14 @@ export default function OnboardingPage() {
       return;
     }
 
-    // Otherwise, check the server profile.
+    // Check the onboarding status via dedicated endpoint
     let active = true;
     const ctrl = new AbortController();
 
     (async () => {
       try {
-        const res = await fetch("/api/profile", {
+        const res = await fetch("/api/onboarding/init", {
+          method: "GET",
           cache: "no-store",
           credentials: "include",
           signal: ctrl.signal,
@@ -89,13 +90,15 @@ export default function OnboardingPage() {
 
         if (!res.ok) {
           // Non-OK -> show the form (don't hang)
-          throw new Error(await res.text());
+          console.error("Failed to check onboarding status:", await res.text());
+          if (active) setLoadingProfile(false);
+          return;
         }
 
-        const { profile } = await res.json();
+        const { onboarded } = await res.json();
         if (!active) return;
 
-        if (!force && profile) {
+        if (!force && onboarded) {
           // Optional: set a non-HttpOnly cookie to speed future client checks
           if (user?.id) {
             document.cookie = `onboarded=${encodeURIComponent(
@@ -104,10 +107,13 @@ export default function OnboardingPage() {
           }
           goNext();
           return;
+        } else {
+          // Show the onboarding form
+          setLoadingProfile(false);
         }
-      } catch {
-        // Swallow and show the form
-      } finally {
+      } catch (err) {
+        console.error("Error checking onboarding status:", err);
+        // Show the form on error
         if (active) setLoadingProfile(false);
       }
     })();
@@ -177,28 +183,34 @@ export default function OnboardingPage() {
       return;
     }
 
+    // Create the payload in the format expected by /api/onboarding/init
+    const fullName = `${firstName} ${lastName}`.trim();
     const payload = {
-      firstName,
-      lastName,
-      address,
+      fullName,
       email,
       phone,
-      cellPhone,
+      address,
       smsOptIn,
       districts: selectedDistricts,
       farms: farmsPayload,
     };
 
     try {
-      const res = await fetch("/api/profile", {
+      const res = await fetch("/api/onboarding/init", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      
       if (!res.ok) {
         let msg = "Failed to save profile";
-        try { msg = (await res.json())?.error || msg; } catch { msg = await res.text(); }
+        try { 
+          const errorData = await res.json();
+          msg = errorData?.error || msg; 
+        } catch { 
+          msg = await res.text(); 
+        }
         throw new Error(msg);
       }
 
@@ -207,7 +219,7 @@ export default function OnboardingPage() {
         document.cookie = `onboarded=${encodeURIComponent(String(user.id))}; Path=/; Max-Age=1800; SameSite=Lax`;
       }
 
-      // Clerk publicMetadata is set server-side in /api/profile; no need to do it here
+      // Navigate to membership selection
       router.push(`/onboarding/membership?next=${encodeURIComponent(nextPath)}`);
     } catch (err: any) {
       setError(err?.message || "Failed to save profile");
@@ -217,7 +229,16 @@ export default function OnboardingPage() {
   }
 
   if (loadingProfile) {
-    return <div className="mx-auto max-w-2xl p-6">Loading…</div>;
+    return (
+      <div className="mx-auto max-w-2xl p-6">
+        <div className="flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#004434] mx-auto mb-4"></div>
+            <p>Loading your profile...</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const suggestedFarmDistricts = Array.from(new Set(["", ...PRESET_DISTRICTS, ...customDistricts]));
