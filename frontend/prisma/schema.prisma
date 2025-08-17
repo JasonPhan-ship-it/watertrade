@@ -22,6 +22,12 @@ model User {
   // External auth id (Clerk, etc.)
   clerkId   String? @unique
 
+  // Subscription fields for premium membership
+  subscriptionStatus     String?   // "free", "active", "inactive", "cancelled", "pending"
+  subscriptionUpdatedAt  DateTime?
+  stripeCustomerId       String?   @unique
+  stripeSubscriptionId   String?   @unique
+
   // Relations
   listings            Listing[]                  // listings this user is selling
   buyerTransactions   Transaction[] @relation("BuyerTransactions")
@@ -35,6 +41,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   @@index([role])
+  @@index([subscriptionStatus])
 }
 
 model Listing {
