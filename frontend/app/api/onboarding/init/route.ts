@@ -77,27 +77,65 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const localUser = await getOrCreateLocalUser(userId);
-
-    // Clerk signal
+    // Early check: if Clerk says onboarded, trust it
     const cu = await clerkClient.users.getUser(userId).catch(() => null);
     const clerkOnboarded = cu?.publicMetadata?.onboarded === true;
+    
+    if (clerkOnboarded) {
+      const res = NextResponse.json({ onboarded: true });
+      res.headers.append("Set-Cookie", onboardedCookie(userId));
+      return res;
+    }
 
-    // DB signal - FIXED: use correct table name from schema
-    const db = await prisma.userProfile.findUnique({
+    // Check database
+    const localUser = await getOrCreateLocalUser(userId);
+    const profile = await prisma.userProfile.findUnique({
       where: { userId: localUser.id },
-      select: { acceptTerms: true },
+      select: { 
+        acceptTerms: true,
+        email: true,
+        fullName: true,
+        firstName: true,
+        lastName: true
+      },
     });
-    const dbOnboarded = Boolean(db?.acceptTerms);
+
+    // Consider onboarded if:
+    // 1. acceptTerms is true, OR
+    // 2. Profile exists with basic info (email + name)
+    const dbOnboarded = Boolean(
+      profile?.acceptTerms || 
+      (profile?.email && (profile?.fullName || (profile?.firstName && profile?.lastName)))
+    );
 
     const onboarded = clerkOnboarded || dbOnboarded;
 
+    // If we discovered the user is onboarded, update Clerk metadata
+    if (onboarded && !clerkOnboarded) {
+      clerkClient.users
+        .updateUser(userId, {
+          publicMetadata: { 
+            ...cu?.publicMetadata,
+            onboarded: true 
+          },
+        })
+        .catch((err) => {
+          console.warn("Failed to update Clerk onboarding status:", err);
+        });
+    }
+
     const res = NextResponse.json({ onboarded });
-    if (onboarded) res.headers.append("Set-Cookie", onboardedCookie(userId));
+    if (onboarded) {
+      res.headers.append("Set-Cookie", onboardedCookie(userId));
+    }
     return res;
+
   } catch (error) {
     console.error("GET /api/onboarding/init error:", error);
-    return NextResponse.json({ error: "Failed to check onboarding status" }, { status: 500 });
+    
+    // On database errors, be permissive and let them through to onboarding
+    // This prevents users from getting stuck if there are DB issues
+    return NextResponse.json({ onboarded: false }, { status: 200 });
   }
 }
 
@@ -113,8 +151,8 @@ export async function POST(req: Request) {
     if (!userId || !sessionId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    
     const localUser = await getOrCreateLocalUser(userId);
-
     const body = await req.json().catch(() => ({}));
 
     // Minimal identity (now based on fullName)
@@ -218,21 +256,36 @@ export async function POST(req: Request) {
         lastName,
         publicMetadata: { onboarded: true, smsOptIn, tradeRole: role },
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.warn("Failed to update Clerk metadata:", err);
+      });
 
     // Keep local User email if placeholder
     if (!localUser.email || localUser.email.endsWith("@example.invalid")) {
       await prisma.user.update({
         where: { id: localUser.id },
-        data: { email },
+        data: { 
+          email,
+          name: fullName || null
+        },
       });
     }
 
     const res = NextResponse.json({ ok: true, onboarded: true });
     res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
+    
   } catch (e: any) {
     console.error("POST /api/onboarding/init error:", e);
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    
+    // Log the full error for debugging
+    if (e?.code === 'P2002') {
+      console.error("Unique constraint violation:", e.meta);
+    }
+    
+    return NextResponse.json({ 
+      error: e?.message || "Unexpected error",
+      ...(process.env.NODE_ENV === 'development' && { details: e?.toString() })
+    }, { status: 500 });
   }
 }
