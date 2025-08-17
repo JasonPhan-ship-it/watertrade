@@ -71,29 +71,34 @@ function splitFullName(fullName: string): { firstName: string; lastName: string 
    Unified gate: returns { onboarded: boolean } based on Clerk OR DB.
 ----------------------------------------------------------------------- */
 export async function GET() {
-  const { userId, sessionId } = auth();
-  if (!userId || !sessionId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const { userId, sessionId } = auth();
+    if (!userId || !sessionId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const localUser = await getOrCreateLocalUser(userId);
+
+    // Clerk signal
+    const cu = await clerkClient.users.getUser(userId).catch(() => null);
+    const clerkOnboarded = cu?.publicMetadata?.onboarded === true;
+
+    // DB signal - FIXED: use correct table name from schema
+    const db = await prisma.userProfile.findUnique({
+      where: { userId: localUser.id },
+      select: { acceptTerms: true },
+    });
+    const dbOnboarded = Boolean(db?.acceptTerms);
+
+    const onboarded = clerkOnboarded || dbOnboarded;
+
+    const res = NextResponse.json({ onboarded });
+    if (onboarded) res.headers.append("Set-Cookie", onboardedCookie(userId));
+    return res;
+  } catch (error) {
+    console.error("GET /api/onboarding/init error:", error);
+    return NextResponse.json({ error: "Failed to check onboarding status" }, { status: 500 });
   }
-
-  const localUser = await getOrCreateLocalUser(userId);
-
-  // Clerk signal
-  const cu = await clerkClient.users.getUser(userId).catch(() => null);
-  const clerkOnboarded = cu?.publicMetadata?.onboarded === true;
-
-  // DB signal
-  const db = await prisma.userProfile.findUnique({
-    where: { userId: localUser.id },
-    select: { acceptTerms: true },
-  });
-  const dbOnboarded = Boolean(db?.acceptTerms);
-
-  const onboarded = clerkOnboarded || dbOnboarded;
-
-  const res = NextResponse.json({ onboarded });
-  if (onboarded) res.headers.append("Set-Cookie", onboardedCookie(userId));
-  return res;
 }
 
 /* -------------------------------- POST ------------------------------- 
@@ -227,6 +232,7 @@ export async function POST(req: Request) {
     res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
   } catch (e: any) {
+    console.error("POST /api/onboarding/init error:", e);
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
