@@ -41,7 +41,6 @@ export default function Navigation() {
 
         // If there's a mismatch, sync Clerk metadata with DB status
         if (clerkPremium !== dbPremium && response.ok) {
-          // This would typically be handled server-side, but for immediate UI updates:
           console.log("Premium status mismatch detected, may need sync");
         }
       } catch (error) {
@@ -90,4 +89,60 @@ export default function Navigation() {
               <Link href="/create-listing" className="text-sm text-gray-700 hover:text-gray-900">
                 Create Listing
               </Link>
-              <Link href="/analytics" className="text-sm text-gray
+              <Link href="/analytics" className="text-sm text-gray-700 hover:text-gray-900">
+                Analytics
+              </Link>
+            </div>
+          )}
+
+          {/* Right: Auth */}
+          <div className="flex items-center gap-3 flex-1 justify-end">
+            {isSignedIn ? (
+              <div className="flex items-center gap-3">
+                <Link href="/profile" className="flex items-center text-sm text-gray-700 hover:text-gray-900">
+                  <User className="w-4 h-4 mr-1" />
+                  {user?.firstName || user?.username || "Profile"}
+                </Link>
+
+                {/* Premium Badge */}
+                {premiumLoading ? (
+                  <div className="animate-pulse bg-gray-200 rounded-full px-2.5 py-1 w-16 h-6"></div>
+                ) : isPremium ? (
+                  <span
+                    title="Premium subscription active"
+                    className="inline-flex items-center rounded-full bg-gradient-to-r from-[#0E6A59] to-[#004434] px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm"
+                  >
+                    <Crown className="w-3 h-3 mr-1" />
+                    Premium
+                  </span>
+                ) : (
+                  <Link
+                    href="/pricing"
+                    className="inline-flex items-center rounded-full bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 transition-colors"
+                    title="Upgrade to Premium"
+                  >
+                    Upgrade
+                  </Link>
+                )}
+
+                <SignOutButton>
+                  <Button variant="outline" size="sm">
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Sign Out
+                  </Button>
+                </SignOutButton>
+              </div>
+            ) : (
+              <SignInButton mode="modal" afterSignInUrl="/api/auth/after-sign-in?next=/dashboard">
+                <Button className="bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]">
+                  <LogIn className="w-4 h-4 mr-2" />
+                  Sign In
+                </Button>
+              </SignInButton>
+            )}
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
