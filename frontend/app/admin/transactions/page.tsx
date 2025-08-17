@@ -40,6 +40,26 @@ export default async function AdminTransactionsPage() {
 
   if (me.role !== "ADMIN") redirect("/dashboard");
 
+  // --- Spot price cards ---
+  // Listing Spot: median of active SELL listings' pricePerAF (cents)
+  const activeSell = await prisma.listing.findMany({
+    where: { status: "ACTIVE", kind: "SELL" },
+    select: { pricePerAF: true }, // cents
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
+  const listingSpotCents = median(activeSell.map(x => x.pricePerAF).filter(isFiniteNumber));
+
+  // Transacted Spot: median of completed transactions' pricePerAF (cents)
+  const completed = await prisma.transaction.findMany({
+    where: { status: { in: ["APPROVED", "FUNDS_RELEASED"] } },
+    select: { pricePerAF: true }, // cents
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
+  const transactedSpotCents = median(completed.map(x => x.pricePerAF).filter(isFiniteNumber));
+
+  // --- Transactions table (with degraded fallback) ---
   let txns: Row[] = [];
   let degraded = false;
   let loadError: string | null = null;
@@ -95,9 +115,10 @@ export default async function AdminTransactionsPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
+      {/* Header + actions */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Admin · Transactions
+          Admin
         </h1>
         <a
           href="/admin/export"
@@ -106,6 +127,36 @@ export default async function AdminTransactionsPage() {
           Download Excel
         </a>
       </div>
+
+      {/* Simple tabs */}
+      <div className="mb-6 flex gap-2">
+        <a
+          href="/admin/transactions"
+          className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800"
+        >
+          Transactions
+        </a>
+        <a
+          href="/admin/analytics"
+          className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+        >
+          Water District Analytics
+        </a>
+      </div>
+
+      {/* Spot price cards */}
+      <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Card
+          title="Listing Spot Price"
+          value={listingSpotCents != null ? `${usdCents(listingSpotCents)} / AF` : "—"}
+          subtitle="Median of active SELL listings"
+        />
+        <Card
+          title="Transacted Spot Price"
+          value={transactedSpotCents != null ? `${usdCents(transactedSpotCents)} / AF` : "—"}
+          subtitle="Median of completed transactions"
+        />
+      </section>
 
       {degraded && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -117,6 +168,7 @@ export default async function AdminTransactionsPage() {
         </div>
       )}
 
+      {/* Table */}
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-600">
@@ -166,6 +218,17 @@ export default async function AdminTransactionsPage() {
   );
 }
 
+/* ---------- small components & utils ---------- */
+function Card({ title, value, subtitle }: { title: string; value: string; subtitle?: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-slate-500 text-sm">{title}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+      {subtitle ? <div className="mt-1 text-xs text-slate-500">{subtitle}</div> : null}
+    </div>
+  );
+}
+
 function Th({
   children,
   className = "",
@@ -202,4 +265,13 @@ function usdCents(cents: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+function isFiniteNumber(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n);
+}
+function median(ns: number[]) {
+  if (!ns.length) return null;
+  const arr = [...ns].sort((a, b) => a - b);
+  const mid = Math.floor(arr.length / 2);
+  return arr.length % 2 ? arr[mid] : Math.round((arr[mid - 1] + arr[mid]) / 2);
 }
