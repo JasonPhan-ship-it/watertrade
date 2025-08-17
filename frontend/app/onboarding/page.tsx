@@ -1,4 +1,4 @@
-// app/onboarding/page.tsx - Fixed with better error handling
+// app/onboarding/page.tsx - Fixed version with better redirect handling
 "use client";
 
 import * as React from "react";
@@ -48,16 +48,18 @@ export default function OnboardingPage() {
     setDebugInfo(prev => [...prev.slice(-4), `${new Date().toLocaleTimeString()}: ${msg}`]);
   };
 
-  const didNavigateRef = React.useRef(false);
-  const goNext = React.useCallback(() => {
-    if (didNavigateRef.current) return;
-    didNavigateRef.current = true;
-    addDebug(`Navigating to: ${nextPath}`);
-    router.replace(nextPath);
-  }, [router, nextPath]);
+  // Single navigation ref to prevent multiple redirects
+  const hasNavigated = React.useRef(false);
+  const isCheckingStatus = React.useRef(false);
 
   // Main onboarding check effect
   React.useEffect(() => {
+    // Prevent multiple simultaneous checks
+    if (isCheckingStatus.current) {
+      addDebug("Already checking status, skipping...");
+      return;
+    }
+
     addDebug(`Starting onboarding check - authLoaded: ${authLoaded}, userLoaded: ${userLoaded}`);
     
     if (!authLoaded || !userLoaded) {
@@ -65,38 +67,42 @@ export default function OnboardingPage() {
       return;
     }
 
-    addDebug(`Auth state - isSignedIn: ${isSignedIn}, userId: ${user?.id}`);
-
     // Not signed in -> redirect to sign-in
     if (!isSignedIn) {
-      const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
-      const signInUrl = `/sign-in?redirect_url=${encodeURIComponent(ret)}`;
-      addDebug(`Not signed in, redirecting to: ${signInUrl}`);
-      router.replace(signInUrl);
+      if (!hasNavigated.current) {
+        hasNavigated.current = true;
+        const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
+        const signInUrl = `/sign-in?redirect_url=${encodeURIComponent(ret)}`;
+        addDebug(`Not signed in, redirecting to: ${signInUrl}`);
+        router.replace(signInUrl);
+      }
       return;
     }
 
-    // Check Clerk metadata first
+    // Check Clerk metadata first - if onboarded and not forced, skip
     const clerkOnboarded = user?.publicMetadata?.onboarded === true;
     addDebug(`Clerk onboarded status: ${clerkOnboarded}, force: ${force}`);
 
     if (!force && clerkOnboarded) {
-      addDebug("Already onboarded according to Clerk, going to next page");
-      goNext();
+      if (!hasNavigated.current) {
+        hasNavigated.current = true;
+        addDebug("Already onboarded according to Clerk, going to next page");
+        router.replace(nextPath);
+      }
       return;
     }
 
-    // Set a timeout to prevent infinite loading
+    // Set flag to prevent concurrent checks
+    isCheckingStatus.current = true;
+
+    // Check server onboarding status with timeout
     const timeoutId = setTimeout(() => {
       addDebug("Timeout reached, showing form");
       setLoadingProfile(false);
-    }, 10000); // 10 second timeout
+      isCheckingStatus.current = false;
+    }, 8000); // 8 second timeout
 
-    let active = true;
-    const ctrl = new AbortController();
-
-    // Check server onboarding status
-    (async () => {
+    const checkServerStatus = async () => {
       try {
         addDebug("Checking server onboarding status via /api/onboarding/init");
         
@@ -104,16 +110,18 @@ export default function OnboardingPage() {
           method: "GET",
           cache: "no-store",
           credentials: "include",
-          signal: ctrl.signal,
         });
 
         addDebug(`API response status: ${res.status}`);
 
         if (res.status === 401) {
-          const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
-          const signInUrl = `/sign-in?redirect_url=${encodeURIComponent(ret)}`;
-          addDebug(`API unauthorized, redirecting to: ${signInUrl}`);
-          router.replace(signInUrl);
+          if (!hasNavigated.current) {
+            hasNavigated.current = true;
+            const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
+            const signInUrl = `/sign-in?redirect_url=${encodeURIComponent(ret)}`;
+            addDebug(`API unauthorized, redirecting to: ${signInUrl}`);
+            router.replace(signInUrl);
+          }
           return;
         }
 
@@ -121,34 +129,23 @@ export default function OnboardingPage() {
           const errorText = await res.text();
           addDebug(`API error: ${res.status} - ${errorText}`);
           
-          // If the init endpoint doesn't exist, try falling back to showing the form
-          if (res.status === 404) {
-            addDebug("Init endpoint not found (404), showing onboarding form");
-            if (active) setLoadingProfile(false);
-            return;
-          }
-          
-          // For other errors, show the form after a delay
+          // Show the form on API errors after a short delay
           setTimeout(() => {
-            if (active) {
-              addDebug("API error, showing onboarding form after delay");
-              setLoadingProfile(false);
-            }
-          }, 2000);
+            addDebug("API error, showing onboarding form");
+            setLoadingProfile(false);
+          }, 1000);
           return;
         }
 
         const { onboarded } = await res.json();
         addDebug(`Server onboarded status: ${onboarded}`);
         
-        if (!active) return;
-
         if (!force && onboarded) {
-          addDebug("Server says user is onboarded, setting cookie and navigating");
-          if (user?.id) {
-            document.cookie = `onboarded=${encodeURIComponent(String(user.id))}; Path=/; Max-Age=1800; SameSite=Lax`;
+          if (!hasNavigated.current) {
+            hasNavigated.current = true;
+            addDebug("Server says user is onboarded, navigating to next page");
+            router.replace(nextPath);
           }
-          goNext();
           return;
         }
         
@@ -158,26 +155,25 @@ export default function OnboardingPage() {
       } catch (err: any) {
         addDebug(`Fetch error: ${err.message}`);
         
-        // On network error or timeout, show the form
-        if (active) {
-          setTimeout(() => {
-            if (active) {
-              addDebug("Network error, showing onboarding form");
-              setLoadingProfile(false);
-            }
-          }, 1000);
-        }
+        // Show the form on network errors
+        setTimeout(() => {
+          addDebug("Network error, showing onboarding form");
+          setLoadingProfile(false);
+        }, 1000);
       } finally {
         clearTimeout(timeoutId);
+        isCheckingStatus.current = false;
       }
-    })();
-
-    return () => {
-      active = false;
-      ctrl.abort();
-      clearTimeout(timeoutId);
     };
-  }, [authLoaded, userLoaded, isSignedIn, user?.publicMetadata?.onboarded, user?.id, force, nextPath, router, goNext]);
+
+    checkServerStatus();
+
+    // Cleanup
+    return () => {
+      clearTimeout(timeoutId);
+      isCheckingStatus.current = false;
+    };
+  }, [authLoaded, userLoaded, isSignedIn, user?.publicMetadata?.onboarded, user?.id, force, nextPath, router]);
 
   // District helpers
   const togglePreset = (d: string) => {
@@ -274,10 +270,19 @@ export default function OnboardingPage() {
         throw new Error(msg);
       }
 
-      addDebug("Form submitted successfully, setting cookie");
+      addDebug("Form submitted successfully");
       
-      if (user?.id) {
-        document.cookie = `onboarded=${encodeURIComponent(String(user.id))}; Path=/; Max-Age=1800; SameSite=Lax`;
+      // Update Clerk metadata to prevent future onboarding checks
+      try {
+        await user?.update({
+          publicMetadata: {
+            ...user.publicMetadata,
+            onboarded: true,
+          },
+        });
+        addDebug("Updated Clerk metadata");
+      } catch (err) {
+        addDebug("Failed to update Clerk metadata, but continuing...");
       }
 
       addDebug("Navigating to membership selection");
@@ -291,7 +296,7 @@ export default function OnboardingPage() {
     }
   }
 
-  // Loading screen with debug info
+  // Loading screen with debug info and escape hatches
   if (loadingProfile) {
     return (
       <div className="mx-auto max-w-2xl p-6">
@@ -300,10 +305,10 @@ export default function OnboardingPage() {
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#004434] mx-auto mb-4"></div>
             <p className="mb-4">Loading your profile...</p>
             
-            {/* Debug information */}
+            {/* Debug information with better escape hatches */}
             <div className="mt-6 p-4 bg-gray-50 rounded-lg text-left text-sm">
               <h3 className="font-semibold mb-2">Debug Info:</h3>
-              <div className="space-y-1 text-xs text-gray-600 font-mono">
+              <div className="space-y-1 text-xs text-gray-600 font-mono max-h-32 overflow-y-auto">
                 {debugInfo.map((info, i) => (
                   <div key={i}>{info}</div>
                 ))}
@@ -311,21 +316,34 @@ export default function OnboardingPage() {
               <div className="mt-4 space-y-2">
                 <button
                   onClick={() => {
-                    addDebug("User clicked 'Force Show Form'");
+                    addDebug("User forced form display");
+                    hasNavigated.current = false;
+                    isCheckingStatus.current = false;
                     setLoadingProfile(false);
                   }}
                   className="w-full px-3 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
                 >
-                  Force Show Form
+                  Show Onboarding Form
                 </button>
                 <button
                   onClick={() => {
-                    addDebug("User clicked 'Skip to Dashboard'");
+                    addDebug("User skipped to dashboard");
+                    hasNavigated.current = true;
                     router.push("/dashboard");
                   }}
                   className="w-full px-3 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600"
                 >
                   Skip to Dashboard
+                </button>
+                <button
+                  onClick={() => {
+                    addDebug("User went to membership");
+                    hasNavigated.current = true;
+                    router.push("/onboarding/membership");
+                  }}
+                  className="w-full px-3 py-2 bg-purple-500 text-white text-sm rounded hover:bg-purple-600"
+                >
+                  Go to Membership
                 </button>
               </div>
             </div>
