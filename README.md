@@ -13,7 +13,7 @@ A comprehensive water rights marketplace platform built with Next.js, enabling f
 
 1. **Clone and install dependencies**
 ```bash
-git clone https://github.com/your-org/water-trading-platform.git
+git clone https://github.com/JasonPhan-ship-it/water-trading-platform.git
 cd water-trading-platform/frontend
 npm install
 ```
