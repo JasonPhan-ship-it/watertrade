@@ -43,7 +43,7 @@ export async function GET() {
     }
 
     // If user has Stripe subscription ID, verify with Stripe
-    if (user.stripeSubscriptionId) {
+    if (user.stripeSubscriptionId && process.env.STRIPE_SECRET_KEY) {
       try {
         // Only import Stripe if we need it
         const Stripe = (await import("stripe")).default;
