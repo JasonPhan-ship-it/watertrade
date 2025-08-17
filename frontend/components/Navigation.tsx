@@ -1,4 +1,4 @@
-// components/Navigation.tsx
+// components/Navigation.tsx - Updated for your existing pricing structure
 "use client";
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
@@ -23,26 +23,27 @@ export default function Navigation() {
         // First check Clerk metadata (quick)
         const clerkPremium = Boolean(user?.publicMetadata?.premium);
         
-        // Also check database for active subscription
-        const response = await fetch("/api/subscription/status", {
-          credentials: "include",
-          cache: "no-store"
-        });
-        
+        // Also check database for active subscription (if API exists)
         let dbPremium = false;
-        if (response.ok) {
-          const data = await response.json();
-          dbPremium = data.isPremium || false;
+        try {
+          const response = await fetch("/api/subscription/status", {
+            credentials: "include",
+            cache: "no-store"
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            dbPremium = data.isPremium || false;
+          }
+        } catch {
+          // If subscription API doesn't exist, fall back to Clerk only
+          console.log("Subscription API not available, using Clerk metadata only");
         }
 
         // User is premium if either source says so
         const finalPremiumStatus = clerkPremium || dbPremium;
         setIsPremium(finalPremiumStatus);
 
-        // If there's a mismatch, sync Clerk metadata with DB status
-        if (clerkPremium !== dbPremium && response.ok) {
-          console.log("Premium status mismatch detected, may need sync");
-        }
       } catch (error) {
         console.error("Failed to check premium status:", error);
         // Fallback to Clerk metadata only
@@ -126,7 +127,7 @@ export default function Navigation() {
                 )}
 
                 <SignOutButton>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" className="px-3 py-2 text-sm">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign Out
                   </Button>
