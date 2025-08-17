@@ -1,4 +1,4 @@
-// app/onboarding/page.tsx
+// app/onboarding/page.tsx - Fixed with better error handling
 "use client";
 
 import * as React from "react";
@@ -15,7 +15,7 @@ const PRESET_DISTRICTS = [
 type FarmRow = {
   name: string;
   accountNumber: string;
-  district: string;      // value or "__OTHER__"
+  district: string;
   otherDistrict?: string;
 };
 
@@ -23,17 +23,16 @@ export default function OnboardingPage() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  // Allow QA to force-show the form; otherwise normal short-circuit applies
   const force = sp?.get("force") === "1";
   const nextPath = sp?.get("next") ?? "/dashboard";
 
-  // Prefer useAuth() for sign-in state; useUser() for profile metadata
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { user, isLoaded: userLoaded } = useUser();
 
   const [submitting, setSubmitting] = React.useState(false);
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = React.useState<string[]>([]);
 
   const [presetSelected, setPresetSelected] = React.useState<Set<string>>(new Set());
   const [customDistricts, setCustomDistricts] = React.useState<string[]>([]);
@@ -43,37 +42,64 @@ export default function OnboardingPage() {
     { name: "", accountNumber: "", district: "", otherDistrict: "" },
   ]);
 
-  // Single-navigation guard
+  // Debug helper
+  const addDebug = (msg: string) => {
+    console.log(`[ONBOARDING DEBUG]: ${msg}`);
+    setDebugInfo(prev => [...prev.slice(-4), `${new Date().toLocaleTimeString()}: ${msg}`]);
+  };
+
   const didNavigateRef = React.useRef(false);
   const goNext = React.useCallback(() => {
     if (didNavigateRef.current) return;
     didNavigateRef.current = true;
+    addDebug(`Navigating to: ${nextPath}`);
     router.replace(nextPath);
   }, [router, nextPath]);
 
-  // ---------- Auth + onboarding short-circuit ----------
+  // Main onboarding check effect
   React.useEffect(() => {
-    if (!authLoaded || !userLoaded) return;
-
-    // Not signed in -> to sign-in and come back here
-    if (!isSignedIn) {
-      const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
-      router.replace(`/sign-in?redirect_url=${encodeURIComponent(ret)}`);
+    addDebug(`Starting onboarding check - authLoaded: ${authLoaded}, userLoaded: ${userLoaded}`);
+    
+    if (!authLoaded || !userLoaded) {
+      addDebug("Waiting for auth/user to load...");
       return;
     }
 
-    // If Clerk metadata already says we're onboarded, skip
-    if (!force && user?.publicMetadata?.onboarded === true) {
+    addDebug(`Auth state - isSignedIn: ${isSignedIn}, userId: ${user?.id}`);
+
+    // Not signed in -> redirect to sign-in
+    if (!isSignedIn) {
+      const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
+      const signInUrl = `/sign-in?redirect_url=${encodeURIComponent(ret)}`;
+      addDebug(`Not signed in, redirecting to: ${signInUrl}`);
+      router.replace(signInUrl);
+      return;
+    }
+
+    // Check Clerk metadata first
+    const clerkOnboarded = user?.publicMetadata?.onboarded === true;
+    addDebug(`Clerk onboarded status: ${clerkOnboarded}, force: ${force}`);
+
+    if (!force && clerkOnboarded) {
+      addDebug("Already onboarded according to Clerk, going to next page");
       goNext();
       return;
     }
 
-    // Check the onboarding status via dedicated endpoint
+    // Set a timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      addDebug("Timeout reached, showing form");
+      setLoadingProfile(false);
+    }, 10000); // 10 second timeout
+
     let active = true;
     const ctrl = new AbortController();
 
+    // Check server onboarding status
     (async () => {
       try {
+        addDebug("Checking server onboarding status via /api/onboarding/init");
+        
         const res = await fetch("/api/onboarding/init", {
           method: "GET",
           cache: "no-store",
@@ -81,50 +107,79 @@ export default function OnboardingPage() {
           signal: ctrl.signal,
         });
 
+        addDebug(`API response status: ${res.status}`);
+
         if (res.status === 401) {
-          // If somehow unauth'd, bounce to sign-in (keeps us from hanging)
           const ret = `/onboarding?next=${encodeURIComponent(nextPath)}`;
-          router.replace(`/sign-in?redirect_url=${encodeURIComponent(ret)}`);
+          const signInUrl = `/sign-in?redirect_url=${encodeURIComponent(ret)}`;
+          addDebug(`API unauthorized, redirecting to: ${signInUrl}`);
+          router.replace(signInUrl);
           return;
         }
 
         if (!res.ok) {
-          // Non-OK -> show the form (don't hang)
-          console.error("Failed to check onboarding status:", await res.text());
-          if (active) setLoadingProfile(false);
+          const errorText = await res.text();
+          addDebug(`API error: ${res.status} - ${errorText}`);
+          
+          // If the init endpoint doesn't exist, try falling back to showing the form
+          if (res.status === 404) {
+            addDebug("Init endpoint not found (404), showing onboarding form");
+            if (active) setLoadingProfile(false);
+            return;
+          }
+          
+          // For other errors, show the form after a delay
+          setTimeout(() => {
+            if (active) {
+              addDebug("API error, showing onboarding form after delay");
+              setLoadingProfile(false);
+            }
+          }, 2000);
           return;
         }
 
         const { onboarded } = await res.json();
+        addDebug(`Server onboarded status: ${onboarded}`);
+        
         if (!active) return;
 
         if (!force && onboarded) {
-          // Optional: set a non-HttpOnly cookie to speed future client checks
+          addDebug("Server says user is onboarded, setting cookie and navigating");
           if (user?.id) {
-            document.cookie = `onboarded=${encodeURIComponent(
-              String(user.id)
-            )}; Path=/; Max-Age=1800; SameSite=Lax`;
+            document.cookie = `onboarded=${encodeURIComponent(String(user.id))}; Path=/; Max-Age=1800; SameSite=Lax`;
           }
           goNext();
           return;
-        } else {
-          // Show the onboarding form
-          setLoadingProfile(false);
         }
-      } catch (err) {
-        console.error("Error checking onboarding status:", err);
-        // Show the form on error
-        if (active) setLoadingProfile(false);
+        
+        addDebug("User needs onboarding, showing form");
+        setLoadingProfile(false);
+
+      } catch (err: any) {
+        addDebug(`Fetch error: ${err.message}`);
+        
+        // On network error or timeout, show the form
+        if (active) {
+          setTimeout(() => {
+            if (active) {
+              addDebug("Network error, showing onboarding form");
+              setLoadingProfile(false);
+            }
+          }, 1000);
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
     })();
 
     return () => {
       active = false;
       ctrl.abort();
+      clearTimeout(timeoutId);
     };
   }, [authLoaded, userLoaded, isSignedIn, user?.publicMetadata?.onboarded, user?.id, force, nextPath, router, goNext]);
 
-  // ---------- District helpers ----------
+  // District helpers
   const togglePreset = (d: string) => {
     setPresetSelected((prev) => {
       const n = new Set(prev);
@@ -132,25 +187,29 @@ export default function OnboardingPage() {
       return n;
     });
   };
+  
   const addCustomDistrict = () => {
     const v = customDistrictInput.trim();
     if (!v) return;
     if (!customDistricts.includes(v)) setCustomDistricts((a) => [...a, v]);
     setCustomDistrictInput("");
   };
+  
   const removeCustomDistrict = (idx: number) => {
     setCustomDistricts((a) => a.filter((_, i) => i !== idx));
   };
 
-  // ---------- Farm helpers ----------
+  // Farm helpers
   const updateFarm = (i: number, patch: Partial<FarmRow>) => {
     setFarms((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
+  
   const addFarm = () =>
     setFarms((rows) => [...rows, { name: "", accountNumber: "", district: "", otherDistrict: "" }]);
+  
   const removeFarm = (i: number) => setFarms((rows) => rows.filter((_, idx) => idx !== i));
 
-  // ---------- Submit ----------
+  // Submit handler
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (submitting) return;
@@ -183,7 +242,6 @@ export default function OnboardingPage() {
       return;
     }
 
-    // Create the payload in the format expected by /api/onboarding/init
     const fullName = `${firstName} ${lastName}`.trim();
     const payload = {
       fullName,
@@ -196,6 +254,8 @@ export default function OnboardingPage() {
     };
 
     try {
+      addDebug("Submitting onboarding form...");
+      
       const res = await fetch("/api/onboarding/init", {
         method: "POST",
         credentials: "include",
@@ -214,27 +274,61 @@ export default function OnboardingPage() {
         throw new Error(msg);
       }
 
-      // Optional client cookie (non-HttpOnly) for faster client-side checks later
+      addDebug("Form submitted successfully, setting cookie");
+      
       if (user?.id) {
         document.cookie = `onboarded=${encodeURIComponent(String(user.id))}; Path=/; Max-Age=1800; SameSite=Lax`;
       }
 
-      // Navigate to membership selection
+      addDebug("Navigating to membership selection");
       router.push(`/onboarding/membership?next=${encodeURIComponent(nextPath)}`);
+      
     } catch (err: any) {
+      addDebug(`Submit error: ${err.message}`);
       setError(err?.message || "Failed to save profile");
     } finally {
       setSubmitting(false);
     }
   }
 
+  // Loading screen with debug info
   if (loadingProfile) {
     return (
       <div className="mx-auto max-w-2xl p-6">
         <div className="flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#004434] mx-auto mb-4"></div>
-            <p>Loading your profile...</p>
+            <p className="mb-4">Loading your profile...</p>
+            
+            {/* Debug information */}
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg text-left text-sm">
+              <h3 className="font-semibold mb-2">Debug Info:</h3>
+              <div className="space-y-1 text-xs text-gray-600 font-mono">
+                {debugInfo.map((info, i) => (
+                  <div key={i}>{info}</div>
+                ))}
+              </div>
+              <div className="mt-4 space-y-2">
+                <button
+                  onClick={() => {
+                    addDebug("User clicked 'Force Show Form'");
+                    setLoadingProfile(false);
+                  }}
+                  className="w-full px-3 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
+                >
+                  Force Show Form
+                </button>
+                <button
+                  onClick={() => {
+                    addDebug("User clicked 'Skip to Dashboard'");
+                    router.push("/dashboard");
+                  }}
+                  className="w-full px-3 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600"
+                >
+                  Skip to Dashboard
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -247,6 +341,20 @@ export default function OnboardingPage() {
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-semibold tracking-tight">Complete your profile</h1>
       <p className="mt-1 text-slate-600">Tell us a bit about you to personalize Water Traders.</p>
+
+      {/* Show debug info if there were issues */}
+      {debugInfo.length > 0 && (
+        <details className="mt-4 p-3 bg-yellow-50 rounded-lg text-sm">
+          <summary className="cursor-pointer font-medium text-yellow-800">
+            Debug Information (click to expand)
+          </summary>
+          <div className="mt-2 space-y-1 text-xs text-yellow-700 font-mono">
+            {debugInfo.map((info, i) => (
+              <div key={i}>{info}</div>
+            ))}
+          </div>
+        </details>
+      )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-6">
         {/* Name */}
