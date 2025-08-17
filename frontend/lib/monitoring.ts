@@ -1,8 +1,18 @@
-// lib/monitoring.ts - Application monitoring
+// lib/monitoring.ts - Fixed version for deployment
 import { NextRequest } from 'next/server';
 
+// Use hrtime for Node.js environment compatibility
+const getPerformanceTime = (): number => {
+  if (typeof performance !== 'undefined') {
+    return performance.now();
+  }
+  // Fallback for Node.js environment
+  const hrTime = process.hrtime();
+  return hrTime[0] * 1000 + hrTime[1] / 1e6;
+};
+
 // Performance monitoring
-export class PerformanceMonitor {
+class AppPerformanceMonitor {
   private static metrics = new Map<string, number[]>();
 
   static recordMetric(name: string, value: number) {
@@ -42,21 +52,21 @@ export function withPerformanceMonitoring<T extends (...args: any[]) => Promise<
   name: string
 ): T {
   return (async (...args) => {
-    const start = performance.now();
+    const start = getPerformanceTime();
     
     try {
       const result = await handler(...args);
-      const duration = performance.now() - start;
+      const duration = getPerformanceTime() - start;
       
-      PerformanceMonitor.recordMetric(`api.${name}.duration`, duration);
-      PerformanceMonitor.recordMetric(`api.${name}.success`, 1);
+      AppPerformanceMonitor.recordMetric(`api.${name}.duration`, duration);
+      AppPerformanceMonitor.recordMetric(`api.${name}.success`, 1);
       
       return result;
     } catch (error) {
-      const duration = performance.now() - start;
+      const duration = getPerformanceTime() - start;
       
-      PerformanceMonitor.recordMetric(`api.${name}.duration`, duration);
-      PerformanceMonitor.recordMetric(`api.${name}.error`, 1);
+      AppPerformanceMonitor.recordMetric(`api.${name}.duration`, duration);
+      AppPerformanceMonitor.recordMetric(`api.${name}.error`, 1);
       
       throw error;
     }
@@ -69,13 +79,13 @@ export function withQueryMonitoring<T extends (...args: any[]) => Promise<any>>(
   queryName: string
 ): T {
   return (async (...args) => {
-    const start = performance.now();
+    const start = getPerformanceTime();
     
     try {
       const result = await queryFn(...args);
-      const duration = performance.now() - start;
+      const duration = getPerformanceTime() - start;
       
-      PerformanceMonitor.recordMetric(`db.${queryName}.duration`, duration);
+      AppPerformanceMonitor.recordMetric(`db.${queryName}.duration`, duration);
       
       // Log slow queries (>1000ms)
       if (duration > 1000) {
@@ -84,7 +94,7 @@ export function withQueryMonitoring<T extends (...args: any[]) => Promise<any>>(
       
       return result;
     } catch (error) {
-      PerformanceMonitor.recordMetric(`db.${queryName}.error`, 1);
+      AppPerformanceMonitor.recordMetric(`db.${queryName}.error`, 1);
       throw error;
     }
   }) as T;
@@ -137,116 +147,5 @@ export class ErrorTracker {
   }
 }
 
-// Health check endpoint
-// app/api/health/route.ts
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { PerformanceMonitor, ErrorTracker } from '@/lib/monitoring';
-
-export async function GET() {
-  const start = performance.now();
-  
-  try {
-    // Check database connectivity
-    await prisma.$queryRaw`SELECT 1`;
-    
-    const dbDuration = performance.now() - start;
-    
-    const health = {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      checks: {
-        database: {
-          status: 'healthy',
-          responseTime: `${dbDuration.toFixed(2)}ms`,
-        },
-      },
-      metrics: PerformanceMonitor.getMetrics(),
-      errors: ErrorTracker.getErrorSummary(),
-    };
-    
-    return NextResponse.json(health);
-  } catch (error) {
-    ErrorTracker.trackError(error as Error, { endpoint: '/api/health' });
-    
-    return NextResponse.json(
-      {
-        status: 'unhealthy',
-        timestamp: new Date().toISOString(),
-        error: (error as Error).message,
-      },
-      { status: 503 }
-    );
-  }
-}
-
-// Performance analytics component
-// components/admin/PerformanceMetrics.tsx
-'use client';
-
-import { useEffect, useState } from 'react';
-
-interface Metrics {
-  [key: string]: {
-    avg: number;
-    min: number;
-    max: number;
-  };
-}
-
-export default function PerformanceMetrics() {
-  const [metrics, setMetrics] = useState<Metrics>({});
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchMetrics = async () => {
-      try {
-        const response = await fetch('/api/health');
-        const data = await response.json();
-        setMetrics(data.metrics || {});
-      } catch (error) {
-        console.error('Failed to fetch metrics:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 30000); // Update every 30s
-
-    return () => clearInterval(interval);
-  }, []);
-
-  if (loading) {
-    return <div className="p-4">Loading metrics...</div>;
-  }
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h3 className="text-lg font-semibold mb-4">Performance Metrics</h3>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {Object.entries(metrics).map(([name, values]) => (
-          <div key={name} className="p-4 bg-slate-50 rounded-lg">
-            <h4 className="font-medium text-sm text-slate-700 mb-2">{name}</h4>
-            <div className="space-y-1 text-xs">
-              <div>Avg: {values.avg.toFixed(2)}ms</div>
-              <div>Min: {values.min.toFixed(2)}ms</div>
-              <div>Max: {values.max.toFixed(2)}ms</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Usage in API routes:
-// export const GET = withPerformanceMonitoring(async (req: NextRequest) => {
-//   const listings = await withQueryMonitoring(
-//     () => prisma.listing.findMany(),
-//     'listing.findMany'
-//   )();
-//   
-//   return NextResponse.json({ listings });
-// }, 'listings.get');
+// Export the performance monitor with a different name to avoid conflicts
+export const PerformanceMonitor = AppPerformanceMonitor;
