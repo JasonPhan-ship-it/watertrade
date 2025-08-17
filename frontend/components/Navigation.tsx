@@ -1,4 +1,4 @@
-// components/Navigation.tsx - Updated for your existing pricing structure
+// components/Navigation.tsx - Safe version without subscription fields
 "use client";
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
@@ -13,17 +13,17 @@ export default function Navigation() {
   const [isPremium, setIsPremium] = useState(false);
   const [premiumLoading, setPremiumLoading] = useState(false);
 
-  // Check premium status from both Clerk metadata and database
+  // Check premium status from Clerk metadata (and optionally database if available)
   useEffect(() => {
     if (!isSignedIn || !user) return;
 
     const checkPremiumStatus = async () => {
       setPremiumLoading(true);
       try {
-        // First check Clerk metadata (quick)
+        // Always check Clerk metadata first (this is reliable)
         const clerkPremium = Boolean(user?.publicMetadata?.premium);
         
-        // Also check database for active subscription (if API exists)
+        // Try to check database for active subscription (if API exists and fields are available)
         let dbPremium = false;
         try {
           const response = await fetch("/api/subscription/status", {
@@ -35,12 +35,12 @@ export default function Navigation() {
             const data = await response.json();
             dbPremium = data.isPremium || false;
           }
-        } catch {
-          // If subscription API doesn't exist, fall back to Clerk only
+        } catch (error) {
+          // If subscription API doesn't exist or fails, just use Clerk metadata
           console.log("Subscription API not available, using Clerk metadata only");
         }
 
-        // User is premium if either source says so
+        // User is premium if either source says so (prefer Clerk as source of truth)
         const finalPremiumStatus = clerkPremium || dbPremium;
         setIsPremium(finalPremiumStatus);
 
