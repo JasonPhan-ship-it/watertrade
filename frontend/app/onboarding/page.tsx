@@ -272,18 +272,9 @@ export default function OnboardingPage() {
 
       addDebug("Form submitted successfully");
       
-      // Update Clerk metadata to prevent future onboarding checks
-      try {
-        await user?.update({
-          publicMetadata: {
-            ...user.publicMetadata,
-            onboarded: true,
-          },
-        });
-        addDebug("Updated Clerk metadata");
-      } catch (err) {
-        addDebug("Failed to update Clerk metadata, but continuing...");
-      }
+      // Clerk metadata is handled server-side, so we don't need to update it here
+      // The API endpoint will handle updating Clerk metadata
+      addDebug("Clerk metadata will be updated server-side");
 
       addDebug("Navigating to membership selection");
       router.push(`/onboarding/membership?next=${encodeURIComponent(nextPath)}`);
