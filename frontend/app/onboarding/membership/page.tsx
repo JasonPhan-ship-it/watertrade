@@ -1,11 +1,15 @@
+// app/onboarding/membership/page.tsx
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import MembershipCard from "@/components/MembershipCard";
 
 export default function OnboardingMembership() {
   const router = useRouter();
+  const sp = useSearchParams();
+  const nextPath = sp?.get("next") ?? "/dashboard";
+  
   const [busy, setBusy] = React.useState<string | null>(null);
   const setBusyFor = (k: string | null) => setBusy(k);
 
@@ -17,9 +21,15 @@ export default function OnboardingMembership() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan: "free" }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      router.push("/dashboard");
-    } catch (e) {
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText);
+      }
+      
+      // Navigate to the intended destination (usually dashboard)
+      router.push(nextPath);
+    } catch (e: any) {
+      console.error("Free plan selection error:", e);
       alert("Could not activate Free plan. Please try again.");
     } finally {
       setBusyFor(null);
@@ -32,13 +42,20 @@ export default function OnboardingMembership() {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: "premium" }),
+        body: JSON.stringify({ 
+          plan: "premium",
+          successUrl: nextPath, // Pass the intended destination
+        }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText);
+      }
       const { url } = await res.json();
       // Redirect to Stripe (or pricing) URL
       window.location.href = url;
-    } catch (e) {
+    } catch (e: any) {
+      console.error("Premium plan selection error:", e);
       alert("Could not start Premium billing. Please try again.");
       setBusyFor(null);
     }
