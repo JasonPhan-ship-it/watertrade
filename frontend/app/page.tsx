@@ -25,12 +25,14 @@ type ApiResponse = {
   limited?: boolean;
 };
 
-/** ---- Robust logo list: use file names, not fixed paths ---- */
+/** ---- Robust logo list: use file names, not fixed paths ----
+ * Place PNGs in frontend/public or frontend/public/logos
+ */
 const DISTRICT_LOGOS = [
-  { name: "Westlands Water District", file: "westlands.png", width: 180, height: 48 },
-  { name: "San Luis Water District",  file: "san-luis.png",  width: 180, height: 48 },
-  { name: "Panoche Water District",   file: "panoche.png",   width: 180, height: 48 },
-  { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 200, height: 48 },
+  { name: "Westlands Water District", file: "westlands.png", width: 360, height: 96 },
+  { name: "San Luis Water District", file: "san-luis.png", width: 360, height: 96 },
+  { name: "Panoche Water District", file: "panoche.png", width: 360, height: 96 },
+  { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 400, height: 96 },
 ] as const;
 
 /** ---- Image with fallback: /file.png -> /logos/file.png on error ---- */
@@ -62,7 +64,7 @@ function LogoWithFallback({
       onError={() => {
         if (src !== fallback) setSrc(fallback);
       }}
-      sizes="(max-width: 640px) 128px, 180px"
+      sizes="(max-width: 640px) 256px, 360px"
       loading="lazy"
       priority={false}
     />
@@ -244,7 +246,9 @@ export default function HomePage() {
           <p className="text-center text-xs font-medium tracking-wide text-slate-500">
             Working with growers across these districts
           </p>
-          <div className="mt-4 grid grid-cols-2 items-center justify-items-center gap-x-8 gap-y-6 sm:grid-cols-4">
+
+          {/* ↑ More space between the sentence and the logos */}
+          <div className="mt-6 grid grid-cols-2 items-center justify-items-center gap-x-10 gap-y-10 sm:grid-cols-4">
             {DISTRICT_LOGOS.map((logo) => (
               <div
                 key={logo.name}
@@ -255,7 +259,7 @@ export default function HomePage() {
                   alt={logo.name}
                   width={logo.width}
                   height={logo.height}
-                  className="h-8 w-auto object-contain sm:h-10"
+                  className="h-16 w-auto object-contain sm:h-20"
                 />
               </div>
             ))}
@@ -268,7 +272,11 @@ export default function HomePage() {
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 sm:grid-cols-3 sm:px-6">
           {[
             { title: "Transparent Pricing", blurb: "See current $/AF by district and water type.", icon: <TagIcon /> },
-            { title: "District-Aware Transfers", blurb: "Workflows tailored to each district’s window and forms.", icon: <ClipboardIcon /> },
+            {
+              title: "District-Aware Transfers",
+              blurb: "Workflows tailored to each district’s window and forms.",
+              icon: <ClipboardIcon />,
+            },
             { title: "Premium Analytics", blurb: "Early-access listings plus pricing trends and alerts.", icon: <ChartIcon /> },
           ].map((f, i) => (
             <div key={i} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center">
