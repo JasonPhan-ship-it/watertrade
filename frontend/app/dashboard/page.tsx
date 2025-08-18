@@ -14,13 +14,10 @@ function useOnboardedGate() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // single timeout, always cleared on success/unmount
-    const dashboardTimeout = setTimeout(() => {
-      setChecking(false);
-    }, 5000);
+    const dashboardTimeout = setTimeout(() => setChecking(false), 5000);
 
     const check = async () => {
-      if (!authLoaded || !userLoaded) return; // wait for Clerk
+      if (!authLoaded || !userLoaded) return;
 
       if (!isSignedIn) {
         router.push("/sign-in");
@@ -114,19 +111,17 @@ const PAGE_SIZES = [5, 10, 20] as const;
 export default function DashboardPage() {
   const checking = useOnboardedGate();
 
-  // UI state (hooks first, fixed order)
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
-  const [premium, setPremium] = useState<boolean>(false);
+  const [premium] = useState<boolean>(false); // still tracked but UI removed
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Build query string (no useMemo needed)
   const qs = (() => {
     const u = new URLSearchParams();
     if (district !== "All Districts") u.set("district", district);
@@ -139,7 +134,6 @@ export default function DashboardPage() {
     return u.toString();
   })();
 
-  // Fetch data whenever qs changes (effect is always called; it may early-return)
   useEffect(() => {
     if (checking) return;
 
@@ -155,9 +149,7 @@ export default function DashboardPage() {
       .then(async (r) => {
         if (!r.ok) {
           const text = await r.text().catch(() => "");
-          throw new Error(
-            `HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`,
-          );
+          throw new Error(`HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`);
         }
         return r.json() as Promise<ApiResponse>;
       })
@@ -170,7 +162,6 @@ export default function DashboardPage() {
     return () => controller.abort();
   }, [qs, checking]);
 
-  // Gate screen while onboarding check runs (hooks already executed above — order is stable)
   if (checking) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -186,12 +177,10 @@ export default function DashboardPage() {
     );
   }
 
-  // Derive view data directly (no useMemo — trivial cost, zero hook pitfalls)
   const rows: Listing[] = Array.isArray(data?.listings) ? data!.listings : [];
   const active = data?.total ?? 0;
   const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
-  const avgPriceRaw =
-    rows.length > 0 ? rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length : 0;
+  const avgPriceRaw = rows.length > 0 ? rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length : 0;
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
 
   function onSort(col: SortBy) {
@@ -224,7 +213,7 @@ export default function DashboardPage() {
                 setDistrict(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur placeholder-white/70 focus:bg-white/20 focus:ring-2 focus:ring-white/60"
+              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
             >
               {DISTRICTS.map((d) => (
                 <option key={d} value={d} className="text-slate-900">
@@ -239,7 +228,7 @@ export default function DashboardPage() {
                 setWaterType(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur placeholder-white/70 focus:bg:white/20 focus:ring-2 focus:ring-white/60"
+              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg:white/20 focus:ring-2 focus:ring-white/60"
             >
               {WATER_TYPES.map((w) => (
                 <option key={w} value={w} className="text-slate-900">
@@ -254,42 +243,7 @@ export default function DashboardPage() {
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Stat label="Active Listings" value={String(active)} />
           <Stat label="Total Acre-Feet" value={formatInt(totalAf)} />
-          <Stat
-            label="Avg $/AF"
-            value={avgPriceRaw ? `$${formatInt(avgPriceRaw)}` : "$0"}
-          />
-        </section>
-
-        {/* Premium demo toggle */}
-        <section className="mt-4">
-          <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="text-sm text-slate-600">
-              {premium ? (
-                <>
-                  <span className="font-medium text-slate-900">Premium:</span> Full details & early
-                  access unlocked.
-                </>
-              ) : (
-                <>
-                  <span className="font-medium text-slate-900">Premium:</span> You're viewing a
-                  limited set. Upgrade to see full details & early access.
-                </>
-              )}
-            </div>
-            <button
-              onClick={() => {
-                setPremium((v) => !v);
-                setPage(1);
-              }}
-              className={`h-8 rounded-xl px-3 text-xs font-medium ${
-                premium
-                  ? "bg-[#004434] text-white hover:bg-[#00392f]"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              {premium ? "Disable" : "Enable"} Premium (Demo)
-            </button>
-          </div>
+          <Stat label="Avg $/AF" value={avgPriceRaw ? `$${formatInt(avgPriceRaw)}` : "$0"} />
         </section>
 
         {/* Listings */}
@@ -297,14 +251,11 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
             <div className="font-medium">Listings</div>
             <div className="flex items-center gap-3">
-              <div className="hidden sm:block text-xs text-slate-500">
-                {premium ? "You have early access." : "Premium users see full details & early access"}
-              </div>
               <Link
                 href="/create-listing"
                 className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
               >
-                + Create Listing
+                Create Listing
               </Link>
             </div>
           </div>
@@ -319,34 +270,11 @@ export default function DashboardPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-slate-600">
                     <tr>
-                      <Th
-                        label="District"
-                        active={sortBy === "district"}
-                        dir={sortDir}
-                        onClick={() => onSort("district")}
-                      />
-                      <Th
-                        label="Acre-Feet"
-                        align="right"
-                        active={sortBy === "acreFeet"}
-                        dir={sortDir}
-                        onClick={() => onSort("acreFeet")}
-                      />
-                      <Th
-                        label="$ / AF"
-                        align="right"
-                        active={sortBy === "pricePerAf"}
-                        dir={sortDir}
-                        onClick={() => onSort("pricePerAf")}
-                      />
+                      <Th label="District" active={sortBy === "district"} dir={sortDir} onClick={() => onSort("district")} />
+                      <Th label="Acre-Feet" align="right" active={sortBy === "acreFeet"} dir={sortDir} onClick={() => onSort("acreFeet")} />
+                      <Th label="$ / AF" align="right" active={sortBy === "pricePerAf"} dir={sortDir} onClick={() => onSort("pricePerAf")} />
                       <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
-                      <Th
-                        label="Action"
-                        align="center"
-                        active={sortBy === "createdAt"}
-                        dir={sortDir}
-                        onClick={() => onSort("createdAt")}
-                      />
+                      <Th label="Action" align="center" active={sortBy === "createdAt"} dir={sortDir} onClick={() => onSort("createdAt")} />
                     </tr>
                   </thead>
                   <tbody>
@@ -380,7 +308,7 @@ export default function DashboardPage() {
                                 href="/create-listing"
                                 className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
                               >
-                                + Create Listing
+                                Create Listing
                               </Link>
                             </div>
                           </div>
