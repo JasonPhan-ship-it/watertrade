@@ -1,4 +1,4 @@
-// app/dashboard/page.tsx — fixed, hook-safe, with robust onboarding gate
+// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -13,23 +13,30 @@ function useOnboardedGate() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
 
+  // 🔎 beacon: custom hook entered
+  if (typeof window !== "undefined") {
+    // runs every render of components that call this hook
+    console.debug("[Render] useOnboardedGate", { authLoaded, userLoaded, isSignedIn });
+  }
+
   useEffect(() => {
-    // One dashboard timeout we always clear on success/unmount
     const dashboardTimeout = setTimeout(() => {
       console.log("Onboarding check timeout - showing dashboard anyway");
       setChecking(false);
     }, 5000);
 
     const checkOnboarding = async () => {
-      if (!authLoaded || !userLoaded) return; // wait for Clerk
+      if (!authLoaded || !userLoaded) return;
 
       if (!isSignedIn) {
+        console.debug("[Gate] redirect -> /sign-in");
         router.push("/sign-in");
         return;
       }
 
       const clerkOnboarded = user?.publicMetadata?.onboarded === true;
       if (clerkOnboarded) {
+        console.debug("[Gate] onboarded via Clerk");
         clearTimeout(dashboardTimeout);
         setChecking(false);
         return;
@@ -48,16 +55,19 @@ function useOnboardedGate() {
         if (response.ok) {
           const data = await response.json();
           if (data?.onboarded) {
+            console.debug("[Gate] onboarded via API");
             clearTimeout(dashboardTimeout);
             setChecking(false);
             return;
           }
         }
 
+        console.debug("[Gate] not onboarded -> redirect /onboarding?next=/dashboard");
         router.push("/onboarding?next=/dashboard");
       } catch (err) {
         console.log("Onboarding check failed:", err);
         if (!clerkOnboarded) {
+          console.debug("[Gate] error & not onboarded -> redirect /onboarding");
           router.push("/onboarding?next=/dashboard");
         } else {
           clearTimeout(dashboardTimeout);
@@ -72,6 +82,15 @@ function useOnboardedGate() {
 
   return checking;
 }
+
+/* ---------- Page ---------- */
+export default function DashboardPage() {
+  // 🔎 beacon: page render (put BEFORE any hooks if possible; here is fine too)
+  if (typeof window !== "undefined") {
+    console.debug("[Render] /dashboard DashboardPage");
+  }
+
+  const checking = useOnboardedGate();
 
 /* ---------- Types ---------- */
 type Listing = {
