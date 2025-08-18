@@ -25,9 +25,7 @@ type ApiResponse = {
   limited?: boolean;
 };
 
-/** ---- Robust logo list: use file names, not fixed paths ----
- * Place PNGs in frontend/public or frontend/public/logos
- */
+/** ---- Robust logo list: use file names, not fixed paths ---- */
 const DISTRICT_LOGOS = [
   { name: "Westlands Water District", file: "westlands.png", width: 360, height: 96 },
   { name: "San Luis Water District", file: "san-luis.png", width: 360, height: 96 },
@@ -49,7 +47,6 @@ function LogoWithFallback({
   height: number;
   className?: string;
 }) {
-  // Try root first (e.g., /westlands.png), then fallback to /logos/westlands.png
   const primary = `/${file}`;
   const fallback = `/logos/${file}`;
   const [src, setSrc] = React.useState(primary);
@@ -248,7 +245,7 @@ export default function HomePage() {
           </p>
 
           {/* ↑ More space between the sentence and the logos */}
-          <div className="mt-6 grid grid-cols-2 items-center justify-items-center gap-x-10 gap-y-10 sm:grid-cols-4">
+          <div className="mt-12 grid grid-cols-2 items-center justify-items-center gap-x-10 gap-y-10 sm:grid-cols-4">
             {DISTRICT_LOGOS.map((logo) => (
               <div
                 key={logo.name}
@@ -269,7 +266,7 @@ export default function HomePage() {
 
       {/* Feature blurbs with centered icons */}
       <section className="border-t bg-slate-50 py-12">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 sm:grid-cols-3 sm:px-6">
+        <div className="mx-auto grid max-w--7xl grid-cols-1 gap-6 px-4 sm:grid-cols-3 sm:px-6">
           {[
             { title: "Transparent Pricing", blurb: "See current $/AF by district and water type.", icon: <TagIcon /> },
             {
