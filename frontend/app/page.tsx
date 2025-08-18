@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useUser } from "@clerk/nextjs";
 import Footer from "@/components/Footer";
 
 /** ---- Types shared with the API shape ---- */
@@ -25,7 +26,9 @@ type ApiResponse = {
   limited?: boolean;
 };
 
-/** ---- Robust logo list: use file names, not fixed paths ---- */
+/** ---- Robust logo list: use file names, not fixed paths ----
+ * Place PNGs in frontend/public or frontend/public/logos
+ */
 const DISTRICT_LOGOS = [
   { name: "Westlands Water District", file: "westlands.png", width: 360, height: 96 },
   { name: "San Luis Water District", file: "san-luis.png", width: 360, height: 96 },
@@ -47,6 +50,7 @@ function LogoWithFallback({
   height: number;
   className?: string;
 }) {
+  // Try root first (e.g., /westlands.png), then fallback to /logos/westlands.png
   const primary = `/${file}`;
   const fallback = `/logos/${file}`;
   const [src, setSrc] = React.useState(primary);
@@ -111,6 +115,8 @@ function Typewriter({ phrases, className = "" }: { phrases: string[]; className?
 export default function HomePage() {
   if (typeof window !== "undefined") console.debug("[Render] / HomePage");
 
+  const { isSignedIn } = useUser();
+
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -158,19 +164,32 @@ export default function HomePage() {
               A marketplace built for growers and districts. Discover live listings, compare prices by district, and
               complete transfers with a clear, auditable workflow.
             </p>
+
+            {/* Auth buttons -> conditional */}
             <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                href="/sign-up"
-                className="inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-medium text-white bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]"
-              >
-                Create Account
-              </Link>
-              <Link
-                href="/sign-in"
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 px-5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Sign In
-              </Link>
+              {isSignedIn ? (
+                <Link
+                  href="/dashboard"
+                  className="inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-medium text-white bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]"
+                >
+                  Go to Dashboard
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/sign-up"
+                    className="inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-medium text-white bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]"
+                  >
+                    Create Account
+                  </Link>
+                  <Link
+                    href="/sign-in"
+                    className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 px-5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Sign In
+                  </Link>
+                </>
+              )}
             </div>
           </div>
 
@@ -201,7 +220,7 @@ export default function HomePage() {
                         <th className="px-4 py-3 text-right font-medium">Acre-Feet</th>
                         <th className="px-4 py-3 text-right font-medium">$ / AF</th>
                         <th className="px-4 py-3 font-medium">Water Type</th>
-                        <th className="px-4 py-3 text-right font-medium w-36">Action</th>
+                        <th className="px-4 py-3 text-center font-medium w-36">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -213,7 +232,7 @@ export default function HomePage() {
                           <td className="px-4 py-3">
                             <WaterTypeBadge type={l.waterType} />
                           </td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-4 py-3 text-center">
                             <Link
                               href={`/listings/${l.id}`}
                               className="inline-flex h-8 w-28 items-center justify-center rounded-full border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
@@ -266,7 +285,7 @@ export default function HomePage() {
 
       {/* Feature blurbs with centered icons */}
       <section className="border-t bg-slate-50 py-12">
-        <div className="mx-auto grid max-w--7xl grid-cols-1 gap-6 px-4 sm:grid-cols-3 sm:px-6">
+        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 sm:grid-cols-3 sm:px-6">
           {[
             { title: "Transparent Pricing", blurb: "See current $/AF by district and water type.", icon: <TagIcon /> },
             {
