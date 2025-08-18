@@ -10,9 +10,9 @@ type AListing = {
   acreFeet: number;
   pricePerAf: number;
   availabilityStart: string; // ISO
-  availabilityEnd: string; // ISO
+  availabilityEnd: string;   // ISO
   waterType: string;
-  createdAt: string; // ISO
+  createdAt: string;         // ISO
 };
 
 type ApiResponseAnalytics = {
@@ -23,13 +23,14 @@ type ApiResponseAnalytics = {
 
 /** ---------- Page ---------- */
 export default function AnalyticsPage() {
-  // 🔎 beacon
+  // beacon
   if (typeof window !== "undefined") console.debug("[Render] /analytics AnalyticsPage");
 
   const [data, setData] = useState<ApiResponseAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // Pull the full (non-gated) set from your API for analysis
   useEffect(() => {
     let live = true;
     setLoading(true);
@@ -49,13 +50,15 @@ export default function AnalyticsPage() {
   const rows = data?.listings ?? [];
   const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
 
+  /** ---------- Aggregations ---------- */
   const { totalAF, avgPrice, medianPrice } = useMemo(() => {
     if (!safeRows.length) return { totalAF: 0, avgPrice: 0, medianPrice: 0 };
     const totalAF = safeRows.reduce((s, r) => s + r.acreFeet, 0);
     const avgPrice = safeRows.reduce((s, r) => s + r.pricePerAf, 0) / safeRows.length;
     const prices = safeRows.map((r) => r.pricePerAf).sort((a, b) => a - b);
     const mid = Math.floor(prices.length / 2);
-    const medianPrice = prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
+    const medianPrice =
+      prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
     return { totalAF, avgPrice, medianPrice };
   }, [safeRows]);
 
@@ -93,12 +96,15 @@ export default function AnalyticsPage() {
     })).sort((a, b) => b.af - a.af);
   }, [safeRows]);
 
+  // Monthly availability counts (based on availabilityStart month)
   const monthly = useMemo(() => {
     const months: { label: string; key: string; count: number }[] = [];
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const years = Array.from(new Set(safeRows.map((r) => new Date(r.availabilityStart).getFullYear())));
     for (const y of years.sort()) {
-      for (let m = 0; m < 12; m++) months.push({ label: `${monthNames[m]} ${y}`, key: `${y}-${m}`, count: 0 });
+      for (let m = 0; m < 12; m++) {
+        months.push({ label: `${monthNames[m]} ${y}`, key: `${y}-${m}`, count: 0 });
+      }
     }
     for (const r of safeRows) {
       const d = new Date(r.availabilityStart);
@@ -111,6 +117,7 @@ export default function AnalyticsPage() {
     return first === -1 ? [] : months.slice(first, last + 1);
   }, [safeRows]);
 
+  // For inline bar widths
   const maxAF = Math.max(1, ...byDistrict.map((d) => d.af));
   const maxAFType = Math.max(1, ...byWaterType.map((d) => d.af));
   const maxMonthly = Math.max(1, ...monthly.map((m) => m.count));
@@ -119,7 +126,9 @@ export default function AnalyticsPage() {
     <div className="min-h-screen bg-slate-50">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Analytics</h1>
-        <p className="mt-1 text-sm text-slate-600">Rollups across current listings. Upgrade business rules later to include historical trades.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Rollups across current listings. Upgrade business rules later to include historical trades.
+        </p>
 
         {/* KPIs */}
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
@@ -153,7 +162,10 @@ export default function AnalyticsPage() {
                     <td className="px-4 py-3 text-right">${formatNumber(d.avg)}</td>
                     <td className="px-4 py-3">
                       <div className="h-2.5 w-full rounded-full bg-slate-100">
-                        <div className="h-2.5 rounded-full bg-indigo-500" style={{ width: `${(d.af / maxAF) * 100}%` }} />
+                        <div
+                          className="h-2.5 rounded-full bg-indigo-500"
+                          style={{ width: `${(d.af / maxAF) * 100}%` }}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -191,7 +203,10 @@ export default function AnalyticsPage() {
                     <td className="px-4 py-3 text-right">${formatNumber(d.avg)}</td>
                     <td className="px-4 py-3">
                       <div className="h-2.5 w-full rounded-full bg-slate-100">
-                        <div className="h-2.5 rounded-full bg-blue-500" style={{ width: `${(d.af / maxAFType) * 100)%` }} />
+                        <div
+                          className="h-2.5 rounded-full bg-blue-500"
+                          style={{ width: `${(d.af / maxAFType) * 100}%` }}  // ✅ fixed
+                        />
                       </div>
                     </td>
                   </tr>
@@ -217,7 +232,10 @@ export default function AnalyticsPage() {
                 <div key={m.key} className="rounded-xl border border-slate-200 p-3">
                   <div className="text-xs text-slate-500">{m.label}</div>
                   <div className="mt-2 h-20 rounded bg-slate-100">
-                    <div className="h-full rounded bg-indigo-500" style={{ height: `${(m.count / maxMonthly) * 100}%`, width: "100%" }} />
+                    <div
+                      className="h-full rounded bg-indigo-500"
+                      style={{ height: `${(m.count / maxMonthly) * 100}%`, width: "100%" }}
+                    />
                   </div>
                   <div className="mt-1 text-sm font-medium">{m.count}</div>
                 </div>
