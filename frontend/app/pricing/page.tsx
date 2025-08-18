@@ -282,10 +282,24 @@ export default function PricingPage() {
         </div>
       </div>
 
+      {/* Back to dashboard */}
+      <div className="mt-12 text-center">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center rounded-xl border px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          ← Back to Dashboard
+        </Link>
+      </div>
+
+      {/* CTA for signed-out users */}
       {!isSignedIn && (
         <div className="mt-12 text-center">
           <p className="text-slate-600 mb-4">Ready to get started?</p>
-          <Link href="/sign-up" className="rounded-xl bg-[#004434] px-8 py-3 text-white hover:bg-[#003a2f] font-medium inline-block">
+          <Link
+            href="/sign-up"
+            className="rounded-xl bg-[#004434] px-8 py-3 text-white hover:bg-[#003a2f] font-medium inline-block"
+          >
             Create Your Account
           </Link>
         </div>
