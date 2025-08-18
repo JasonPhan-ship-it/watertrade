@@ -1,28 +1,32 @@
+// ======================================================================
+// app/analytics/page.tsx — stable hook order, defensive memos
+// ======================================================================
+
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 
 /** ---------- Types (match your /api/listings shape) ---------- */
-type Listing = {
+type AListing = {
   id: string;
   district: string;
   acreFeet: number;
   pricePerAf: number;
   availabilityStart: string; // ISO
-  availabilityEnd: string;   // ISO
+  availabilityEnd: string; // ISO
   waterType: string;
-  createdAt: string;         // ISO
+  createdAt: string; // ISO
 };
 
-type ApiResponse = {
-  listings: Listing[];
+type ApiResponseAnalytics = {
+  listings: AListing[];
   total: number;
   limited?: boolean;
 };
 
 /** ---------- Page ---------- */
 export default function AnalyticsPage() {
-  const [data, setData] = useState<ApiResponse | null>(null);
+  const [data, setData] = useState<ApiResponseAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -33,7 +37,7 @@ export default function AnalyticsPage() {
     fetch("/api/listings?premium=true&page=1&pageSize=1000&sortBy=createdAt&sortDir=desc")
       .then(async (r) => {
         if (!r.ok) throw new Error(await r.text());
-        return r.json() as Promise<ApiResponse>;
+        return (r.json() as Promise<ApiResponseAnalytics>);
       })
       .then((json) => live && setData(json))
       .catch((e) => live && setErr(e.message || "Failed to load"))
@@ -44,26 +48,23 @@ export default function AnalyticsPage() {
   }, []);
 
   const rows = data?.listings ?? [];
+  const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
 
   /** ---------- Aggregations ---------- */
   const { totalAF, avgPrice, medianPrice } = useMemo(() => {
-    if (!rows.length) return { totalAF: 0, avgPrice: 0, medianPrice: 0 };
-    const totalAF = rows.reduce((s, r) => s + r.acreFeet, 0);
-    const avgPrice = rows.reduce((s, r) => s + r.pricePerAf, 0) / rows.length;
-    const prices = rows.map((r) => r.pricePerAf).sort((a, b) => a - b);
+    if (!safeRows.length) return { totalAF: 0, avgPrice: 0, medianPrice: 0 };
+    const totalAF = safeRows.reduce((s, r) => s + r.acreFeet, 0);
+    const avgPrice = safeRows.reduce((s, r) => s + r.pricePerAf, 0) / safeRows.length;
+    const prices = safeRows.map((r) => r.pricePerAf).sort((a, b) => a - b);
     const mid = Math.floor(prices.length / 2);
-    const medianPrice =
-      prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
+    const medianPrice = prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
     return { totalAF, avgPrice, medianPrice };
-  }, [rows]);
+  }, [safeRows]);
 
   const byDistrict = useMemo(() => {
-    const map = new Map<
-      string,
-      { af: number; count: number; avg: number; prices: number[] }
-    >();
-    for (const r of rows) {
-      const v = map.get(r.district) || { af: 0, count: 0, avg: 0, prices: [] };
+    const map = new Map<string, { af: number; count: number; prices: number[] }>();
+    for (const r of safeRows) {
+      const v = map.get(r.district) || { af: 0, count: 0, prices: [] };
       v.af += r.acreFeet;
       v.count += 1;
       v.prices.push(r.pricePerAf);
@@ -75,12 +76,12 @@ export default function AnalyticsPage() {
       count: v.count,
       avg: v.prices.reduce((s, p) => s + p, 0) / v.prices.length,
     })).sort((a, b) => b.af - a.af);
-  }, [rows]);
+  }, [safeRows]);
 
   const byWaterType = useMemo(() => {
-    const map = new Map<string, { af: number; count: number; avg: number; prices: number[] }>();
-    for (const r of rows) {
-      const v = map.get(r.waterType) || { af: 0, count: 0, avg: 0, prices: [] };
+    const map = new Map<string, { af: number; count: number; prices: number[] }>();
+    for (const r of safeRows) {
+      const v = map.get(r.waterType) || { af: 0, count: 0, prices: [] };
       v.af += r.acreFeet;
       v.count += 1;
       v.prices.push(r.pricePerAf);
@@ -92,30 +93,28 @@ export default function AnalyticsPage() {
       count: v.count,
       avg: v.prices.reduce((s, p) => s + p, 0) / v.prices.length,
     })).sort((a, b) => b.af - a.af);
-  }, [rows]);
+  }, [safeRows]);
 
   // Monthly availability counts (based on availabilityStart month)
   const monthly = useMemo(() => {
-    const months = new Array<{ label: string; key: string; count: number }>();
-    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    // Seed month buckets from the data year(s)
-    const years = Array.from(new Set(rows.map((r) => new Date(r.availabilityStart).getFullYear())));
+    const months: { label: string; key: string; count: number }[] = [];
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const years = Array.from(new Set(safeRows.map((r) => new Date(r.availabilityStart).getFullYear())));
     for (const y of years.sort()) {
       for (let m = 0; m < 12; m++) {
         months.push({ label: `${monthNames[m]} ${y}`, key: `${y}-${m}`, count: 0 });
       }
     }
-    for (const r of rows) {
+    for (const r of safeRows) {
       const d = new Date(r.availabilityStart);
       const key = `${d.getFullYear()}-${d.getMonth()}`;
       const bucket = months.find((b) => b.key === key);
       if (bucket) bucket.count += 1;
     }
-    // Drop trailing zero months for tidiness
     const first = months.findIndex((b) => b.count > 0);
     const last = months.length - 1 - [...months].reverse().findIndex((b) => b.count > 0);
     return first === -1 ? [] : months.slice(first, last + 1);
-  }, [rows]);
+  }, [safeRows]);
 
   // For inline bar widths
   const maxAF = Math.max(1, ...byDistrict.map((d) => d.af));
@@ -125,16 +124,14 @@ export default function AnalyticsPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Analytics
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Analytics</h1>
         <p className="mt-1 text-sm text-slate-600">
           Rollups across current listings. Upgrade business rules later to include historical trades.
         </p>
 
         {/* KPIs */}
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
-          <Kpi label="Total Listings" value={formatNumber(rows.length)} />
+          <Kpi label="Total Listings" value={formatNumber(safeRows.length)} />
           <Kpi label="Total Acre-Feet" value={formatNumber(totalAF)} />
           <Kpi label="Avg $/AF" value={`$${formatNumber(avgPrice)}`} />
           <Kpi label="Median $/AF" value={`$${formatNumber(medianPrice)}`} />
@@ -248,16 +245,8 @@ export default function AnalyticsPage() {
           )}
         </section>
 
-        {err && (
-          <p className="mt-6 text-sm text-red-600">
-            {err}
-          </p>
-        )}
-        {loading && (
-          <p className="mt-6 text-sm text-slate-500">
-            Loading…
-          </p>
-        )}
+        {err && <p className="mt-6 text-sm text-red-600">{err}</p>}
+        {loading && <p className="mt-6 text-sm text-slate-500">Loading…</p>}
       </main>
     </div>
   );
