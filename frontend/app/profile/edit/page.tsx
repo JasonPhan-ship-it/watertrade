@@ -291,14 +291,14 @@ export default function EditProfilePage() {
             <button
               onClick={openBillingPortal}
               disabled={portalLoading}
-              className="h-9 rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#003a2f] disabled:opacity-50"
+              className="flex h-9 items-center justify-center rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               {portalLoading ? "Opening…" : "Manage Billing"}
             </button>
             {!isPremium && (
               <a
                 href="/pricing/checkout"
-                className="h-9 rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#003a2f]"
               >
                 Upgrade to Premium
               </a>
