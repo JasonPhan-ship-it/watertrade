@@ -1,12 +1,9 @@
-// ======================================================================
-// app/analytics/page.tsx — stable hook order, defensive memos
-// ======================================================================
-
+// app/analytics/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 
-/** ---------- Types (match your /api/listings shape) ---------- */
+/** ---------- Types ---------- */
 type AListing = {
   id: string;
   district: string;
@@ -27,18 +24,19 @@ type ApiResponseAnalytics = {
 /** ---------- Page ---------- */
 export default function AnalyticsPage() {
   // 🔎 beacon
-  if (typeof window !== "undefined") {
-    console.debug("[Render] /analytics AnalyticsPage");
-  }
+  if (typeof window !== "undefined") console.debug("[Render] /analytics AnalyticsPage");
 
-  // Pull the full (non-gated) set from your API for analysis
+  const [data, setData] = useState<ApiResponseAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
   useEffect(() => {
     let live = true;
     setLoading(true);
     fetch("/api/listings?premium=true&page=1&pageSize=1000&sortBy=createdAt&sortDir=desc")
       .then(async (r) => {
         if (!r.ok) throw new Error(await r.text());
-        return (r.json() as Promise<ApiResponseAnalytics>);
+        return r.json() as Promise<ApiResponseAnalytics>;
       })
       .then((json) => live && setData(json))
       .catch((e) => live && setErr(e.message || "Failed to load"))
@@ -51,7 +49,6 @@ export default function AnalyticsPage() {
   const rows = data?.listings ?? [];
   const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
 
-  /** ---------- Aggregations ---------- */
   const { totalAF, avgPrice, medianPrice } = useMemo(() => {
     if (!safeRows.length) return { totalAF: 0, avgPrice: 0, medianPrice: 0 };
     const totalAF = safeRows.reduce((s, r) => s + r.acreFeet, 0);
@@ -96,15 +93,12 @@ export default function AnalyticsPage() {
     })).sort((a, b) => b.af - a.af);
   }, [safeRows]);
 
-  // Monthly availability counts (based on availabilityStart month)
   const monthly = useMemo(() => {
     const months: { label: string; key: string; count: number }[] = [];
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const years = Array.from(new Set(safeRows.map((r) => new Date(r.availabilityStart).getFullYear())));
     for (const y of years.sort()) {
-      for (let m = 0; m < 12; m++) {
-        months.push({ label: `${monthNames[m]} ${y}`, key: `${y}-${m}`, count: 0 });
-      }
+      for (let m = 0; m < 12; m++) months.push({ label: `${monthNames[m]} ${y}`, key: `${y}-${m}`, count: 0 });
     }
     for (const r of safeRows) {
       const d = new Date(r.availabilityStart);
@@ -117,7 +111,6 @@ export default function AnalyticsPage() {
     return first === -1 ? [] : months.slice(first, last + 1);
   }, [safeRows]);
 
-  // For inline bar widths
   const maxAF = Math.max(1, ...byDistrict.map((d) => d.af));
   const maxAFType = Math.max(1, ...byWaterType.map((d) => d.af));
   const maxMonthly = Math.max(1, ...monthly.map((m) => m.count));
@@ -126,9 +119,7 @@ export default function AnalyticsPage() {
     <div className="min-h-screen bg-slate-50">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Analytics</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Rollups across current listings. Upgrade business rules later to include historical trades.
-        </p>
+        <p className="mt-1 text-sm text-slate-600">Rollups across current listings. Upgrade business rules later to include historical trades.</p>
 
         {/* KPIs */}
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
@@ -162,10 +153,7 @@ export default function AnalyticsPage() {
                     <td className="px-4 py-3 text-right">${formatNumber(d.avg)}</td>
                     <td className="px-4 py-3">
                       <div className="h-2.5 w-full rounded-full bg-slate-100">
-                        <div
-                          className="h-2.5 rounded-full bg-indigo-500"
-                          style={{ width: `${(d.af / maxAF) * 100}%` }}
-                        />
+                        <div className="h-2.5 rounded-full bg-indigo-500" style={{ width: `${(d.af / maxAF) * 100}%` }} />
                       </div>
                     </td>
                   </tr>
@@ -203,10 +191,7 @@ export default function AnalyticsPage() {
                     <td className="px-4 py-3 text-right">${formatNumber(d.avg)}</td>
                     <td className="px-4 py-3">
                       <div className="h-2.5 w-full rounded-full bg-slate-100">
-                        <div
-                          className="h-2.5 rounded-full bg-blue-500"
-                          style={{ width: `${(d.af / maxAFType) * 100}%` }}
-                        />
+                        <div className="h-2.5 rounded-full bg-blue-500" style={{ width: `${(d.af / maxAFType) * 100)%` }} />
                       </div>
                     </td>
                   </tr>
@@ -232,10 +217,7 @@ export default function AnalyticsPage() {
                 <div key={m.key} className="rounded-xl border border-slate-200 p-3">
                   <div className="text-xs text-slate-500">{m.label}</div>
                   <div className="mt-2 h-20 rounded bg-slate-100">
-                    <div
-                      className="h-full rounded bg-indigo-500"
-                      style={{ height: `${(m.count / maxMonthly) * 100}%`, width: "100%" }}
-                    />
+                    <div className="h-full rounded bg-indigo-500" style={{ height: `${(m.count / maxMonthly) * 100}%`, width: "100%" }} />
                   </div>
                   <div className="mt-1 text-sm font-medium">{m.count}</div>
                 </div>
@@ -253,7 +235,7 @@ export default function AnalyticsPage() {
   );
 }
 
-/** ---------- Small presentational helpers ---------- */
+/** ---------- Helpers ---------- */
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
