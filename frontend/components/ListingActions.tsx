@@ -5,19 +5,15 @@ import * as React from "react";
 
 type Kind = "SELL" | "BUY";
 
-export default function ListingActions({
-  listingId,
-  kind,
-  pricePerAf,
-  isAuction = false,
-  reservePrice = null,
-}: Props) {
-  // 🔎 beacon
-  if (typeof window !== "undefined") {
-    console.debug("[Render] <ListingActions>", { listingId, kind, isAuction });
-  }
+type Props = {
+  listingId: string;
+  kind: Kind;                 // SELL = you're buying from seller; BUY = you're selling to buyer
+  pricePerAf: number;         // dollars (already converted from cents)
+  isAuction?: boolean;
+  reservePrice?: number | null; // dollars, if applicable
+};
 
-  const [mode, setMode] = React.useState<Mode>(() => (kind === "SELL" ? "BUY_NOW" : "SELL_NOW"));
+type Mode = "BUY_NOW" | "SELL_NOW" | "OFFER" | "BID";
 
 export default function ListingActions({
   listingId,
@@ -51,7 +47,7 @@ export default function ListingActions({
     setSubmitting(true);
     setMessage(null);
 
-    // Map modes -> API endpoints (you can change these to match your routes)
+    // Map modes -> API endpoints (adjust to your routes as needed)
     let url = "/api/transactions";
     let payload: any = {
       listingId,
@@ -208,13 +204,7 @@ function Tab({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <div className="text-xs text-slate-500">{label}</div>
