@@ -19,11 +19,14 @@ type ApiFarm = {
 };
 
 type ApiProfile = {
+  // "edit" page shape
   fullName?: string | null;
   company?: string | null;
-  tradeRole?: string | null;
+  tradeRole?: string | null; // BUYER/SELLER/BOTH/DISTRICT_ADMIN
   primaryDistrict?: string | null;
   waterTypes?: string[] | null;
+
+  // "this page" legacy shape
   firstName?: string | null;
   lastName?: string | null;
   address?: string | null;
@@ -31,6 +34,8 @@ type ApiProfile = {
   phone?: string | null;
   cellPhone?: string | null;
   smsOptIn?: boolean | null;
+
+  // shared
   districts?: string[] | null;
 };
 
@@ -55,7 +60,7 @@ function uniqStrings(arr: (string | null | undefined)[]) {
   return Array.from(out);
 }
 
-// --- NEW: robust fetcher
+/** Robust fetcher that guarantees JSON and helpful errors */
 async function fetchProfile(): Promise<{ profile: ApiProfile | null; farms: ApiFarm[] }> {
   const res = await fetch("/api/profile", {
     credentials: "include",
@@ -66,7 +71,7 @@ async function fetchProfile(): Promise<{ profile: ApiProfile | null; farms: ApiF
     throw new Error("You must be signed in to view your profile.");
   }
 
-  // Some infra may return HTML error pages; guard on content-type
+  // Guard against infra returning HTML error pages
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("application/json")) {
     const text = await res.text().catch(() => "");
@@ -80,9 +85,10 @@ async function fetchProfile(): Promise<{ profile: ApiProfile | null; farms: ApiF
     throw new Error(msg);
   }
 
-  const profile = (json?.profile ?? null) as ApiProfile | null;
-  const farms = Array.isArray(json?.farms) ? (json.farms as ApiFarm[]) : [];
-  return { profile, farms };
+  return {
+    profile: (json?.profile ?? null) as ApiProfile | null,
+    farms: Array.isArray(json?.farms) ? (json.farms as ApiFarm[]) : [],
+  };
 }
 
 export default function ProfilePage() {
@@ -119,7 +125,7 @@ export default function ProfilePage() {
       <div className="mx-auto max-w-3xl p-6">
         <h1 className="text-2xl font-semibold tracking-tight">My Profile</h1>
         <p className="mt-3 text-sm text-red-600">{error}</p>
-        <div className="mt-6 space-x-3">
+        <div className="mt-6 flex flex-wrap gap-3">
           <Link
             href="/sign-in?redirect_url=/profile"
             className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium hover:bg-slate-50"
@@ -146,11 +152,13 @@ export default function ProfilePage() {
   const company = (profile?.company ?? "").trim();
   const primaryDistrict = (profile?.primaryDistrict ?? "").trim();
 
+  // Districts: merge list + primary so we don't "lose" it if API only sets one or the other.
   const districts = uniqStrings([
     ...(Array.isArray(profile?.districts) ? profile!.districts! : []),
     primaryDistrict || null,
   ]).filter(Boolean);
 
+  // Sort districts: presets first (keep preset order), then customs alphabetically.
   const preset = districts.filter((d) => PRESET_DISTRICTS.includes(d as any));
   const custom = districts.filter((d) => !PRESET_DISTRICTS.includes(d as any)).sort((a, b) => a.localeCompare(b));
   const orderedDistricts = [...preset, ...custom];
