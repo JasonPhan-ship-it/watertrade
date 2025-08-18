@@ -5,59 +5,138 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 
-const DISTRICTS = [
-  "",
+const PRESET_DISTRICTS = [
   "Westlands Water District",
   "San Luis Water District",
   "Panoche Water District",
   "Arvin Edison Water District",
 ] as const;
 
-const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] as const;
+type ApiFarm = {
+  name?: string | null;
+  accountNumber?: string | null;
+  district?: string | null;
+};
+
+type ApiProfile = {
+  fullName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  address?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  cellPhone?: string | null;
+  smsOptIn?: boolean | null;
+  districts?: string[] | null;
+};
+
+type FarmRow = {
+  name: string;
+  accountNumber: string;
+  district: string;
+  otherDistrict?: string;
+};
+
+function splitFullName(fullName?: string | null) {
+  const s = (fullName ?? "").trim();
+  if (!s) return { first: "", last: "" };
+  const parts = s.split(/\s+/);
+  if (parts.length === 1) return { first: parts[0], last: "" };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
+}
 
 export default function EditProfilePage() {
   const router = useRouter();
   const { user, isLoaded: userLoaded } = useUser();
+  const isPremium = Boolean(user?.publicMetadata?.premium);
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [portalLoading, setPortalLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const [form, setForm] = React.useState({
-    fullName: "",
-    company: "",
-    role: "",
-    phone: "",
-    primaryDistrict: "",
-    waterTypes: [] as string[],
-  });
+  // Form state (same fields as onboarding)
+  const [firstName, setFirstName] = React.useState("");
+  const [lastName, setLastName] = React.useState("");
+  const [address, setAddress] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [cellPhone, setCellPhone] = React.useState("");
+  const [smsOptIn, setSmsOptIn] = React.useState(false);
 
-  const isPremium = Boolean(user?.publicMetadata?.premium);
+  const [presetSelected, setPresetSelected] = React.useState<Set<string>>(new Set());
+  const [customDistricts, setCustomDistricts] = React.useState<string[]>([]);
+  const [customDistrictInput, setCustomDistrictInput] = React.useState("");
 
-  // Load profile
+  const [farms, setFarms] = React.useState<FarmRow[]>([
+    { name: "", accountNumber: "", district: "", otherDistrict: "" },
+  ]);
+
+  // ----- Load profile -----
   React.useEffect(() => {
     let live = true;
     (async () => {
       try {
+        setLoading(true);
+        setError(null);
+
         const res = await fetch("/api/profile", { cache: "no-store", credentials: "include" });
         if (res.status === 401) {
           router.push(`/sign-in?redirect_url=${encodeURIComponent("/profile/edit")}`);
           return;
         }
-        if (!res.ok) throw new Error(await res.text());
-
-        const { profile } = await res.json();
-        if (live && profile) {
-          setForm({
-            fullName: profile.fullName || "",
-            company: profile.company || "",
-            role: profile.tradeRole || "",
-            phone: profile.phone || "",
-            primaryDistrict: profile.primaryDistrict || "",
-            waterTypes: profile.waterTypes || [],
-          });
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `Unexpected response (${res.status})`);
         }
+        const { profile, farms: apiFarms } = (await res.json()) as {
+          profile: ApiProfile | null;
+          farms: ApiFarm[];
+        };
+
+        if (!live) return;
+
+        const p = profile ?? {};
+        const nameParts = {
+          first: (p.firstName ?? "").trim(),
+          last: (p.lastName ?? "").trim(),
+        };
+        if (!nameParts.first && !nameParts.last && p.fullName) {
+          const s = splitFullName(p.fullName);
+          nameParts.first = s.first;
+          nameParts.last = s.last;
+        }
+
+        setFirstName(nameParts.first || "");
+        setLastName(nameParts.last || "");
+        setAddress((p.address ?? "").trim());
+        setEmail((p.email ?? user?.primaryEmailAddress?.emailAddress ?? "").trim());
+        setPhone((p.phone ?? "").trim());
+        setCellPhone((p.cellPhone ?? "").trim());
+        setSmsOptIn(Boolean(p.smsOptIn));
+
+        // Districts: partition into preset vs custom
+        const districts = Array.isArray(p.districts) ? p.districts.filter(Boolean) : [];
+        const preset = new Set<string>();
+        const custom: string[] = [];
+        for (const d of districts) {
+          if (PRESET_DISTRICTS.includes(d as any)) preset.add(d);
+          else custom.push(d);
+        }
+        setPresetSelected(preset);
+        setCustomDistricts(Array.from(new Set(custom)));
+
+        // Farms
+        const mapped = Array.isArray(apiFarms)
+          ? apiFarms.map((f) => ({
+              name: (f?.name ?? "").trim(),
+              accountNumber: (f?.accountNumber ?? "").trim(),
+              district: (f?.district ?? "").trim(),
+              otherDistrict: "",
+            }))
+          : [];
+        setFarms(mapped.length ? mapped : [{ name: "", accountNumber: "", district: "", otherDistrict: "" }]);
       } catch (e: any) {
         if (live) setError(e?.message || "Failed to load profile");
       } finally {
@@ -67,14 +146,63 @@ export default function EditProfilePage() {
     return () => {
       live = false;
     };
-  }, [router]);
+  }, [router, user?.primaryEmailAddress?.emailAddress]);
 
-  // Save profile
+  // ----- District helpers -----
+  const togglePreset = (d: string) => {
+    setPresetSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(d)) n.delete(d);
+      else n.add(d);
+      return n;
+    });
+  };
+
+  const addCustomDistrict = () => {
+    const v = customDistrictInput.trim();
+    if (!v) return;
+    setCustomDistricts((a) => (a.includes(v) ? a : [...a, v]));
+    setCustomDistrictInput("");
+  };
+
+  const removeCustomDistrict = (idx: number) => {
+    setCustomDistricts((a) => a.filter((_, i) => i !== idx));
+  };
+
+  // ----- Farm helpers -----
+  const updateFarm = (i: number, patch: Partial<FarmRow>) => {
+    setFarms((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  };
+  const addFarm = () =>
+    setFarms((rows) => [...rows, { name: "", accountNumber: "", district: "", otherDistrict: "" }]);
+  const removeFarm = (i: number) => setFarms((rows) => rows.filter((_, idx) => idx !== i));
+
+  // ----- Save profile (PATCH /api/profile) -----
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (saving) return;
     setSaving(true);
     setError(null);
+
+    // Validate required like onboarding
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+      setSaving(false);
+      setError("First name, last name, and email are required.");
+      return;
+    }
+
+    const selectedDistricts = Array.from(presetSelected);
+    for (const d of customDistricts) if (!selectedDistricts.includes(d)) selectedDistricts.push(d);
+
+    const farmsPayload = farms
+      .map((f) => ({
+        name: (f.name || "").trim(),
+        accountNumber: (f.accountNumber || "").trim(),
+        district: f.district === "__OTHER__" ? (f.otherDistrict || "").trim() : (f.district || "").trim(),
+      }))
+      .filter((f) => f.name || f.accountNumber || f.district);
+
+    const fullName = `${firstName} ${lastName}`.trim();
 
     try {
       const res = await fetch("/api/profile", {
@@ -82,12 +210,14 @@ export default function EditProfilePage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fullName: form.fullName,
-          company: form.company,
-          role: form.role, // server maps to tradeRole
-          phone: form.phone,
-          primaryDistrict: form.primaryDistrict,
-          waterTypes: form.waterTypes,
+          fullName,
+          email: email.trim(),
+          phone: phone.trim(),
+          cellPhone: cellPhone.trim(),
+          address: address.trim(),
+          smsOptIn,
+          districts: selectedDistricts,
+          farms: farmsPayload, // server PATCH supports replacing farms when provided
         }),
       });
 
@@ -113,18 +243,24 @@ export default function EditProfilePage() {
     }
   }
 
-  // Open Stripe Billing Portal
+  // ----- Stripe Customer Portal -----
   async function openBillingPortal() {
     if (portalLoading) return;
     setPortalLoading(true);
     setError(null);
     try {
+      // Your /api/billing/portal route should 303 redirect; return JSON if you chose that pattern.
       const r = await fetch("/api/billing/portal", { method: "POST" });
+      if (r.redirected) {
+        // If the route redirects directly
+        window.location.href = r.url;
+        return;
+      }
       if (!r.ok) {
         const text = await r.text().catch(() => "Failed to open billing portal");
         throw new Error(text);
       }
-      const { url } = await r.json();
+      const { url } = await r.json().catch(() => ({ url: "" }));
       if (!url) throw new Error("No billing portal URL returned");
       window.location.href = url;
     } catch (e: any) {
@@ -134,6 +270,9 @@ export default function EditProfilePage() {
   }
 
   if (loading || !userLoaded) return <div className="mx-auto max-w-2xl p-6">Loading…</div>;
+
+  // For farm dropdown suggestions (preset + custom)
+  const suggestedFarmDistricts = Array.from(new Set(["", ...PRESET_DISTRICTS, ...customDistricts]));
 
   return (
     <div className="mx-auto max-w-2xl p-6">
@@ -168,61 +307,69 @@ export default function EditProfilePage() {
         </div>
       </section>
 
+      {/* Same fields as onboarding */}
       <form onSubmit={onSubmit} className="mt-6 space-y-6" aria-live="polite">
+        {/* Name */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="fullName">
-              Full name *
-            </label>
+            <label className="block text-sm text-slate-600" htmlFor="firstName">First Name *</label>
             <input
-              id="fullName"
+              id="firstName"
               required
-              value={form.fullName}
-              onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              autoComplete="given-name"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="company">
-              Company
-            </label>
+            <label className="block text-sm text-slate-600" htmlFor="lastName">Last Name *</label>
             <input
-              id="company"
-              value={form.company}
-              onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))}
+              id="lastName"
+              required
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              autoComplete="family-name"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             />
           </div>
         </div>
 
+        {/* Address */}
+        <div>
+          <label className="block text-sm text-slate-600" htmlFor="address">Address</label>
+          <input
+            id="address"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Street, City, State ZIP"
+            autoComplete="street-address"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+          />
+        </div>
+
+        {/* Contact */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="role">
-              Role *
-            </label>
-            <select
-              id="role"
+            <label className="block text-sm text-slate-600" htmlFor="email">Email *</label>
+            <input
+              id="email"
+              type="email"
               required
-              value={form.role}
-              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            >
-              <option value="">Select…</option>
-              <option value="BUYER">Buyer</option>
-              <option value="SELLER">Seller</option>
-              <option value="BOTH">Both</option>
-              <option value="DISTRICT_ADMIN">District Admin</option>
-            </select>
+            />
           </div>
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="phone">
-              Phone
-            </label>
+            <label className="block text-sm text-slate-600" htmlFor="phone">Phone</label>
             <input
               id="phone"
-              value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
               inputMode="tel"
+              autoComplete="tel"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             />
           </div>
@@ -230,47 +377,166 @@ export default function EditProfilePage() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="primaryDistrict">
-              Primary District
-            </label>
-            <select
-              id="primaryDistrict"
-              value={form.primaryDistrict}
-              onChange={(e) => setForm((f) => ({ ...f, primaryDistrict: e.target.value }))}
+            <label className="block text-sm text-slate-600" htmlFor="cellPhone">Cell Phone</label>
+            <input
+              id="cellPhone"
+              value={cellPhone}
+              onChange={(e) => setCellPhone(e.target.value)}
+              inputMode="tel"
+              autoComplete="tel-national"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            >
-              {DISTRICTS.map((d) => (
-                <option key={d} value={d}>
-                  {d ? d : "Select…"}
-                </option>
-              ))}
-            </select>
+            />
+          </div>
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                id="smsOptIn"
+                type="checkbox"
+                checked={smsOptIn}
+                onChange={(e) => setSmsOptIn(e.target.checked)}
+              />
+              <span>SMS Opt-In</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Water Districts (preset + custom) */}
+        <div>
+          <div className="text-sm font-medium text-slate-700">Water Districts (select all that apply)</div>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {PRESET_DISTRICTS.map((d) => (
+              <label key={d} className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={presetSelected.has(d as string)}
+                  onChange={() => togglePreset(d as string)}
+                />
+                <span>{d}</span>
+              </label>
+            ))}
           </div>
 
-          <div>
-            <label className="block text-sm text-slate-600">Water Types</label>
-            <div className="mt-2 grid grid-cols-1 gap-2">
-              {WATER_TYPES.map((wt) => {
-                const checked = form.waterTypes.includes(wt);
-                return (
-                  <label key={wt} className="inline-flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        setForm((f) => ({
-                          ...f,
-                          waterTypes: e.target.checked
-                            ? [...f.waterTypes, wt]
-                            : f.waterTypes.filter((x) => x !== wt),
-                        }));
-                      }}
-                    />
-                    <span>{wt}</span>
-                  </label>
-                );
-              })}
+          <div className="mt-3">
+            <div className="text-sm text-slate-600">Add other districts</div>
+            <div className="mt-1 flex gap-2">
+              <input
+                value={customDistrictInput}
+                onChange={(e) => setCustomDistrictInput(e.target.value)}
+                placeholder="Type a district and click Add"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={addCustomDistrict}
+                className="rounded-lg border border-slate-300 px-3 text-sm hover:bg-slate-50"
+              >
+                Add
+              </button>
             </div>
+            {customDistricts.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {customDistricts.map((d, i) => (
+                  <span
+                    key={`${d}-${i}`}
+                    className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs"
+                  >
+                    {d}
+                    <button
+                      type="button"
+                      onClick={() => removeCustomDistrict(i)}
+                      aria-label={`Remove ${d}`}
+                      className="-mr-1 rounded-full px-1 hover:bg-slate-200"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Farms */}
+        <div>
+          <div className="text-sm font-medium text-slate-700">Farms</div>
+          <p className="mt-1 text-xs text-slate-500">
+            Add each farm you own with its water account number and the district it sits in.
+          </p>
+
+          <div className="mt-3 space-y-4">
+            {farms.map((f, i) => (
+              <div key={i} className="rounded-xl border border-slate-200 p-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-xs text-slate-600" htmlFor={`farm-name-${i}`}>
+                      Farm Name
+                    </label>
+                    <input
+                      id={`farm-name-${i}`}
+                      value={f.name}
+                      onChange={(e) => updateFarm(i, { name: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-600" htmlFor={`farm-acct-${i}`}>
+                      Water Account #
+                    </label>
+                    <input
+                      id={`farm-acct-${i}`}
+                      value={f.accountNumber}
+                      onChange={(e) => updateFarm(i, { accountNumber: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-600" htmlFor={`farm-district-${i}`}>
+                      District
+                    </label>
+                    <select
+                      id={`farm-district-${i}`}
+                      value={f.district}
+                      onChange={(e) => updateFarm(i, { district: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    >
+                      {suggestedFarmDistricts.map((d, idx) => (
+                        <option key={`${d}-${idx}`} value={d}>
+                          {d || "Select…"}
+                        </option>
+                      ))}
+                      <option value="__OTHER__">Other (type below)</option>
+                    </select>
+                    {f.district === "__OTHER__" && (
+                      <input
+                        placeholder="Other district"
+                        value={f.otherDistrict || ""}
+                        onChange={(e) => updateFarm(i, { otherDistrict: e.target.value })}
+                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => removeFarm(i)}
+                    className="text-xs text-slate-600 hover:text-slate-900"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={addFarm}
+              className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+            >
+              + Add another farm
+            </button>
           </div>
         </div>
 
