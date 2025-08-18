@@ -97,7 +97,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
               </div>
             </div>
 
-            <ListingsActions
+            <ListingActions
               listingId={row.id}
               kind="SELL"                         // actions are only for SELL now
               pricePerAf={pricePerAfDollars}      // dollars for UI
