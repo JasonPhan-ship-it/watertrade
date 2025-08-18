@@ -1,9 +1,9 @@
-// components/Navigation.tsx - Safe version without subscription fields
+// components/Navigation.tsx
 "use client";
 
-import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
+import { useUser, SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { User, LogOut, LogIn, Crown } from "lucide-react";
+import { User, LogOut, Crown } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -13,40 +13,31 @@ export default function Navigation() {
   const [isPremium, setIsPremium] = useState(false);
   const [premiumLoading, setPremiumLoading] = useState(false);
 
-  // Check premium status from Clerk metadata (and optionally database if available)
   useEffect(() => {
     if (!isSignedIn || !user) return;
 
     const checkPremiumStatus = async () => {
       setPremiumLoading(true);
       try {
-        // Always check Clerk metadata first (this is reliable)
         const clerkPremium = Boolean(user?.publicMetadata?.premium);
-        
-        // Try to check database for active subscription (if API exists and fields are available)
+
         let dbPremium = false;
         try {
           const response = await fetch("/api/subscription/status", {
             credentials: "include",
-            cache: "no-store"
+            cache: "no-store",
           });
-          
           if (response.ok) {
             const data = await response.json();
             dbPremium = data.isPremium || false;
           }
-        } catch (error) {
-          // If subscription API doesn't exist or fails, just use Clerk metadata
+        } catch {
           console.log("Subscription API not available, using Clerk metadata only");
         }
 
-        // User is premium if either source says so (prefer Clerk as source of truth)
-        const finalPremiumStatus = clerkPremium || dbPremium;
-        setIsPremium(finalPremiumStatus);
-
+        setIsPremium(clerkPremium || dbPremium);
       } catch (error) {
         console.error("Failed to check premium status:", error);
-        // Fallback to Clerk metadata only
         setIsPremium(Boolean(user?.publicMetadata?.premium));
       } finally {
         setPremiumLoading(false);
@@ -81,31 +72,28 @@ export default function Navigation() {
             </Link>
           </div>
 
-          {/* Center: Links */}
-          {isSignedIn && (
-            <div className="flex items-center gap-5 md:gap-6 justify-center">
-              <Link href="/dashboard" className="text-sm text-gray-700 hover:text-gray-900">
-                Dashboard
-              </Link>
-              <Link href="/create-listing" className="text-sm text-gray-700 hover:text-gray-900">
-                Create Listing
-              </Link>
-              <Link href="/analytics" className="text-sm text-gray-700 hover:text-gray-900">
-                Analytics
-              </Link>
-            </div>
-          )}
-
-          {/* Right: Auth */}
+          {/* Right side: Auth / Dashboard */}
           <div className="flex items-center gap-3 flex-1 justify-end">
             {isSignedIn ? (
               <div className="flex items-center gap-3">
-                <Link href="/profile" className="flex items-center text-sm text-gray-700 hover:text-gray-900">
+                {/* Dashboard shortcut */}
+                <Link
+                  href="/dashboard"
+                  className="text-sm text-gray-700 hover:text-gray-900 font-medium"
+                >
+                  Dashboard
+                </Link>
+
+                {/* Profile link */}
+                <Link
+                  href="/profile"
+                  className="flex items-center text-sm text-gray-700 hover:text-gray-900"
+                >
                   <User className="w-4 h-4 mr-1" />
                   {user?.firstName || user?.username || "Profile"}
                 </Link>
 
-                {/* Premium Badge */}
+                {/* Premium badge / upgrade */}
                 {premiumLoading ? (
                   <div className="animate-pulse bg-gray-200 rounded-full px-2.5 py-1 w-16 h-6"></div>
                 ) : isPremium ? (
@@ -126,6 +114,7 @@ export default function Navigation() {
                   </Link>
                 )}
 
+                {/* Sign out */}
                 <SignOutButton>
                   <Button variant="outline" className="px-3 py-2 text-sm">
                     <LogOut className="w-4 h-4 mr-2" />
@@ -134,12 +123,8 @@ export default function Navigation() {
                 </SignOutButton>
               </div>
             ) : (
-              <SignInButton mode="modal" afterSignInUrl="/api/auth/after-sign-in?next=/dashboard">
-                <Button className="bg-[#004434] hover:bg-[#00392f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#004434]">
-                  <LogIn className="w-4 h-4 mr-2" />
-                  Sign In
-                </Button>
-              </SignInButton>
+              // Not signed in → homepage already has Create Account + Sign In buttons
+              <></>
             )}
           </div>
         </div>
