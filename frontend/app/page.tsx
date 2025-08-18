@@ -1,3 +1,4 @@
+// app/page.tsx (Home)
 "use client";
 
 import Link from "next/link";
@@ -5,22 +6,34 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import Footer from "@/components/Footer";
 
-export default function HomePage() {
-  // 🔎 beacon
-  if (typeof window !== "undefined") {
-    console.debug("[Render] / HomePage");
-  }
+/** ---- Types shared with the API shape ---- */
+type Listing = {
+  id: string;
+  district: string;
+  acreFeet: number;
+  pricePerAf: number;
+  availabilityStart: string; // ISO
+  availabilityEnd: string; // ISO
+  waterType: string;
+  createdAt: string; // ISO
+};
 
-  const [data, setData] = useState<ApiResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+type ApiResponse = {
+  listings: Listing[];
+  total: number;
+  limited?: boolean;
+};
+
+const DISTRICT_LOGOS = [
+  { name: "Westlands Water District", src: "/logos/westlands.svg", width: 180, height: 48 },
+  { name: "San Luis Water District", src: "/logos/san-luis.svg", width: 180, height: 48 },
+  { name: "Panoche Water District", src: "/logos/panoche.svg", width: 180, height: 48 },
+  { name: "Arvin Edison Water District", src: "/logos/arvin-edison.svg", width: 200, height: 48 },
+] as const;
 
 /** ---- Tiny Typewriter ---- */
-function useTypewriter(
-  phrases: string[],
-  { typeSpeed = 45, deleteSpeed = 25, pauseMs = 5000 } = {}
-) {
-  const [i, setI] = useState(0); // which phrase
+function useTypewriter(phrases: string[], { typeSpeed = 45, deleteSpeed = 25, pauseMs = 5000 } = {}) {
+  const [i, setI] = useState(0);
   const [text, setText] = useState("");
   const [deleting, setDeleting] = useState(false);
 
@@ -57,32 +70,11 @@ function Typewriter({ phrases, className = "" }: { phrases: string[]; className?
   );
 }
 
-/** ---- Types shared with the API shape ---- */
-type Listing = {
-  id: string;
-  district: string;
-  acreFeet: number;
-  pricePerAf: number;
-  availabilityStart: string; // ISO
-  availabilityEnd: string;   // ISO
-  waterType: string;
-  createdAt: string;         // ISO
-};
-
-type ApiResponse = {
-  listings: Listing[];
-  total: number;
-  limited?: boolean;
-};
-
-const DISTRICT_LOGOS = [
-  { name: "Westlands Water District", src: "/logos/westlands.svg", width: 180, height: 48 },
-  { name: "San Luis Water District",  src: "/logos/san-luis.svg",  width: 180, height: 48 },
-  { name: "Panoche Water District",   src: "/logos/panoche.svg",   width: 180, height: 48 },
-  { name: "Arvin Edison Water District", src: "/logos/arvin-edison.svg", width: 200, height: 48 },
-] as const;
-
+/** ---- Page ---- */
 export default function HomePage() {
+  // 🔎 beacon
+  if (typeof window !== "undefined") console.debug("[Render] / HomePage");
+
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -106,23 +98,13 @@ export default function HomePage() {
   }, []);
 
   const stats = useMemo(() => {
-    const rows = (data?.listings ?? []);
+    const rows = data?.listings ?? [];
     const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
-    const avg =
-      rows.length > 0
-        ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100
-        : 0;
-    return {
-      count: data?.total ?? 0,
-      af: formatNumber(totalAf),
-      avg: avg ? `$${formatNumber(avg)}` : "$0",
-    };
+    const avg = rows.length > 0 ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100 : 0;
+    return { count: data?.total ?? 0, af: formatNumber(totalAf), avg: avg ? `$${formatNumber(avg)}` : "$0" };
   }, [data]);
 
-  const PHRASES = useMemo(
-    () => ["From Growers, For Growers.", "List fast. Move water faster."],
-    []
-  );
+  const PHRASES = useMemo(() => ["From Growers, For Growers.", "List fast. Move water faster."], []);
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -134,9 +116,8 @@ export default function HomePage() {
               <Typewriter phrases={PHRASES} />
             </h1>
             <p className="mt-3 text-slate-600">
-              A marketplace built for growers and districts. Discover live listings,
-              compare prices by district, and complete transfers with a clear, auditable
-              workflow.
+              A marketplace built for growers and districts. Discover live listings, compare prices by district, and
+              complete transfers with a clear, auditable workflow.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
@@ -158,9 +139,7 @@ export default function HomePage() {
           <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between px-2 pt-1">
               <div className="text-sm font-medium text-slate-900">Dashboard Preview</div>
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
-                Read-only
-              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">Read-only</span>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -190,12 +169,8 @@ export default function HomePage() {
                       {(data?.listings ?? []).map((l) => (
                         <tr key={l.id} className="align-middle">
                           <td className="px-4 py-3 text-slate-900">{l.district}</td>
-                          <td className="px-4 py-3 text-right tabular-nums text-slate-900">
-                            {formatNumber(l.acreFeet)}
-                          </td>
-                          <td className="px-4 py-3 text-right tabular-nums text-slate-900">
-                            ${formatNumber(l.pricePerAf)}
-                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-900">{formatNumber(l.acreFeet)}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-900">${formatNumber(l.pricePerAf)}</td>
                           <td className="px-4 py-3">
                             <WaterTypeBadge type={l.waterType} />
                           </td>
@@ -226,16 +201,10 @@ export default function HomePage() {
       {/* District logo cloud */}
       <section aria-label="District partners" className="border-t bg-white">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-          <p className="text-center text-xs font-medium tracking-wide text-slate-500">
-            Working with growers across these districts
-          </p>
-
+          <p className="text-center text-xs font-medium tracking-wide text-slate-500">Working with growers across these districts</p>
           <div className="mt-4 grid grid-cols-2 items-center justify-items-center gap-x-8 gap-y-6 sm:grid-cols-4">
             {DISTRICT_LOGOS.map((logo) => (
-              <div
-                key={logo.name}
-                className="opacity-80 grayscale transition hover:opacity-100 hover:grayscale-0 focus-within:opacity-100"
-              >
+              <div key={logo.name} className="opacity-80 grayscale transition hover:opacity-100 hover:grayscale-0 focus-within:opacity-100">
                 <Image
                   src={logo.src}
                   alt={logo.name}
@@ -254,26 +223,11 @@ export default function HomePage() {
       <section className="border-t bg-slate-50 py-12">
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 sm:grid-cols-3 sm:px-6">
           {[
-            {
-              title: "Transparent Pricing",
-              blurb: "See current $/AF by district and water type.",
-              icon: <TagIcon />,
-            },
-            {
-              title: "District-Aware Transfers",
-              blurb: "Workflows tailored to each district’s window and forms.",
-              icon: <ClipboardIcon />,
-            },
-            {
-              title: "Premium Analytics",
-              blurb: "Early-access listings plus pricing trends and alerts.",
-              icon: <ChartIcon />,
-            },
+            { title: "Transparent Pricing", blurb: "See current $/AF by district and water type.", icon: <TagIcon /> },
+            { title: "District-Aware Transfers", blurb: "Workflows tailored to each district’s window and forms.", icon: <ClipboardIcon /> },
+            { title: "Premium Analytics", blurb: "Early-access listings plus pricing trends and alerts.", icon: <ChartIcon /> },
           ].map((f, i) => (
-            <div
-              key={i}
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center"
-            >
+            <div key={i} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center">
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#E6F4F1]">
                 <div className="h-6 w-6 text-[#0E6A59]">{f.icon}</div>
               </div>
@@ -291,14 +245,11 @@ export default function HomePage() {
 }
 
 /* ---------------------- Cookie Banner ---------------------- */
-
 function CookieBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const hasChoice =
-      typeof document !== "undefined" &&
-      document.cookie.split("; ").some((c) => c.startsWith("cookie_consent="));
+    const hasChoice = typeof document !== "undefined" && document.cookie.split("; ").some((c) => c.startsWith("cookie_consent="));
     if (!hasChoice) setVisible(true);
   }, []);
 
@@ -312,32 +263,21 @@ function CookieBanner() {
   };
 
   return (
-    <div
-      role="dialog"
-      aria-live="polite"
-      className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6"
-    >
+    <div role="dialog" aria-live="polite" className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6">
       <div className="rounded-2xl border border-white/20 bg-[#004434] p-4 text-white shadow-lg">
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm leading-5">
-            We use cookies to improve your experience, analyze traffic, and provide essential site
-            functionality.{" "}
+            We use cookies to improve your experience, analyze traffic, and provide essential site functionality.{" "}
             <Link href="/privacy-policy" className="underline text-white/90 hover:text-white">
               Learn more
             </Link>
             .
           </p>
           <div className="flex gap-2">
-            <button
-              onClick={() => setConsent("rejected")}
-              className="h-9 rounded-xl border border-white/30 bg-transparent px-4 text-sm font-medium text-white hover:bg-white/10"
-            >
+            <button onClick={() => setConsent("rejected")} className="h-9 rounded-xl border border-white/30 bg-transparent px-4 text-sm font-medium text-white hover:bg-white/10">
               No thanks
             </button>
-            <button
-              onClick={() => setConsent("accepted")}
-              className="h-9 rounded-xl bg-white px-4 text-sm font-semibold text-[#004434] hover:bg-slate-100"
-            >
+            <button onClick={() => setConsent("accepted")} className="h-9 rounded-xl bg-white px-4 text-sm font-semibold text-[#004434] hover:bg-slate-100">
               Allow cookies
             </button>
           </div>
@@ -348,7 +288,6 @@ function CookieBanner() {
 }
 
 /* ---------------------- UI bits ---------------------- */
-
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -359,24 +298,13 @@ function Kpi({ label, value }: { label: string; value: string }) {
 }
 
 function WaterTypeBadge({ type }: { type: string }) {
-  return (
-    <span className="inline-flex items-center rounded-full bg-[#0E6A59] px-3 py-1 text-xs font-semibold text-white">
-      {type}
-    </span>
-  );
+  return <span className="inline-flex items-center rounded-full bg-[#0E6A59] px-3 py-1 text-xs font-semibold text-white">{type}</span>;
 }
 
 /* ---------------------- Inline SVG Icons ---------------------- */
-
 function TagIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-full w-full"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
+    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M20 13l-7 7-9-9V4h7l9 9z" />
       <circle cx="7.5" cy="7.5" r="1.5" />
     </svg>
@@ -385,13 +313,7 @@ function TagIcon() {
 
 function ClipboardIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-full w-full"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
+    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M9 5h6a2 2 0 012 2v12H7V7a2 2 0 012-2z" />
       <path d="M9 3h6v4H9z" />
       <path d="M8 11h8M8 15h8" />
@@ -401,13 +323,7 @@ function ClipboardIcon() {
 
 function ChartIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-full w-full"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
+    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M4 19h16" />
       <path d="M7 16V9" />
       <path d="M12 16V5" />
@@ -417,7 +333,6 @@ function ChartIcon() {
 }
 
 /* ---------------------- Helpers ---------------------- */
-
 function formatNumber(n: number | string) {
   const num = typeof n === "string" ? Number(n) : n;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
