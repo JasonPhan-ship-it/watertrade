@@ -25,10 +25,10 @@ type ApiResponse = {
 };
 
 const DISTRICT_LOGOS = [
-  { name: "Westlands Water District", src: "/logos/westlands.svg", width: 180, height: 48 },
-  { name: "San Luis Water District", src: "/logos/san-luis.svg", width: 180, height: 48 },
-  { name: "Panoche Water District", src: "/logos/panoche.svg", width: 180, height: 48 },
-  { name: "Arvin Edison Water District", src: "/logos/arvin-edison.svg", width: 200, height: 48 },
+  { name: "Westlands Water District", src: "/logos/westlands.png", width: 180, height: 48 },
+  { name: "San Luis Water District", src: "/logos/san-luis.png", width: 180, height: 48 },
+  { name: "Panoche Water District", src: "/logos/panoche.png", width: 180, height: 48 },
+  { name: "Arvin Edison Water District", src: "/logos/arvin-edison.png", width: 200, height: 48 },
 ] as const;
 
 /** ---- Tiny Typewriter ---- */
