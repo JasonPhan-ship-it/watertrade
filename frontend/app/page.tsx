@@ -5,6 +5,16 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import Footer from "@/components/Footer";
 
+export default function HomePage() {
+  // 🔎 beacon
+  if (typeof window !== "undefined") {
+    console.debug("[Render] / HomePage");
+  }
+
+  const [data, setData] = useState<ApiResponse | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
 /** ---- Tiny Typewriter ---- */
 function useTypewriter(
   phrases: string[],
