@@ -13,9 +13,8 @@ function useOnboardedGate() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
 
-  // 🔎 beacon: custom hook entered
+  // 🔎 beacon: custom hook entered (runs on each render of callers)
   if (typeof window !== "undefined") {
-    // runs every render of components that call this hook
     console.debug("[Render] useOnboardedGate", { authLoaded, userLoaded, isSignedIn });
   }
 
@@ -83,15 +82,6 @@ function useOnboardedGate() {
   return checking;
 }
 
-/* ---------- Page ---------- */
-export default function DashboardPage() {
-  // 🔎 beacon: page render (put BEFORE any hooks if possible; here is fine too)
-  if (typeof window !== "undefined") {
-    console.debug("[Render] /dashboard DashboardPage");
-  }
-
-  const checking = useOnboardedGate();
-
 /* ---------- Types ---------- */
 type Listing = {
   id: string;
@@ -122,17 +112,15 @@ const DISTRICTS = [
   "Arvin Edison Water District",
 ] as const;
 
-const WATER_TYPES = [
-  "Any Water Type",
-  "Pumping Credits",
-  "CVP Allocation",
-  "Supplemental Water",
-] as const;
+const WATER_TYPES = ["Any Water Type", "Pumping Credits", "CVP Allocation", "Supplemental Water"] as const;
 
 const PAGE_SIZES = [5, 10, 20] as const;
 
 /* ---------- Page ---------- */
 export default function DashboardPage() {
+  // 🔎 beacon: page render
+  if (typeof window !== "undefined") console.debug("[Render] /dashboard DashboardPage");
+
   const checking = useOnboardedGate();
 
   // Dashboard state
@@ -147,7 +135,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Build query (stable order of hooks; no conditional hooks)
+  // Build query
   const qs = useMemo(() => {
     const u = new URLSearchParams();
     if (district !== "All Districts") u.set("district", district);
@@ -168,23 +156,17 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/listings?${qs}`, {
-      method: "GET",
-      cache: "no-store",
-      signal: controller.signal,
-    })
+    fetch(`/api/listings?${qs}`, { method: "GET", cache: "no-store", signal: controller.signal })
       .then(async (r) => {
         if (!r.ok) {
           const text = await r.text().catch(() => "");
-          throw new Error(
-            `HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`
-          );
+          throw new Error(`HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`);
         }
         return r.json() as Promise<ApiResponse>;
       })
       .then((json) => setData(json))
-      .catch((e) => {
-        if ((e as any).name !== "AbortError") setError((e as any).message || "Failed to load");
+      .catch((e: any) => {
+        if (e.name !== "AbortError") setError(e.message || "Failed to load");
       })
       .finally(() => setLoading(false));
 
@@ -198,7 +180,7 @@ export default function DashboardPage() {
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#004434] mx-auto mb-4"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#004434] mx-auto mb-4" />
               <p className="text-slate-600">Loading dashboard...</p>
             </div>
           </div>
@@ -207,15 +189,14 @@ export default function DashboardPage() {
     );
   }
 
-  // KPIs (defensive against nulls)
+  // KPIs (defensive)
   const safeRows = useMemo(() => (Array.isArray(data?.listings) ? data!.listings : []), [data]);
 
   const stats = useMemo(() => {
     const totalAf = safeRows.reduce((s, l) => s + l.acreFeet, 0);
     const avg =
       safeRows.length > 0
-        ? Math.round((safeRows.reduce((s, l) => s + l.pricePerAf, 0) / safeRows.length) * 100) /
-          100
+        ? Math.round((safeRows.reduce((s, l) => s + l.pricePerAf, 0) / safeRows.length) * 100) / 100
         : 0;
 
     return {
@@ -241,15 +222,12 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Hero / Filters */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-2xl font-semibold tracking-tight">Active Water Sales</div>
-              <div className="mt-1 text-sm text-white/80">
-                Westlands · San Luis · Panoche · Arvin Edison
-              </div>
+              <div className="mt-1 text-sm text-white/80">Westlands · San Luis · Panoche · Arvin Edison</div>
             </div>
           </div>
 
@@ -299,13 +277,12 @@ export default function DashboardPage() {
             <div className="text-sm text-slate-600">
               {premium ? (
                 <>
-                  <span className="font-medium text-slate-900">Premium:</span> Full details & early
-                  access unlocked.
+                  <span className="font-medium text-slate-900">Premium:</span> Full details & early access unlocked.
                 </>
               ) : (
                 <>
-                  <span className="font-medium text-slate-900">Premium:</span> You're viewing a
-                  limited set. Upgrade to see full details & early access.
+                  <span className="font-medium text-slate-900">Premium:</span> You're viewing a limited set. Upgrade to
+                  see full details & early access.
                 </>
               )}
             </div>
@@ -315,9 +292,7 @@ export default function DashboardPage() {
                 setPage(1);
               }}
               className={`h-8 rounded-xl px-3 text-xs font-medium ${
-                premium
-                  ? "bg-[#004434] text-white hover:bg-[#00392f]"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                premium ? "bg-[#004434] text-white hover:bg-[#00392f]" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
               {premium ? "Disable" : "Enable"} Premium (Demo)
@@ -325,7 +300,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        {/* Listings table */}
+        {/* Listings */}
         <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
             <div className="font-medium">Listings</div>
@@ -352,34 +327,11 @@ export default function DashboardPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-slate-600">
                     <tr>
-                      <Th
-                        label="District"
-                        active={sortBy === "district"}
-                        dir={sortDir}
-                        onClick={() => onSort("district")}
-                      />
-                      <Th
-                        label="Acre-Feet"
-                        align="right"
-                        active={sortBy === "acreFeet"}
-                        dir={sortDir}
-                        onClick={() => onSort("acreFeet")}
-                      />
-                      <Th
-                        label="$ / AF"
-                        align="right"
-                        active={sortBy === "pricePerAf"}
-                        dir={sortDir}
-                        onClick={() => onSort("pricePerAf")}
-                      />
+                      <Th label="District" active={sortBy === "district"} dir={sortDir} onClick={() => onSort("district")} />
+                      <Th label="Acre-Feet" align="right" active={sortBy === "acreFeet"} dir={sortDir} onClick={() => onSort("acreFeet")} />
+                      <Th label="$ / AF" align="right" active={sortBy === "pricePerAf"} dir={sortDir} onClick={() => onSort("pricePerAf")} />
                       <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
-                      <Th
-                        label="Action"
-                        align="center"
-                        active={sortBy === "createdAt"}
-                        dir={sortDir}
-                        onClick={() => onSort("createdAt")}
-                      />
+                      <Th label="Action" align="center" active={sortBy === "createdAt"} dir={sortDir} onClick={() => onSort("createdAt")} />
                     </tr>
                   </thead>
                   <tbody>
@@ -389,15 +341,10 @@ export default function DashboardPage() {
                         <Td align="right">{formatNumber(l.acreFeet)}</Td>
                         <Td align="right">${formatNumber(l.pricePerAf)}</Td>
                         <Td>
-                          <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
-                            {l.waterType}
-                          </span>
+                          <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">{l.waterType}</span>
                         </Td>
                         <Td align="center">
-                          <Link
-                            href={`/listings/${l.id}`}
-                            className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                          >
+                          <Link href={`/listings/${l.id}`} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
                             View Details
                           </Link>
                         </Td>
@@ -428,8 +375,7 @@ export default function DashboardPage() {
               <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row">
                 <div className="text-xs text-slate-500">
                   Page <span className="font-medium text-slate-700">{page}</span> of{" "}
-                  <span className="font-medium text-slate-700">{Math.max(1, totalPages)}</span> •{" "}
-                  {data?.total ?? 0} total listings
+                  <span className="font-medium text-slate-700">{Math.max(1, totalPages)}</span> • {data?.total ?? 0} total listings
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -448,18 +394,10 @@ export default function DashboardPage() {
                     ))}
                   </select>
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page <= 1}
-                      className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
-                    >
+                    <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50">
                       Prev
                     </button>
-                    <button
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page >= totalPages}
-                      className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
-                    >
+                    <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50">
                       Next
                     </button>
                   </div>
@@ -499,9 +437,7 @@ function Th({
   return (
     <th
       onClick={onClick}
-      className={`cursor-pointer select-none px-6 py-3 font-medium ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : ""
-      }`}
+      className={`cursor-pointer select-none px-6 py-3 font-medium ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}
     >
       <span className="inline-flex items-center gap-1">
         {label}
@@ -512,11 +448,7 @@ function Th({
 }
 
 function Td({ children, align = "left" }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
-  return (
-    <td className={`px-6 py-4 ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}>
-      {children}
-    </td>
-  );
+  return <td className={`px-6 py-4 ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}>{children}</td>;
 }
 
 function formatNumber(n: number | string) {
