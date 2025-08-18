@@ -24,11 +24,20 @@ type ApiResponse = {
   limited?: boolean;
 };
 
+/**
+ * ✅ If your files are placed directly under:
+ * frontend/public/westlands.png
+ * frontend/public/san-luis.png
+ * frontend/public/panoche.png
+ * frontend/public/arvin-edison.png
+ *
+ * You can reference them at "/westlands.png", etc.
+ */
 const DISTRICT_LOGOS = [
-  { name: "Westlands Water District", src: "/logos/westlands.png", width: 180, height: 48 },
-  { name: "San Luis Water District", src: "/logos/san-luis.png", width: 180, height: 48 },
-  { name: "Panoche Water District", src: "/logos/panoche.png", width: 180, height: 48 },
-  { name: "Arvin Edison Water District", src: "/logos/arvin-edison.png", width: 200, height: 48 },
+  { name: "Westlands Water District", src: "/westlands.png", width: 180, height: 48 },
+  { name: "San Luis Water District",  src: "/san-luis.png",  width: 180, height: 48 },
+  { name: "Panoche Water District",   src: "/panoche.png",   width: 180, height: 48 },
+  { name: "Arvin Edison Water District", src: "/arvin-edison.png", width: 200, height: 48 },
 ] as const;
 
 /** ---- Tiny Typewriter ---- */
@@ -72,7 +81,6 @@ function Typewriter({ phrases, className = "" }: { phrases: string[]; className?
 
 /** ---- Page ---- */
 export default function HomePage() {
-  // 🔎 beacon
   if (typeof window !== "undefined") console.debug("[Render] / HomePage");
 
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -100,7 +108,10 @@ export default function HomePage() {
   const stats = useMemo(() => {
     const rows = data?.listings ?? [];
     const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
-    const avg = rows.length > 0 ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100 : 0;
+    const avg =
+      rows.length > 0
+        ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100
+        : 0;
     return { count: data?.total ?? 0, af: formatNumber(totalAf), avg: avg ? `$${formatNumber(avg)}` : "$0" };
   }, [data]);
 
@@ -201,10 +212,15 @@ export default function HomePage() {
       {/* District logo cloud */}
       <section aria-label="District partners" className="border-t bg-white">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-          <p className="text-center text-xs font-medium tracking-wide text-slate-500">Working with growers across these districts</p>
+          <p className="text-center text-xs font-medium tracking-wide text-slate-500">
+            Working with growers across these districts
+          </p>
           <div className="mt-4 grid grid-cols-2 items-center justify-items-center gap-x-8 gap-y-6 sm:grid-cols-4">
             {DISTRICT_LOGOS.map((logo) => (
-              <div key={logo.name} className="opacity-80 grayscale transition hover:opacity-100 hover:grayscale-0 focus-within:opacity-100">
+              <div
+                key={logo.name}
+                className="opacity-80 grayscale transition hover:opacity-100 hover:grayscale-0 focus-within:opacity-100"
+              >
                 <Image
                   src={logo.src}
                   alt={logo.name}
@@ -212,6 +228,8 @@ export default function HomePage() {
                   height={logo.height}
                   className="h-8 w-auto object-contain sm:h-10"
                   priority={false}
+                  sizes="(max-width: 640px) 128px, 180px"
+                  loading="lazy"
                 />
               </div>
             ))}
@@ -249,7 +267,8 @@ function CookieBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const hasChoice = typeof document !== "undefined" && document.cookie.split("; ").some((c) => c.startsWith("cookie_consent="));
+    const hasChoice =
+      typeof document !== "undefined" && document.cookie.split("; ").some((c) => c.startsWith("cookie_consent="));
     if (!hasChoice) setVisible(true);
   }, []);
 
@@ -274,10 +293,16 @@ function CookieBanner() {
             .
           </p>
           <div className="flex gap-2">
-            <button onClick={() => setConsent("rejected")} className="h-9 rounded-xl border border-white/30 bg-transparent px-4 text-sm font-medium text-white hover:bg-white/10">
+            <button
+              onClick={() => setConsent("rejected")}
+              className="h-9 rounded-xl border border-white/30 bg-transparent px-4 text-sm font-medium text-white hover:bg-white/10"
+            >
               No thanks
             </button>
-            <button onClick={() => setConsent("accepted")} className="h-9 rounded-xl bg-white px-4 text-sm font-semibold text-[#004434] hover:bg-slate-100">
+            <button
+              onClick={() => setConsent("accepted")}
+              className="h-9 rounded-xl bg-white px-4 text-sm font-semibold text-[#004434] hover:bg-slate-100"
+            >
               Allow cookies
             </button>
           </div>
@@ -298,7 +323,11 @@ function Kpi({ label, value }: { label: string; value: string }) {
 }
 
 function WaterTypeBadge({ type }: { type: string }) {
-  return <span className="inline-flex items-center rounded-full bg-[#0E6A59] px-3 py-1 text-xs font-semibold text-white">{type}</span>;
+  return (
+    <span className="inline-flex items-center rounded-full bg-[#0E6A59] px-3 py-1 text-xs font-semibold text-white">
+      {type}
+    </span>
+  );
 }
 
 /* ---------------------- Inline SVG Icons ---------------------- */
