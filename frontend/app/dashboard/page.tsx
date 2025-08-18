@@ -1,4 +1,4 @@
-// app/dashboard/page.tsx - Fixed version with timeout
+// app/dashboard/page.tsx — fixed, hook-safe, with robust onboarding gate
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
-// Simplified onboarding gate with timeout
+// ------------ Simplified onboarding gate with guarded timeouts ------------
 function useOnboardedGate() {
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { isLoaded: userLoaded, user } = useUser();
@@ -14,74 +14,60 @@ function useOnboardedGate() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    
-    // Set a timeout to prevent infinite loading
-    const timeout = setTimeout(() => {
+    // One dashboard timeout we always clear on success/unmount
+    const dashboardTimeout = setTimeout(() => {
       console.log("Onboarding check timeout - showing dashboard anyway");
       setChecking(false);
-    }, 5000); // 5 second timeout
+    }, 5000);
 
     const checkOnboarding = async () => {
-      // Wait for Clerk to load
-      if (!authLoaded || !userLoaded) return;
+      if (!authLoaded || !userLoaded) return; // wait for Clerk
 
-      // If not signed in, let middleware handle redirect
       if (!isSignedIn) {
         router.push("/sign-in");
         return;
       }
 
-      // Check Clerk metadata first (fastest)
       const clerkOnboarded = user?.publicMetadata?.onboarded === true;
       if (clerkOnboarded) {
-        clearTimeout(timeout);
+        clearTimeout(dashboardTimeout);
         setChecking(false);
         return;
       }
 
-      // Quick server check (with timeout)
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        
+        const apiTimeout = setTimeout(() => controller.abort(), 3000);
         const response = await fetch("/api/onboarding/init", {
           credentials: "include",
           cache: "no-store",
-          signal: controller.signal
+          signal: controller.signal,
         });
-        
-        clearTimeout(timeoutId);
-        
+        clearTimeout(apiTimeout);
+
         if (response.ok) {
           const data = await response.json();
           if (data?.onboarded) {
-            clearTimeout(timeout);
+            clearTimeout(dashboardTimeout);
             setChecking(false);
             return;
           }
         }
-        
-        // Not onboarded - redirect to onboarding
+
         router.push("/onboarding?next=/dashboard");
-        
-      } catch (error) {
-        console.log("Onboarding check failed:", error);
-        // On error, assume not onboarded if no Clerk signal
+      } catch (err) {
+        console.log("Onboarding check failed:", err);
         if (!clerkOnboarded) {
           router.push("/onboarding?next=/dashboard");
         } else {
-          clearTimeout(timeout);
+          clearTimeout(dashboardTimeout);
           setChecking(false);
         }
       }
     };
 
     checkOnboarding();
-
-    return () => {
-      clearTimeout(timeout);
-    };
+    return () => clearTimeout(dashboardTimeout);
   }, [authLoaded, userLoaded, isSignedIn, user?.publicMetadata?.onboarded, router]);
 
   return checking;
@@ -111,7 +97,7 @@ type SortDir = "asc" | "desc";
 /* ---------- Constants ---------- */
 const DISTRICTS = [
   "All Districts",
-  "Westlands Water District", 
+  "Westlands Water District",
   "San Luis Water District",
   "Panoche Water District",
   "Arvin Edison Water District",
@@ -120,7 +106,7 @@ const DISTRICTS = [
 const WATER_TYPES = [
   "Any Water Type",
   "Pumping Credits",
-  "CVP Allocation", 
+  "CVP Allocation",
   "Supplemental Water",
 ] as const;
 
@@ -129,7 +115,7 @@ const PAGE_SIZES = [5, 10, 20] as const;
 /* ---------- Page ---------- */
 export default function DashboardPage() {
   const checking = useOnboardedGate();
-  
+
   // Dashboard state
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
@@ -142,7 +128,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Build query
+  // Build query (stable order of hooks; no conditional hooks)
   const qs = useMemo(() => {
     const u = new URLSearchParams();
     if (district !== "All Districts") u.set("district", district);
@@ -158,34 +144,32 @@ export default function DashboardPage() {
   // Fetch data
   useEffect(() => {
     if (checking) return;
-    
-    let abortController = new AbortController();
+
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
 
-    fetch(`/api/listings?${qs}`, { 
-      method: "GET", 
+    fetch(`/api/listings?${qs}`, {
+      method: "GET",
       cache: "no-store",
-      signal: abortController.signal
+      signal: controller.signal,
     })
       .then(async (r) => {
         if (!r.ok) {
           const text = await r.text().catch(() => "");
-          throw new Error(`HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`);
+          throw new Error(
+            `HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`
+          );
         }
         return r.json() as Promise<ApiResponse>;
       })
       .then((json) => setData(json))
       .catch((e) => {
-        if (e.name !== 'AbortError') {
-          setError(e.message || "Failed to load");
-        }
+        if ((e as any).name !== "AbortError") setError((e as any).message || "Failed to load");
       })
       .finally(() => setLoading(false));
 
-    return () => {
-      abortController.abort();
-    };
+    return () => controller.abort();
   }, [qs, checking]);
 
   // Show loading state while checking onboarding
@@ -204,13 +188,15 @@ export default function DashboardPage() {
     );
   }
 
-  // KPIs
+  // KPIs (defensive against nulls)
+  const safeRows = useMemo(() => (Array.isArray(data?.listings) ? data!.listings : []), [data]);
+
   const stats = useMemo(() => {
-    const rows = data?.listings ?? [];
-    const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
+    const totalAf = safeRows.reduce((s, l) => s + l.acreFeet, 0);
     const avg =
-      rows.length > 0
-        ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100
+      safeRows.length > 0
+        ? Math.round((safeRows.reduce((s, l) => s + l.pricePerAf, 0) / safeRows.length) * 100) /
+          100
         : 0;
 
     return {
@@ -218,12 +204,12 @@ export default function DashboardPage() {
       totalAf: formatNumber(totalAf),
       avgPrice: avg ? `$${formatNumber(avg)}` : "$0",
     };
-  }, [data]);
+  }, [safeRows, data?.total]);
 
   const totalPages = useMemo(() => {
-    if (!data) return 1;
-    return Math.max(1, Math.ceil((data.total ?? 0) / pageSize));
-  }, [data, pageSize]);
+    const total = data?.total ?? 0;
+    return Math.max(1, Math.ceil(total / pageSize));
+  }, [data?.total, pageSize]);
 
   function onSort(col: SortBy) {
     if (col === sortBy) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -367,12 +353,7 @@ export default function DashboardPage() {
                         dir={sortDir}
                         onClick={() => onSort("pricePerAf")}
                       />
-                      <Th
-                        label="Water Type"
-                        active={false}
-                        dir={"asc"}
-                        onClick={() => {}}
-                      />
+                      <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
                       <Th
                         label="Action"
                         align="center"
@@ -383,7 +364,7 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.listings ?? []).map((l) => (
+                    {safeRows.map((l) => (
                       <tr key={l.id} className="border-t border-slate-100">
                         <Td>{l.district}</Td>
                         <Td align="right">{formatNumber(l.acreFeet)}</Td>
@@ -403,13 +384,11 @@ export default function DashboardPage() {
                         </Td>
                       </tr>
                     ))}
-                    {(data?.listings?.length ?? 0) === 0 && (
+                    {safeRows.length === 0 && (
                       <tr>
                         <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
                           <div className="mx-auto max-w-md">
-                            <div className="text-sm">
-                              No listings match your filters.
-                            </div>
+                            <div className="text-sm">No listings match your filters.</div>
                             <div className="mt-4">
                               <Link
                                 href="/create-listing"
@@ -513,19 +492,9 @@ function Th({
   );
 }
 
-function Td({
-  children,
-  align = "left",
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right" | "center";
-}) {
+function Td({ children, align = "left" }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
   return (
-    <td
-      className={`px-6 py-4 ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : ""
-      }`}
-    >
+    <td className={`px-6 py-4 ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}>
       {children}
     </td>
   );
