@@ -1,41 +1,34 @@
 // app/dashboard/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
-// ------------ Simplified onboarding gate with guarded timeouts ------------
+/* ---------------- Onboarding Gate (client-only, stable hooks) ---------------- */
 function useOnboardedGate() {
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { isLoaded: userLoaded, user } = useUser();
   const router = useRouter();
   const [checking, setChecking] = useState(true);
 
-  // 🔎 beacon: custom hook entered (runs on each render of callers)
-  if (typeof window !== "undefined") {
-    console.debug("[Render] useOnboardedGate", { authLoaded, userLoaded, isSignedIn });
-  }
-
   useEffect(() => {
+    // single timeout, always cleared on success/unmount
     const dashboardTimeout = setTimeout(() => {
-      console.log("Onboarding check timeout - showing dashboard anyway");
       setChecking(false);
     }, 5000);
 
-    const checkOnboarding = async () => {
-      if (!authLoaded || !userLoaded) return;
+    const check = async () => {
+      if (!authLoaded || !userLoaded) return; // wait for Clerk
 
       if (!isSignedIn) {
-        console.debug("[Gate] redirect -> /sign-in");
         router.push("/sign-in");
         return;
       }
 
       const clerkOnboarded = user?.publicMetadata?.onboarded === true;
       if (clerkOnboarded) {
-        console.debug("[Gate] onboarded via Clerk");
         clearTimeout(dashboardTimeout);
         setChecking(false);
         return;
@@ -44,29 +37,25 @@ function useOnboardedGate() {
       try {
         const controller = new AbortController();
         const apiTimeout = setTimeout(() => controller.abort(), 3000);
-        const response = await fetch("/api/onboarding/init", {
+        const res = await fetch("/api/onboarding/init", {
           credentials: "include",
           cache: "no-store",
           signal: controller.signal,
         });
         clearTimeout(apiTimeout);
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data?.onboarded) {
-            console.debug("[Gate] onboarded via API");
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.onboarded) {
             clearTimeout(dashboardTimeout);
             setChecking(false);
             return;
           }
         }
 
-        console.debug("[Gate] not onboarded -> redirect /onboarding?next=/dashboard");
         router.push("/onboarding?next=/dashboard");
-      } catch (err) {
-        console.log("Onboarding check failed:", err);
+      } catch {
         if (!clerkOnboarded) {
-          console.debug("[Gate] error & not onboarded -> redirect /onboarding");
           router.push("/onboarding?next=/dashboard");
         } else {
           clearTimeout(dashboardTimeout);
@@ -75,14 +64,14 @@ function useOnboardedGate() {
       }
     };
 
-    checkOnboarding();
+    check();
     return () => clearTimeout(dashboardTimeout);
   }, [authLoaded, userLoaded, isSignedIn, user?.publicMetadata?.onboarded, router]);
 
   return checking;
 }
 
-/* ---------- Types ---------- */
+/* ---------------- Types ---------------- */
 type Listing = {
   id: string;
   district: string;
@@ -103,7 +92,7 @@ type ApiResponse = {
 type SortBy = "district" | "acreFeet" | "pricePerAf" | "createdAt";
 type SortDir = "asc" | "desc";
 
-/* ---------- Constants ---------- */
+/* ---------------- Constants ---------------- */
 const DISTRICTS = [
   "All Districts",
   "Westlands Water District",
@@ -112,18 +101,20 @@ const DISTRICTS = [
   "Arvin Edison Water District",
 ] as const;
 
-const WATER_TYPES = ["Any Water Type", "Pumping Credits", "CVP Allocation", "Supplemental Water"] as const;
+const WATER_TYPES = [
+  "Any Water Type",
+  "Pumping Credits",
+  "CVP Allocation",
+  "Supplemental Water",
+] as const;
 
 const PAGE_SIZES = [5, 10, 20] as const;
 
-/* ---------- Page ---------- */
+/* ---------------- Page ---------------- */
 export default function DashboardPage() {
-  // 🔎 beacon: page render
-  if (typeof window !== "undefined") console.debug("[Render] /dashboard DashboardPage");
-
   const checking = useOnboardedGate();
 
-  // Dashboard state
+  // UI state (hooks first, fixed order)
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
@@ -135,8 +126,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Build query
-  const qs = useMemo(() => {
+  // Build query string (no useMemo needed)
+  const qs = (() => {
     const u = new URLSearchParams();
     if (district !== "All Districts") u.set("district", district);
     if (waterType !== "Any Water Type") u.set("waterType", waterType);
@@ -146,9 +137,9 @@ export default function DashboardPage() {
     u.set("pageSize", String(pageSize));
     u.set("premium", String(premium));
     return u.toString();
-  }, [district, waterType, sortBy, sortDir, page, pageSize, premium]);
+  })();
 
-  // Fetch data
+  // Fetch data whenever qs changes (effect is always called; it may early-return)
   useEffect(() => {
     if (checking) return;
 
@@ -156,24 +147,30 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/listings?${qs}`, { method: "GET", cache: "no-store", signal: controller.signal })
+    fetch(`/api/listings?${qs}`, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    })
       .then(async (r) => {
         if (!r.ok) {
           const text = await r.text().catch(() => "");
-          throw new Error(`HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`);
+          throw new Error(
+            `HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`,
+          );
         }
         return r.json() as Promise<ApiResponse>;
       })
       .then((json) => setData(json))
       .catch((e: any) => {
-        if (e.name !== "AbortError") setError(e.message || "Failed to load");
+        if (e?.name !== "AbortError") setError(e?.message || "Failed to load");
       })
       .finally(() => setLoading(false));
 
     return () => controller.abort();
   }, [qs, checking]);
 
-  // Show loading state while checking onboarding
+  // Gate screen while onboarding check runs (hooks already executed above — order is stable)
   if (checking) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -189,27 +186,13 @@ export default function DashboardPage() {
     );
   }
 
-  // KPIs (defensive)
-  const safeRows = useMemo(() => (Array.isArray(data?.listings) ? data!.listings : []), [data]);
-
-  const stats = useMemo(() => {
-    const totalAf = safeRows.reduce((s, l) => s + l.acreFeet, 0);
-    const avg =
-      safeRows.length > 0
-        ? Math.round((safeRows.reduce((s, l) => s + l.pricePerAf, 0) / safeRows.length) * 100) / 100
-        : 0;
-
-    return {
-      active: data?.total ?? 0,
-      totalAf: formatNumber(totalAf),
-      avgPrice: avg ? `$${formatNumber(avg)}` : "$0",
-    };
-  }, [safeRows, data?.total]);
-
-  const totalPages = useMemo(() => {
-    const total = data?.total ?? 0;
-    return Math.max(1, Math.ceil(total / pageSize));
-  }, [data?.total, pageSize]);
+  // Derive view data directly (no useMemo — trivial cost, zero hook pitfalls)
+  const rows: Listing[] = Array.isArray(data?.listings) ? data!.listings : [];
+  const active = data?.total ?? 0;
+  const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
+  const avgPriceRaw =
+    rows.length > 0 ? rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length : 0;
+  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
 
   function onSort(col: SortBy) {
     if (col === sortBy) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -223,11 +206,14 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {/* Filters */}
         <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-2xl font-semibold tracking-tight">Active Water Sales</div>
-              <div className="mt-1 text-sm text-white/80">Westlands · San Luis · Panoche · Arvin Edison</div>
+              <div className="mt-1 text-sm text-white/80">
+                Westlands · San Luis · Panoche · Arvin Edison
+              </div>
             </div>
           </div>
 
@@ -253,7 +239,7 @@ export default function DashboardPage() {
                 setWaterType(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur placeholder-white/70 focus:bg-white/20 focus:ring-2 focus:ring-white/60"
+              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur placeholder-white/70 focus:bg:white/20 focus:ring-2 focus:ring-white/60"
             >
               {WATER_TYPES.map((w) => (
                 <option key={w} value={w} className="text-slate-900">
@@ -266,9 +252,12 @@ export default function DashboardPage() {
 
         {/* KPIs */}
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Stat label="Active Listings" value={String(stats.active)} />
-          <Stat label="Total Acre-Feet" value={stats.totalAf} />
-          <Stat label="Avg $/AF" value={stats.avgPrice} />
+          <Stat label="Active Listings" value={String(active)} />
+          <Stat label="Total Acre-Feet" value={formatInt(totalAf)} />
+          <Stat
+            label="Avg $/AF"
+            value={avgPriceRaw ? `$${formatInt(avgPriceRaw)}` : "$0"}
+          />
         </section>
 
         {/* Premium demo toggle */}
@@ -277,12 +266,13 @@ export default function DashboardPage() {
             <div className="text-sm text-slate-600">
               {premium ? (
                 <>
-                  <span className="font-medium text-slate-900">Premium:</span> Full details & early access unlocked.
+                  <span className="font-medium text-slate-900">Premium:</span> Full details & early
+                  access unlocked.
                 </>
               ) : (
                 <>
-                  <span className="font-medium text-slate-900">Premium:</span> You're viewing a limited set. Upgrade to
-                  see full details & early access.
+                  <span className="font-medium text-slate-900">Premium:</span> You're viewing a
+                  limited set. Upgrade to see full details & early access.
                 </>
               )}
             </div>
@@ -292,7 +282,9 @@ export default function DashboardPage() {
                 setPage(1);
               }}
               className={`h-8 rounded-xl px-3 text-xs font-medium ${
-                premium ? "bg-[#004434] text-white hover:bg-[#00392f]" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                premium
+                  ? "bg-[#004434] text-white hover:bg-[#00392f]"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
               {premium ? "Disable" : "Enable"} Premium (Demo)
@@ -327,30 +319,58 @@ export default function DashboardPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-slate-600">
                     <tr>
-                      <Th label="District" active={sortBy === "district"} dir={sortDir} onClick={() => onSort("district")} />
-                      <Th label="Acre-Feet" align="right" active={sortBy === "acreFeet"} dir={sortDir} onClick={() => onSort("acreFeet")} />
-                      <Th label="$ / AF" align="right" active={sortBy === "pricePerAf"} dir={sortDir} onClick={() => onSort("pricePerAf")} />
+                      <Th
+                        label="District"
+                        active={sortBy === "district"}
+                        dir={sortDir}
+                        onClick={() => onSort("district")}
+                      />
+                      <Th
+                        label="Acre-Feet"
+                        align="right"
+                        active={sortBy === "acreFeet"}
+                        dir={sortDir}
+                        onClick={() => onSort("acreFeet")}
+                      />
+                      <Th
+                        label="$ / AF"
+                        align="right"
+                        active={sortBy === "pricePerAf"}
+                        dir={sortDir}
+                        onClick={() => onSort("pricePerAf")}
+                      />
                       <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
-                      <Th label="Action" align="center" active={sortBy === "createdAt"} dir={sortDir} onClick={() => onSort("createdAt")} />
+                      <Th
+                        label="Action"
+                        align="center"
+                        active={sortBy === "createdAt"}
+                        dir={sortDir}
+                        onClick={() => onSort("createdAt")}
+                      />
                     </tr>
                   </thead>
                   <tbody>
-                    {safeRows.map((l) => (
+                    {rows.map((l) => (
                       <tr key={l.id} className="border-t border-slate-100">
                         <Td>{l.district}</Td>
-                        <Td align="right">{formatNumber(l.acreFeet)}</Td>
-                        <Td align="right">${formatNumber(l.pricePerAf)}</Td>
+                        <Td align="right">{formatInt(l.acreFeet)}</Td>
+                        <Td align="right">${formatInt(l.pricePerAf)}</Td>
                         <Td>
-                          <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">{l.waterType}</span>
+                          <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
+                            {l.waterType}
+                          </span>
                         </Td>
                         <Td align="center">
-                          <Link href={`/listings/${l.id}`} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                          <Link
+                            href={`/listings/${l.id}`}
+                            className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          >
                             View Details
                           </Link>
                         </Td>
                       </tr>
                     ))}
-                    {safeRows.length === 0 && (
+                    {rows.length === 0 && (
                       <tr>
                         <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
                           <div className="mx-auto max-w-md">
@@ -375,7 +395,8 @@ export default function DashboardPage() {
               <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row">
                 <div className="text-xs text-slate-500">
                   Page <span className="font-medium text-slate-700">{page}</span> of{" "}
-                  <span className="font-medium text-slate-700">{Math.max(1, totalPages)}</span> • {data?.total ?? 0} total listings
+                  <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
+                  {data?.total ?? 0} total listings
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -394,10 +415,18 @@ export default function DashboardPage() {
                     ))}
                   </select>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50">
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page <= 1}
+                      className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
+                    >
                       Prev
                     </button>
-                    <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50">
+                    <button
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={page >= totalPages}
+                      className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
+                    >
                       Next
                     </button>
                   </div>
@@ -411,7 +440,7 @@ export default function DashboardPage() {
   );
 }
 
-/* ---------- UI Components ---------- */
+/* ---------------- UI bits ---------------- */
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -437,7 +466,9 @@ function Th({
   return (
     <th
       onClick={onClick}
-      className={`cursor-pointer select-none px-6 py-3 font-medium ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}
+      className={`cursor-pointer select-none px-6 py-3 font-medium ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : ""
+      }`}
     >
       <span className="inline-flex items-center gap-1">
         {label}
@@ -447,11 +478,25 @@ function Th({
   );
 }
 
-function Td({ children, align = "left" }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
-  return <td className={`px-6 py-4 ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}>{children}</td>;
+function Td({
+  children,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right" | "center";
+}) {
+  return (
+    <td
+      className={`px-6 py-4 ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : ""
+      }`}
+    >
+      {children}
+    </td>
+  );
 }
 
-function formatNumber(n: number | string) {
+function formatInt(n: number | string) {
   const num = typeof n === "string" ? Number(n) : n;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
 }
