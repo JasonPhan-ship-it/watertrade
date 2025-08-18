@@ -138,6 +138,12 @@ export default function ProfilePage() {
           >
             Edit profile
           </Link>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            ← Back to Dashboard
+          </Link>
         </div>
       </div>
     );
@@ -152,13 +158,13 @@ export default function ProfilePage() {
   const company = (profile?.company ?? "").trim();
   const primaryDistrict = (profile?.primaryDistrict ?? "").trim();
 
-  // Districts: merge list + primary so we don't "lose" it if API only sets one or the other.
+  // Districts: merge list + primary
   const districts = uniqStrings([
     ...(Array.isArray(profile?.districts) ? profile!.districts! : []),
     primaryDistrict || null,
   ]).filter(Boolean);
 
-  // Sort districts: presets first (keep preset order), then customs alphabetically.
+  // Sort districts: presets first, then customs
   const preset = districts.filter((d) => PRESET_DISTRICTS.includes(d as any));
   const custom = districts.filter((d) => !PRESET_DISTRICTS.includes(d as any)).sort((a, b) => a.localeCompare(b));
   const orderedDistricts = [...preset, ...custom];
@@ -282,12 +288,18 @@ export default function ProfilePage() {
         )}
       </section>
 
-      <div className="mt-6">
+      <div className="mt-6 flex gap-3">
         <Link
           href="/profile/edit"
           className="inline-flex items-center rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#003a2f]"
         >
           Edit profile
+        </Link>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          ← Back to Dashboard
         </Link>
       </div>
     </div>
