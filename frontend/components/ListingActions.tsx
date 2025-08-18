@@ -5,15 +5,19 @@ import * as React from "react";
 
 type Kind = "SELL" | "BUY";
 
-type Props = {
-  listingId: string;
-  kind: Kind;                 // SELL = you're buying from seller; BUY = you're selling to buyer
-  pricePerAf: number;         // dollars (already converted from cents)
-  isAuction?: boolean;
-  reservePrice?: number | null; // dollars, if applicable
-};
+export default function ListingActions({
+  listingId,
+  kind,
+  pricePerAf,
+  isAuction = false,
+  reservePrice = null,
+}: Props) {
+  // 🔎 beacon
+  if (typeof window !== "undefined") {
+    console.debug("[Render] <ListingActions>", { listingId, kind, isAuction });
+  }
 
-type Mode = "BUY_NOW" | "SELL_NOW" | "OFFER" | "BID";
+  const [mode, setMode] = React.useState<Mode>(() => (kind === "SELL" ? "BUY_NOW" : "SELL_NOW"));
 
 export default function ListingActions({
   listingId,
