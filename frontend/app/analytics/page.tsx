@@ -26,9 +26,10 @@ type ApiResponseAnalytics = {
 
 /** ---------- Page ---------- */
 export default function AnalyticsPage() {
-  const [data, setData] = useState<ApiResponseAnalytics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  // 🔎 beacon
+  if (typeof window !== "undefined") {
+    console.debug("[Render] /analytics AnalyticsPage");
+  }
 
   // Pull the full (non-gated) set from your API for analysis
   useEffect(() => {
