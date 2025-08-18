@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import Footer from "@/components/Footer";
 
@@ -24,21 +25,49 @@ type ApiResponse = {
   limited?: boolean;
 };
 
-/**
- * ✅ If your files are placed directly under:
- * frontend/public/westlands.png
- * frontend/public/san-luis.png
- * frontend/public/panoche.png
- * frontend/public/arvin-edison.png
- *
- * You can reference them at "/westlands.png", etc.
- */
+/** ---- Robust logo list: use file names, not fixed paths ---- */
 const DISTRICT_LOGOS = [
-  { name: "Westlands Water District", src: "/westlands.png", width: 180, height: 48 },
-  { name: "San Luis Water District",  src: "/san-luis.png",  width: 180, height: 48 },
-  { name: "Panoche Water District",   src: "/panoche.png",   width: 180, height: 48 },
-  { name: "Arvin Edison Water District", src: "/arvin-edison.png", width: 200, height: 48 },
+  { name: "Westlands Water District", file: "westlands.png", width: 180, height: 48 },
+  { name: "San Luis Water District",  file: "san-luis.png",  width: 180, height: 48 },
+  { name: "Panoche Water District",   file: "panoche.png",   width: 180, height: 48 },
+  { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 200, height: 48 },
 ] as const;
+
+/** ---- Image with fallback: /file.png -> /logos/file.png on error ---- */
+function LogoWithFallback({
+  file,
+  alt,
+  width,
+  height,
+  className,
+}: {
+  file: string;
+  alt: string;
+  width: number;
+  height: number;
+  className?: string;
+}) {
+  // Try root first (e.g., /westlands.png), then fallback to /logos/westlands.png
+  const primary = `/${file}`;
+  const fallback = `/logos/${file}`;
+  const [src, setSrc] = React.useState(primary);
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      className={className}
+      onError={() => {
+        if (src !== fallback) setSrc(fallback);
+      }}
+      sizes="(max-width: 640px) 128px, 180px"
+      loading="lazy"
+      priority={false}
+    />
+  );
+}
 
 /** ---- Tiny Typewriter ---- */
 function useTypewriter(phrases: string[], { typeSpeed = 45, deleteSpeed = 25, pauseMs = 5000 } = {}) {
@@ -221,15 +250,12 @@ export default function HomePage() {
                 key={logo.name}
                 className="opacity-80 grayscale transition hover:opacity-100 hover:grayscale-0 focus-within:opacity-100"
               >
-                <Image
-                  src={logo.src}
+                <LogoWithFallback
+                  file={logo.file}
                   alt={logo.name}
                   width={logo.width}
                   height={logo.height}
                   className="h-8 w-auto object-contain sm:h-10"
-                  priority={false}
-                  sizes="(max-width: 640px) 128px, 180px"
-                  loading="lazy"
                 />
               </div>
             ))}
