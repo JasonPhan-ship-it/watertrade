@@ -36,7 +36,6 @@ export default function CreateListingPage() {
     try {
       const formData = new FormData(formEl);
 
-      const title = String(formData.get("title") || "");
       const description = String(formData.get("description") || "");
       const volumeAF = Number(formData.get("volumeAF") || 0);
       const pricePerAF = Number(formData.get("pricePerAF") || 0); // dollars in UI; convert server-side
