@@ -1,61 +1,70 @@
 // app/api/trades/[id]/buyer/decline/route.ts
-export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getViewer } from "@/lib/trade";
+import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
+import { getViewer } from "@/lib/trade";
 import { sendEmail, renderBuyerDeclinedEmail, appUrl } from "@/lib/email";
 
-export async function POST(req: NextRequest, { params }: { params: { id: string }}) {
-  const trade = await prisma.trade.findUnique({ where: { id: params.id } });
-  if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
+export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const trade = await prisma.trade.findUnique({ where: { id: params.id } });
+    if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const viewer = await getViewer(req, trade);
-  if (viewer.role !== "buyer") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (!["COUNTERED_BY_SELLER"].includes(trade.status)) {
-    return NextResponse.json({ error: "Trade is not awaiting buyer decision." }, { status: 400 });
-  }
+    const viewer = await getViewer(trade);
+    if (viewer.role !== "buyer") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-  const updated = await prisma.trade.update({
-    where: { id: trade.id },
-    data: {
-      status: "DECLINED",
-      lastActor: "buyer",
-      version: { increment: 1 },
-      events: { create: { actor: "buyer", kind: "DECLINE", payload: {} } },
-    },
-  });
-
-  // Inform seller the offer was declined
-  const seller = await clerkClient.users.getUser(updated.sellerUserId).catch(() => null);
-  const sellerEmail =
-    seller?.emailAddresses?.find(e => e.id === seller?.primaryEmailAddressId)?.emailAddress ||
-    seller?.emailAddresses?.[0]?.emailAddress;
-
-  if (sellerEmail) {
-    const { html, preheader } = renderBuyerDeclinedEmail({
-      buyerName: undefined,
-      sellerName: [seller?.firstName, seller?.lastName].filter(Boolean).join(" ") || undefined,
-      offer: {
-        listingTitle: updated.listingId,
-        district: updated.district,
-        waterType: updated.waterType ?? undefined,
-        volumeAf: updated.volumeAf,
-        pricePerAf: updated.pricePerAf,
-        priceLabel: `$${updated.pricePerAf.toLocaleString()}/AF`,
-        windowLabel: updated.windowLabel ?? undefined,
+    const updated = await prisma.trade.update({
+      where: { id: trade.id },
+      data: {
+        status: TradeStatus.DECLINED,
+        lastActor: Party.BUYER,
+        version: { increment: 1 },
+        events: {
+          create: {
+            actor: "buyer",
+            kind: "DECLINE",
+            payload: { round: trade.round },
+          },
+        },
       },
-      viewLink: appUrl(`/listings/${updated.listingId}`),
     });
 
-    await sendEmail({
-      to: sellerEmail,
-      subject: "Buyer declined the offer",
-      html,
-      preheader,
-      idempotencyKey: `trade:${updated.id}:buyer-decline`,
-    });
+    // Notify seller that buyer declined
+    const seller = await clerkClient.users.getUser(trade.sellerUserId).catch(() => null);
+    const buyer = await clerkClient.users.getUser(trade.buyerUserId).catch(() => null);
+    const sellerEmail =
+      seller?.emailAddresses?.find(e => e.id === seller.primaryEmailAddressId)?.emailAddress ??
+      seller?.emailAddresses?.[0]?.emailAddress;
+
+    if (sellerEmail) {
+      const viewLink = appUrl(`/t/${trade.id}?role=seller&token=${trade.sellerToken}`);
+      const { html, preheader } = renderBuyerDeclinedEmail({
+        buyerName: buyer?.firstName || buyer?.username || "",
+        sellerName: seller?.firstName || seller?.username || "",
+        offer: {
+          listingTitle: updated.windowLabel || "Offer Terms",
+          district: updated.district,
+          waterType: updated.waterType ?? undefined,
+          volumeAf: updated.volumeAf,
+          pricePerAf: updated.pricePerAf,
+          priceLabel: `$${(updated.pricePerAf / 100).toLocaleString()}/AF`,
+          windowLabel: updated.windowLabel ?? undefined,
+        },
+        viewLink,
+      });
+      await sendEmail({
+        to: sellerEmail,
+        subject: "Buyer declined the offer",
+        html,
+        preheader,
+      });
+    }
+
+    return NextResponse.json({ ok: true, trade: updated });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, status: updated.status });
 }
