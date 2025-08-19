@@ -111,12 +111,13 @@ export default function PricingPage() {
           </button>
           <button
             onClick={() => setIsAnnual(true)}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all relative ${
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all inline-flex items-center justify-center gap-2 ${
               isAnnual ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            Annual
-            <span className="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+            <span>Annual</span>
+            {/* Save % pill moved next to Annual and centered; slight upward nudge */}
+            <span className="inline-flex items-center rounded-full bg-green-500 text-white text-xs px-1.5 py-0.5 relative -translate-y-0.5">
               Save {savingsPercentage}%
             </span>
           </button>
@@ -178,13 +179,8 @@ export default function PricingPage() {
             </span>
           </div>
 
-          {/* Annual Savings Badge */}
-          {isAnnual && (
-            <div className="absolute -top-4 right-6 z-10">
-              <span className="inline-flex items-center rounded-full bg-green-500 px-3 py-1 text-xs font-semibold text-white shadow-sm">
-              </span>
-            </div>
-          )}
+          {/* Removed the empty green "Annual Savings Badge" block that created a light green pill */}
+          {/* (It used to render when isAnnual === true) */}
 
           <div className="rounded-2xl border-2 border-[#0A6B58] bg-white p-6 sm:p-8 shadow-sm">
             <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
