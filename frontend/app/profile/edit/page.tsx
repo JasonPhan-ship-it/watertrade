@@ -19,15 +19,26 @@ type ApiFarm = {
 };
 
 type ApiProfile = {
+  // legacy + new
   fullName?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+
+  // identity
+  company?: string | null;
+  tradeRole?: string | null; // BUYER | SELLER | BOTH | DISTRICT_ADMIN
+
+  // address/contact
   address?: string | null;
   email?: string | null;
   phone?: string | null;
   cellPhone?: string | null;
   smsOptIn?: boolean | null;
+
+  // water prefs
+  primaryDistrict?: string | null;
   districts?: string[] | null;
+  waterTypes?: string[] | null;
 };
 
 type FarmRow = {
@@ -45,6 +56,8 @@ function splitFullName(fullName?: string | null) {
   return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
+const ROLE_OPTIONS = ["BUYER", "SELLER", "BOTH", "DISTRICT_ADMIN"] as const;
+
 export default function EditProfilePage() {
   const router = useRouter();
   const { user, isLoaded: userLoaded } = useUser();
@@ -55,19 +68,31 @@ export default function EditProfilePage() {
   const [portalLoading, setPortalLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Form state (same fields as onboarding)
+  // Identity
   const [firstName, setFirstName] = React.useState("");
   const [lastName, setLastName] = React.useState("");
+  const [company, setCompany] = React.useState("");
+  const [tradeRole, setTradeRole] = React.useState<typeof ROLE_OPTIONS[number] | "">("");
+
+  // Contact
   const [address, setAddress] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [cellPhone, setCellPhone] = React.useState("");
   const [smsOptIn, setSmsOptIn] = React.useState(false);
 
+  // Water prefs
+  const [primaryDistrict, setPrimaryDistrict] = React.useState("");
+  const [primaryDistrictOther, setPrimaryDistrictOther] = React.useState("");
   const [presetSelected, setPresetSelected] = React.useState<Set<string>>(new Set());
   const [customDistricts, setCustomDistricts] = React.useState<string[]>([]);
   const [customDistrictInput, setCustomDistrictInput] = React.useState("");
 
+  // Water types as tags
+  const [waterTypes, setWaterTypes] = React.useState<string[]>([]);
+  const [waterTypeInput, setWaterTypeInput] = React.useState("");
+
+  // Farms
   const [farms, setFarms] = React.useState<FarmRow[]>([
     { name: "", accountNumber: "", district: "", otherDistrict: "" },
   ]);
@@ -98,6 +123,8 @@ export default function EditProfilePage() {
         if (!live) return;
 
         const p = profile ?? {};
+
+        // Names
         const nameParts = {
           first: (p.firstName ?? "").trim(),
           last: (p.lastName ?? "").trim(),
@@ -107,14 +134,36 @@ export default function EditProfilePage() {
           nameParts.first = s.first;
           nameParts.last = s.last;
         }
-
         setFirstName(nameParts.first || "");
         setLastName(nameParts.last || "");
+
+        // Identity
+        setCompany((p.company ?? "").trim());
+        setTradeRole(
+          ROLE_OPTIONS.includes((p.tradeRole ?? "").trim() as any)
+            ? ((p.tradeRole ?? "").trim() as typeof ROLE_OPTIONS[number])
+            : ""
+        );
+
+        // Contact
         setAddress((p.address ?? "").trim());
         setEmail((p.email ?? user?.primaryEmailAddress?.emailAddress ?? "").trim());
         setPhone((p.phone ?? "").trim());
         setCellPhone((p.cellPhone ?? "").trim());
         setSmsOptIn(Boolean(p.smsOptIn));
+
+        // Primary district
+        const pd = (p.primaryDistrict ?? "").trim();
+        if (pd && PRESET_DISTRICTS.includes(pd as any)) {
+          setPrimaryDistrict(pd);
+          setPrimaryDistrictOther("");
+        } else if (pd) {
+          setPrimaryDistrict("__OTHER__");
+          setPrimaryDistrictOther(pd);
+        } else {
+          setPrimaryDistrict("");
+          setPrimaryDistrictOther("");
+        }
 
         // Districts: partition into preset vs custom
         const districts = Array.isArray(p.districts) ? p.districts.filter(Boolean) : [];
@@ -126,6 +175,9 @@ export default function EditProfilePage() {
         }
         setPresetSelected(preset);
         setCustomDistricts(Array.from(new Set(custom)));
+
+        // Water types
+        setWaterTypes(Array.isArray(p.waterTypes) ? p.waterTypes.filter(Boolean).map(s => String(s)) : []);
 
         // Farms
         const mapped = Array.isArray(apiFarms)
@@ -169,6 +221,17 @@ export default function EditProfilePage() {
     setCustomDistricts((a) => a.filter((_, i) => i !== idx));
   };
 
+  // ----- Water type helpers -----
+  const addWaterType = () => {
+    const v = waterTypeInput.trim();
+    if (!v) return;
+    setWaterTypes((arr) => (arr.includes(v) ? arr : [...arr, v]));
+    setWaterTypeInput("");
+  };
+  const removeWaterType = (idx: number) => {
+    setWaterTypes((arr) => arr.filter((_, i) => i !== idx));
+  };
+
   // ----- Farm helpers -----
   const updateFarm = (i: number, patch: Partial<FarmRow>) => {
     setFarms((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -191,9 +254,15 @@ export default function EditProfilePage() {
       return;
     }
 
+    // Build selected districts
     const selectedDistricts = Array.from(presetSelected);
     for (const d of customDistricts) if (!selectedDistricts.includes(d)) selectedDistricts.push(d);
 
+    // Primary district normalized
+    const primaryDistrictValue =
+      primaryDistrict === "__OTHER__" ? primaryDistrictOther.trim() : primaryDistrict.trim();
+
+    // Farms payload
     const farmsPayload = farms
       .map((f) => ({
         name: (f.name || "").trim(),
@@ -211,12 +280,16 @@ export default function EditProfilePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fullName,
+          company: company.trim() || undefined,
+          tradeRole: tradeRole || undefined,
           email: email.trim(),
-          phone: phone.trim(),
-          cellPhone: cellPhone.trim(),
-          address: address.trim(),
+          phone: phone.trim() || undefined,
+          cellPhone: cellPhone.trim() || undefined,
+          address: address.trim() || undefined,
           smsOptIn,
+          primaryDistrict: primaryDistrictValue || undefined,
           districts: selectedDistricts,
+          waterTypes: waterTypes, // array of strings
           farms: farmsPayload, // server PATCH supports replacing farms when provided
         }),
       });
@@ -249,10 +322,8 @@ export default function EditProfilePage() {
     setPortalLoading(true);
     setError(null);
     try {
-      // Your /api/billing/portal route should 303 redirect; return JSON if you chose that pattern.
       const r = await fetch("/api/billing/portal", { method: "POST" });
       if (r.redirected) {
-        // If the route redirects directly
         window.location.href = r.url;
         return;
       }
@@ -271,8 +342,9 @@ export default function EditProfilePage() {
 
   if (loading || !userLoaded) return <div className="mx-auto max-w-2xl p-6">Loading…</div>;
 
-  // For farm dropdown suggestions (preset + custom)
+  // For farm & primary district dropdown suggestions (preset + custom)
   const suggestedFarmDistricts = Array.from(new Set(["", ...PRESET_DISTRICTS, ...customDistricts]));
+  const suggestedPrimaryOptions = ["", ...PRESET_DISTRICTS, "__OTHER__"] as const;
 
   return (
     <div className="mx-auto max-w-2xl p-6">
@@ -307,7 +379,6 @@ export default function EditProfilePage() {
         </div>
       </section>
 
-      {/* Same fields as onboarding */}
       <form onSubmit={onSubmit} className="mt-6 space-y-6" aria-live="polite">
         {/* Name */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -332,6 +403,33 @@ export default function EditProfilePage() {
               autoComplete="family-name"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             />
+          </div>
+        </div>
+
+        {/* Company + Role */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-sm text-slate-600" htmlFor="company">Company</label>
+            <input
+              id="company"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-600" htmlFor="tradeRole">Role</label>
+            <select
+              id="tradeRole"
+              value={tradeRole}
+              onChange={(e) => setTradeRole(e.target.value as typeof ROLE_OPTIONS[number] | "")}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            >
+              <option value="">Select…</option>
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -400,9 +498,34 @@ export default function EditProfilePage() {
           </div>
         </div>
 
+        {/* Primary District */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700" htmlFor="primaryDistrict">Primary District</label>
+          <div className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <select
+              id="primaryDistrict"
+              value={primaryDistrict}
+              onChange={(e) => setPrimaryDistrict(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              {suggestedPrimaryOptions.map((d, idx) => (
+                <option key={`${d}-${idx}`} value={d}>{d || "Select…"}</option>
+              ))}
+            </select>
+            {primaryDistrict === "__OTHER__" && (
+              <input
+                placeholder="Other district"
+                value={primaryDistrictOther}
+                onChange={(e) => setPrimaryDistrictOther(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            )}
+          </div>
+        </div>
+
         {/* Water Districts (preset + custom) */}
         <div>
-          <div className="text-sm font-medium text-slate-700">Water Districts (select all that apply)</div>
+          <div className="text-sm font-medium text-slate-700">All Districts (select all that apply)</div>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {PRESET_DISTRICTS.map((d) => (
               <label key={d} className="inline-flex items-center gap-2 text-sm">
@@ -454,6 +577,46 @@ export default function EditProfilePage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Water Types (tags) */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700">Water Types</label>
+          <div className="mt-1 flex gap-2">
+            <input
+              value={waterTypeInput}
+              onChange={(e) => setWaterTypeInput(e.target.value)}
+              placeholder="e.g., Surface, Groundwater, Carryover…"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={addWaterType}
+              className="rounded-lg border border-slate-300 px-3 text-sm hover:bg-slate-50"
+            >
+              Add
+            </button>
+          </div>
+          {waterTypes.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {waterTypes.map((wt, i) => (
+                <span
+                  key={`${wt}-${i}`}
+                  className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs"
+                >
+                  {wt}
+                  <button
+                    type="button"
+                    onClick={() => removeWaterType(i)}
+                    aria-label={`Remove ${wt}`}
+                    className="-mr-1 rounded-full px-1 hover:bg-slate-200"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Farms */}
