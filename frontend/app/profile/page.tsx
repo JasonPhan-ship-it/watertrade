@@ -1,4 +1,3 @@
-// app/profile/page.tsx
 "use client";
 
 import * as React from "react";
@@ -71,7 +70,6 @@ async function fetchProfile(): Promise<{ profile: ApiProfile | null; farms: ApiF
     throw new Error("You must be signed in to view your profile.");
   }
 
-  // Guard against infra returning HTML error pages
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("application/json")) {
     const text = await res.text().catch(() => "");
@@ -158,15 +156,15 @@ export default function ProfilePage() {
   const company = (profile?.company ?? "").trim();
   const primaryDistrict = (profile?.primaryDistrict ?? "").trim();
 
-  // Districts: merge list + primary
   const districts = uniqStrings([
     ...(Array.isArray(profile?.districts) ? profile!.districts! : []),
     primaryDistrict || null,
   ]).filter(Boolean);
 
-  // Sort districts: presets first, then customs
   const preset = districts.filter((d) => PRESET_DISTRICTS.includes(d as any));
-  const custom = districts.filter((d) => !PRESET_DISTRICTS.includes(d as any)).sort((a, b) => a.localeCompare(b));
+  const custom = districts
+    .filter((d) => !PRESET_DISTRICTS.includes(d as any))
+    .sort((a, b) => a.localeCompare(b));
   const orderedDistricts = [...preset, ...custom];
 
   const waterTypes = Array.isArray(profile?.waterTypes) ? profile!.waterTypes! : [];
@@ -178,12 +176,20 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-semibold tracking-tight">My Profile</h1>
           <p className="mt-1 text-slate-600">View your details. Make changes on the edit page.</p>
         </div>
-        <Link
-          href="/profile/edit"
-          className="shrink-0 rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#003a2f]"
-        >
-          Edit profile
-        </Link>
+        <div className="flex gap-3 shrink-0">
+          <Link
+            href="/profile/edit"
+            className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#003a2f]"
+          >
+            Edit profile
+          </Link>
+          <Link
+            href="/dashboard"
+            className="rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            ← Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       {/* Identity */}
@@ -279,7 +285,9 @@ export default function ProfilePage() {
                   </div>
                   <div>
                     <dt className="text-xs text-slate-500">District</dt>
-                    <dd className="mt-1 text-sm text-slate-900">{nonEmpty(f.district) ? f.district : "—"}</dd>
+                    <dd className="mt-1 text-sm text-slate-900">
+                      {nonEmpty(f.district) ? f.district : "—"}
+                    </dd>
                   </div>
                 </dl>
               </div>
@@ -287,21 +295,6 @@ export default function ProfilePage() {
           </div>
         )}
       </section>
-
-      <div className="mt-6 flex gap-3">
-        <Link
-          href="/profile/edit"
-          className="inline-flex items-center rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#003a2f]"
-        >
-          Edit profile
-        </Link>
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          ← Back to Dashboard
-        </Link>
-      </div>
     </div>
   );
 }
