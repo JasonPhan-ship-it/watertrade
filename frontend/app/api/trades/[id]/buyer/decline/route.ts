@@ -1,4 +1,3 @@
-// app/api/trades/[id]/buyer/decline/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
@@ -6,12 +5,13 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { getViewer } from "@/lib/trade";
 import { sendEmail, renderBuyerDeclinedEmail, appUrl } from "@/lib/email";
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const trade = await prisma.trade.findUnique({ where: { id: params.id } });
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const viewer = await getViewer(trade);
+    // getViewer now expects (trade, req)
+    const viewer = await getViewer(trade, req);
     if (viewer.role !== "buyer") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
