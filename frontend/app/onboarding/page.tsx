@@ -1,4 +1,4 @@
-// app/onboarding/page.tsx - Fixed version with better redirect handling
+// app/onboarding/page.tsx - Fixed version with pricing redirect
 "use client";
 
 import * as React from "react";
@@ -54,7 +54,6 @@ export default function OnboardingPage() {
 
   // Main onboarding check effect
   React.useEffect(() => {
-    // Prevent multiple simultaneous checks
     if (isCheckingStatus.current) {
       addDebug("Already checking status, skipping...");
       return;
@@ -129,7 +128,6 @@ export default function OnboardingPage() {
           const errorText = await res.text();
           addDebug(`API error: ${res.status} - ${errorText}`);
           
-          // Show the form on API errors after a short delay
           setTimeout(() => {
             addDebug("API error, showing onboarding form");
             setLoadingProfile(false);
@@ -155,7 +153,6 @@ export default function OnboardingPage() {
       } catch (err: any) {
         addDebug(`Fetch error: ${err.message}`);
         
-        // Show the form on network errors
         setTimeout(() => {
           addDebug("Network error, showing onboarding form");
           setLoadingProfile(false);
@@ -168,7 +165,6 @@ export default function OnboardingPage() {
 
     checkServerStatus();
 
-    // Cleanup
     return () => {
       clearTimeout(timeoutId);
       isCheckingStatus.current = false;
@@ -271,13 +267,11 @@ export default function OnboardingPage() {
       }
 
       addDebug("Form submitted successfully");
-      
-      // Clerk metadata is handled server-side, so we don't need to update it here
-      // The API endpoint will handle updating Clerk metadata
       addDebug("Clerk metadata will be updated server-side");
 
-      addDebug("Navigating to membership selection");
-      router.push(`/onboarding/membership?next=${encodeURIComponent(nextPath)}`);
+      // ⬇️ CHANGED: go straight to pricing (no membership step), preserve next
+      addDebug("Navigating to pricing");
+      router.push(`/pricing?next=${encodeURIComponent(nextPath)}`);
       
     } catch (err: any) {
       addDebug(`Submit error: ${err.message}`);
@@ -326,15 +320,16 @@ export default function OnboardingPage() {
                 >
                   Skip to Dashboard
                 </button>
+                {/* ⬇️ CHANGED: "Go to Pricing" (no membership) */}
                 <button
                   onClick={() => {
-                    addDebug("User went to membership");
+                    addDebug("User went to pricing");
                     hasNavigated.current = true;
-                    router.push("/onboarding/membership");
+                    router.push(`/pricing?next=${encodeURIComponent(nextPath)}`);
                   }}
                   className="w-full px-3 py-2 bg-purple-500 text-white text-sm rounded hover:bg-purple-600"
                 >
-                  Go to Membership
+                  Go to Pricing
                 </button>
               </div>
             </div>
