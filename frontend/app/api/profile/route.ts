@@ -94,7 +94,7 @@ function composeResponseProfile(db: any, clerkEmail?: string | null) {
     lastName,
     address: db?.address ?? null,
     email,
-    phone: db?.phone ?? null,
+    // phone: REMOVED
     cellPhone: db?.cellPhone ?? null,
     smsOptIn: typeof db?.smsOptIn === "boolean" ? db.smsOptIn : null,
     districts: Array.isArray(db?.districts) ? db.districts : [],
@@ -147,7 +147,6 @@ export async function POST(req: Request) {
     const lastName: string = String(body.lastName ?? "").trim();
     const address: string = String(body.address ?? "").trim();
     const email: string = String(body.email ?? "").trim();
-    const phone: string = String(body.phone ?? "").trim();
     const cellPhone: string = String(body.cellPhone ?? "").trim();
     const smsOptIn: boolean = Boolean(body.smsOptIn);
     const districts: string[] = uniqStrings(body.districts);
@@ -179,7 +178,7 @@ export async function POST(req: Request) {
           fullName: `${firstName} ${lastName}`.trim(),
           address,
           email,
-          phone,
+          // phone: REMOVED
           cellPhone,
           smsOptIn,
           districts,
@@ -195,7 +194,7 @@ export async function POST(req: Request) {
           fullName: `${firstName} ${lastName}`.trim(),
           address,
           email,
-          phone,
+          // phone: REMOVED
           cellPhone,
           smsOptIn,
           districts,
@@ -278,7 +277,6 @@ export async function PUT(req: Request) {
     const lastName: string = String(body.lastName ?? "").trim();
     const address: string = String(body.address ?? "").trim();
     const email: string = String(body.email ?? "").trim();
-    const phone: string = String(body.phone ?? "").trim();
     const cellPhone: string = String(body.cellPhone ?? "").trim();
     const smsOptIn: boolean = Boolean(body.smsOptIn);
     const districts: string[] = uniqStrings(body.districts);
@@ -311,7 +309,7 @@ export async function PUT(req: Request) {
           fullName: `${firstName} ${lastName}`.trim(),
           address,
           email,
-          phone,
+          // phone: REMOVED
           cellPhone,
           smsOptIn,
           districts,
@@ -398,7 +396,7 @@ export async function PATCH(req: Request) {
     if (nameParts.lastName) data.lastName = nameParts.lastName;
 
     if (typeof body.company === "string") data.company = String(body.company);
-    if (typeof body.phone === "string") data.phone = String(body.phone);
+    // data.phone: REMOVED
     if (typeof body.address === "string") data.address = String(body.address);
 
     if (typeof body.primaryDistrict === "string") data.primaryDistrict = String(body.primaryDistrict);
@@ -413,7 +411,7 @@ export async function PATCH(req: Request) {
     if (parsedRole) data.tradeRole = parsedRole;
 
     // If nothing to update, just return current state
-    if (Object.keys(data).length === 0) {
+    if (Object.keys(data).length === 0 && !Array.isArray(body.farms)) {
       const db = await prisma.userProfile.findUnique({ where: { userId: localUser.id } });
       const farms = await prisma.farm.findMany({
         where: { userId: localUser.id },
