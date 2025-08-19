@@ -1,3 +1,4 @@
+// app/(trade)/TradeRunner.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -6,7 +7,7 @@ type Props = {
   tradeId: string;
   role: string; // "seller" | "buyer"
   token: string;
-  action: string; // optional
+  action: string; // optional: "accept" | "counter" | "decline" | "sign"
   defaultPricePerAf: number;
   defaultVolumeAf: number;
   defaultWindowLabel: string;
@@ -25,8 +26,14 @@ function endpointFor(role: string, action: string, tradeId: string, token: strin
 
 export default function TradeActionRunner(props: Props) {
   const {
-    tradeId, role, token, action,
-    defaultPricePerAf, defaultVolumeAf, defaultWindowLabel, disabled,
+    tradeId,
+    role,
+    token,
+    action,
+    defaultPricePerAf,
+    defaultVolumeAf,
+    defaultWindowLabel,
+    disabled,
   } = props;
 
   const [pricePerAf, setPricePerAf] = useState(defaultPricePerAf);
@@ -44,15 +51,21 @@ export default function TradeActionRunner(props: Props) {
     if (action === "accept" && supportsAccept) return true;
     if (action === "counter" && supportsCounter) return true;
     if (action === "decline" && supportsDecline) return true;
+    // "sign" would be handled by your signature provider redirect
     return false;
   }, [action, supportsAccept, supportsCounter, supportsDecline]);
 
+  // Auto-run if the email link includes ?action=...
   useEffect(() => {
     const run = async () => {
       if (!canAuto || disabled) return;
-      if (action === "counter") await onCounter();
-      else if (action === "accept") await onAccept();
-      else if (action === "decline") await onDecline();
+      if (action === "counter") {
+        await onCounter(); // uses current default values
+      } else if (action === "accept") {
+        await onAccept();
+      } else if (action === "decline") {
+        await onDecline();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     run();
@@ -196,7 +209,7 @@ export default function TradeActionRunner(props: Props) {
           <button
             onClick={onDecline}
             disabled={submitting}
-            className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
           >
             {submitting ? "Working…" : "Decline"}
           </button>
