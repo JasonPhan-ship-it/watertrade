@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth, currentUser } from "@clerk/nextjs/server";
 
-// Ensure Node runtime + dynamic so we can use Prisma safely
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -20,7 +19,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "listingId is required" }, { status: 400 });
     }
 
-    // Re-read listing from DB (server-truth)
+    // 1) Re-read listing from DB (server-truth)
     const listing = await prisma.listing.findUnique({
       where: { id: listingId },
       select: {
@@ -28,20 +27,28 @@ export async function POST(req: Request) {
         title: true,
         acreFeet: true,
         pricePerAF: true, // cents
-        sellerId: true,
+        sellerId: true,   // must be present (Option A)
       },
     });
     if (!listing) {
       return NextResponse.json({ error: "Listing not found" }, { status: 404 });
     }
 
+    // Option A: require a seller
+    if (!listing.sellerId) {
+      return NextResponse.json(
+        { error: "Listing has no seller assigned." },
+        { status: 422 }
+      );
+    }
+
     const { acreFeet, pricePerAF } = listing; // cents
     const totalCents = acreFeet * pricePerAF;
 
-    // Get Clerk user INSIDE handler (no top-level await)
+    // 2) Get Clerk user INSIDE handler (no top-level await)
     const cUser = await currentUser();
 
-    // Build safe strings (avoid nulls if your Prisma fields are non-nullable)
+    // Safe strings to satisfy non-nullable Prisma fields
     const primaryEmail: string = cUser?.emailAddresses?.[0]?.emailAddress ?? "";
     const displayName: string =
       (cUser
@@ -50,7 +57,7 @@ export async function POST(req: Request) {
            "")
         : "");
 
-    // Upsert buyer in your local User table
+    // 3) Upsert buyer in local User table by Clerk ID
     const buyer = await prisma.user.upsert({
       where: { clerkId: userId },
       update: {
@@ -59,20 +66,20 @@ export async function POST(req: Request) {
       },
       create: {
         clerkId: userId,
-        email: primaryEmail, // string (not null)
-        name: displayName,   // string (not null if schema requires)
+        email: primaryEmail,
+        name: displayName,
       },
       select: { id: true },
     });
 
-    // Create a Transaction (align names/enums with your schema)
+    // 4) Create Transaction (sellerId now guaranteed to be string)
     const tx = await prisma.transaction.create({
       data: {
         listingId: listing.id,
         buyerId: buyer.id,
-        sellerId: listing.sellerId,
-        type: "BUY_NOW",                // adjust if your enum uses a different value
-        status: "PENDING",              // adjust to your enum/string
+        sellerId: listing.sellerId,     // required and present
+        type: "BUY_NOW",
+        status: "PENDING",
         acreFeet: listing.acreFeet,
         pricePerAF: listing.pricePerAF, // cents
         totalAmount: totalCents,        // cents
