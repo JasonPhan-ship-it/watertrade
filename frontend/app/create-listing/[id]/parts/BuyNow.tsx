@@ -1,11 +1,10 @@
-// frontend/app/create-listing/[id]/parts/BuyNow.tsx
 import { prisma } from "@/lib/prisma";
 import BuyNowButton from "./BuyNowButton";
 
 export default async function BuyNow({ listingId }: { listingId: string }) {
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
-    select: { id: true, title: true, acreFeet: true, pricePerAF: true }, // pricePerAF is cents
+    select: { id: true, title: true, acreFeet: true, pricePerAF: true }, // pricePerAF in cents
   });
 
   if (!listing) {
@@ -33,26 +32,31 @@ export default async function BuyNow({ listingId }: { listingId: string }) {
 
       <div className="mt-2 text-sm text-slate-600">
         {title ? <div className="font-medium text-slate-900">{title}</div> : null}
-        <div className="mt-1 grid grid-cols-2 gap-2">
-          <div>
+
+        {/* Outputs only (read-only values from DB) */}
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <div className="rounded-lg border px-3 py-2">
             <div className="text-slate-500 text-xs">Acre-Feet</div>
-            <div className="text-slate-900 font-medium">{acreFeet.toLocaleString()}</div>
+            <div className="text-slate-900 font-semibold">
+              {acreFeet.toLocaleString()}
+            </div>
           </div>
-          <div>
+          <div className="rounded-lg border px-3 py-2">
             <div className="text-slate-500 text-xs">Price / AF</div>
-            <div className="text-slate-900 font-medium">${priceDollars}</div>
+            <div className="text-slate-900 font-semibold">${priceDollars}</div>
           </div>
         </div>
-        <div className="mt-2 text-sm">
+
+        <div className="mt-3 text-sm">
           Total: <span className="font-semibold">${totalDollars}</span>
         </div>
       </div>
 
-      <div className="mt-3">
+      <div className="mt-4">
         <BuyNowButton
           listingId={id}
-          acreFeet={acreFeet}
-          pricePerAF={pricePerAF} // pass cents to the client button
+          acreFeet={acreFeet}         // passed from server
+          pricePerAF={pricePerAF}     // cents (from server)
           label={`Buy ${acreFeet.toLocaleString()} AF @ $${priceDollars}/AF (Total $${totalDollars})`}
         />
       </div>
