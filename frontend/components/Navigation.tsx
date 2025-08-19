@@ -2,15 +2,16 @@
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { User, LogOut, Crown } from "lucide-react";
+import { User, LogOut } from "lucide-react"; // ⬅️ removed Crown
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 export default function Navigation() {
   const { user, isSignedIn } = useUser();
   const [isPremium, setIsPremium] = useState(false);
   const [premiumLoading, setPremiumLoading] = useState(false);
+  const [portalLoading, setPortalLoading] = useState(false);
 
   useEffect(() => {
     if (!isSignedIn || !user) return;
@@ -45,6 +46,30 @@ export default function Navigation() {
 
     checkPremiumStatus();
   }, [isSignedIn, user]);
+
+  const openBillingPortal = useCallback(async () => {
+    try {
+      setPortalLoading(true);
+      // Typical Stripe portal endpoint pattern; adjust if your route differs
+      const resp = await fetch("/api/subscription/portal", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!resp.ok) throw new Error("Failed to create portal session");
+      const data = await resp.json();
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error("No portal URL returned");
+      }
+    } catch (err) {
+      console.error(err);
+      // Fallback: send to a generic billing page if you have one
+      window.location.href = "/billing";
+    } finally {
+      setPortalLoading(false);
+    }
+  }, []);
 
   return (
     <nav className="bg-white shadow-sm border-b pb-4 md:pb-6">
@@ -86,15 +111,21 @@ export default function Navigation() {
 
                 {/* Premium badge / upgrade */}
                 {premiumLoading ? (
-                  <div className="animate-pulse bg-gray-200 rounded-full px-2.5 py-1 w-16 h-6"></div>
+                  <div className="animate-pulse bg-gray-200 rounded-full px-2.5 py-1 w-16 h-6" />
                 ) : isPremium ? (
-                  <span
-                    title="Premium subscription active"
-                    className="inline-flex items-center rounded-full bg-gradient-to-r from-[#0E6A59] to-[#004434] px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm"
+                  <button
+                    onClick={openBillingPortal}
+                    disabled={portalLoading}
+                    title="Manage billing"
+                    aria-label="Manage billing"
+                    className="inline-flex items-center rounded-full bg-gradient-to-r from-[#0E6A59] to-[#004434] px-3 py-1 text-[11px] font-semibold text-white shadow-sm hover:brightness-110 active:brightness-95 transition disabled:opacity-70"
                   >
-                    <Crown className="w-3 h-3 mr-1" />
+                    {/* icon removed per request */}
                     Premium
-                  </span>
+                    {portalLoading && (
+                      <span className="ml-2 animate-pulse">…</span>
+                    )}
+                  </button>
                 ) : (
                   <Link
                     href="/pricing"
