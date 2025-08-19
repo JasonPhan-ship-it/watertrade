@@ -182,7 +182,6 @@ export default function PricingPage() {
           {isAnnual && (
             <div className="absolute -top-4 right-6 z-10">
               <span className="inline-flex items-center rounded-full bg-green-500 px-3 py-1 text-xs font-semibold text-white shadow-sm">
-                Save ${monthlySavings.toFixed(0)}/year
               </span>
             </div>
           )}
