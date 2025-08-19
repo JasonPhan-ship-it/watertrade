@@ -10,8 +10,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const trade = await prisma.trade.findUnique({ where: { id: params.id } });
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // getViewer now expects (trade, req)
-    const viewer = await getViewer(trade, req);
+    const viewer = await getViewer(req, trade);
     if (viewer.role !== "seller") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -41,7 +40,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     });
 
-    // Email buyer with seller counter
     const seller = await clerkClient.users.getUser(trade.sellerUserId).catch(() => null);
     const buyer = await clerkClient.users.getUser(trade.buyerUserId).catch(() => null);
     const buyerEmail =
@@ -68,12 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         counterLink,
         declineLink,
       });
-      await sendEmail({
-        to: buyerEmail,
-        subject: "Seller sent a counteroffer",
-        html,
-        preheader,
-      });
+      await sendEmail({ to: buyerEmail, subject: "Seller sent a counteroffer", html, preheader });
     }
 
     return NextResponse.json({ ok: true, trade: updated });
