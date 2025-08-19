@@ -2,7 +2,7 @@
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { User, LogOut, LogIn, Crown } from "lucide-react";
+import { User, LogOut, Crown } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -47,7 +47,7 @@ export default function Navigation() {
   }, [isSignedIn, user]);
 
   return (
-    <nav className="bg-white shadow-sm border-b mt-8 sm:mt-10 md:mt-14 pb-4 md:pb-6">
+    <nav className="bg-white shadow-sm border-b pb-4 md:pb-6">
       <div className="container mx-auto px-4">
         <div className="flex items-center h-20 md:h-24">
           {/* Left: Logo */}
@@ -115,16 +115,9 @@ export default function Navigation() {
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <Link
-                  href="/sign-up"
-                  className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#00392f]"
-                >
-                  Sign Up
-                </Link>
                 <SignInButton mode="modal" afterSignInUrl="/api/auth/after-sign-in?next=/dashboard">
-                  <Button className="bg-slate-100 hover:bg-slate-200 text-slate-700">
-                    <LogIn className="w-4 h-4 mr-2" />
-                    Sign In
+                  <Button className="bg-[#004434] hover:bg-[#00392f] text-white">
+                    Login
                   </Button>
                 </SignInButton>
               </div>
