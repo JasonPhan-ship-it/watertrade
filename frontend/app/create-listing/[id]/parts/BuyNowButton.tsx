@@ -1,69 +1,54 @@
-// frontend/app/create-listing/[id]/parts/BuyNowButton.tsx
 "use client";
 
-import React from "react";
+import * as React from "react";
+import { Button } from "@/components/ui/button";
 
-export default function BuyNowButton({
-  listingId,
-  acreFeet,
-  pricePerAF, // cents per AF
-  label,
-}: {
+type Props = {
   listingId: string;
-  acreFeet: number;
-  pricePerAF: number;
+  acreFeet: number;     // from server
+  pricePerAF: number;   // cents, from server
   label?: string;
-}) {
+};
+
+export default function BuyNowButton({ listingId, acreFeet, pricePerAF, label }: Props) {
   const [loading, setLoading] = React.useState(false);
+  const [msg, setMsg] = React.useState<string | null>(null);
 
-  async function onBuyNow() {
+  async function handleBuyNow() {
+    setLoading(true);
+    setMsg(null);
     try {
-      setLoading(true);
-
-      const res = await fetch("/api/transactions", {
+      const res = await fetch("/api/purchase/buy-now", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          listingId,
-          type: "BUY_NOW",
-          acreFeet,
-          pricePerAF, // send cents directly; API already supports both
-        }),
+        // We pass values, but the server will re-read the DB to guarantee truth
+        body: JSON.stringify({ listingId, acreFeet, pricePerAF }),
+        credentials: "include",
+        cache: "no-store",
       });
 
       if (!res.ok) {
-        let msg = "Request failed";
-        try {
-          const j = await res.json();
-          msg = j?.error || msg;
-        } catch {
-          msg = await res.text().catch(() => msg);
-        }
-        throw new Error(msg);
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Purchase failed");
       }
 
-      const { id } = await res.json();
-
-      // Kick off docs/payment flow
-      await fetch(`/api/transactions/${id}/kickoff`, { method: "POST" });
-
-      window.location.href = `/transactions/${id}`;
-    } catch (e) {
-      alert((e as Error).message || "Failed to start transaction");
+      const data = await res.json();
+      setMsg(`Success! Order #${data.orderId} created.`);
+      // Optional: redirect to checkout or orders page
+      // router.push(`/orders/${data.orderId}`);
+    } catch (e: any) {
+      setMsg(e.message || "Something went wrong.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <button
-      onClick={onBuyNow}
-      disabled={loading || !listingId || acreFeet <= 0 || pricePerAF <= 0}
-      className="h-10 rounded-xl bg-black px-4 text-white disabled:opacity-50"
-      aria-label={label || "Buy Now"}
-      title={label || "Buy Now"}
-    >
-      {loading ? "Starting…" : "Buy Now"}
-    </button>
+    <div className="flex flex-col gap-2">
+      <Button onClick={handleBuyNow} disabled={loading}>
+        {loading ? "Processing..." : (label ?? "Buy Now")}
+      </Button>
+      {msg ? <div className="text-sm">{msg}</div> : null}
+    </div>
   );
 }
