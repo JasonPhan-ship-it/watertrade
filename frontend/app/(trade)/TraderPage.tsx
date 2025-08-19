@@ -29,9 +29,10 @@ export default async function TradePage({ params, searchParams }: PageProps) {
 
   if (!trade) notFound();
 
+  // Validate magic-link token (view-only; API routes also validate on mutate)
   const tokenValid =
-    (role === "seller" && token && token === trade.sellerToken) ||
-    (role === "buyer" && token && token === trade.buyerToken);
+    (role === "seller" && token && token === (trade as any).sellerToken) ||
+    (role === "buyer" && token && token === (trade as any).buyerToken);
 
   const priceLabel = `$${(trade.pricePerAf / 100).toLocaleString()}/AF`;
 
@@ -41,16 +42,21 @@ export default async function TradePage({ params, searchParams }: PageProps) {
         <h1 className="text-2xl font-semibold tracking-tight">Transaction</h1>
         <p className="mt-1 text-sm text-slate-600">
           Offer & counterflow for{" "}
-          <span className="font-medium">{trade.listing?.title || trade.windowLabel || "Listing"}</span>
+          <span className="font-medium">
+            {trade.listing?.title || trade.windowLabel || "Listing"}
+          </span>
         </p>
       </header>
 
       {!tokenValid && (
         <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           <div className="font-medium">This link is invalid or expired.</div>
-          <p className="text-sm mt-1">
+          <p className="mt-1 text-sm">
             Try opening the most recent email, or{" "}
-            <Link href="/sign-in" className="underline">sign in</Link> to view this trade from your dashboard.
+            <Link href="/sign-in" className="underline">
+              sign in
+            </Link>{" "}
+            to view this transaction from your dashboard.
           </p>
         </div>
       )}
@@ -84,6 +90,7 @@ export default async function TradePage({ params, searchParams }: PageProps) {
               </div>
             )}
           </div>
+
           <span
             className="inline-flex items-center rounded-full bg-gradient-to-r from-[#0E6A59] to-[#004434] px-3 py-1 text-[11px] font-semibold text-white shadow-sm"
             title={`Round ${trade.round}`}
@@ -92,6 +99,7 @@ export default async function TradePage({ params, searchParams }: PageProps) {
           </span>
         </div>
 
+        {/* Action runner auto-executes when ?action=... is present, else shows buttons/forms */}
         <div className="mt-6">
           <TradeActionRunner
             tradeId={trade.id}
