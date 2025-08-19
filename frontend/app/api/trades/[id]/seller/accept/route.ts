@@ -10,8 +10,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const trade = await prisma.trade.findUnique({ where: { id: params.id } });
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // getViewer now expects (trade, req)
-    const viewer = await getViewer(trade, req);
+    const viewer = await getViewer(req, trade);
     if (viewer.role !== "seller") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -23,16 +22,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         lastActor: Party.SELLER,
         version: { increment: 1 },
         events: {
-          create: {
-            actor: "seller",
-            kind: "ACCEPT",
-            payload: { round: trade.round },
-          },
+          create: { actor: "seller", kind: "ACCEPT", payload: { round: trade.round } },
         },
       },
     });
 
-    // Email buyer to sign
     const seller = await clerkClient.users.getUser(trade.sellerUserId).catch(() => null);
     const buyer = await clerkClient.users.getUser(trade.buyerUserId).catch(() => null);
     const buyerEmail =
@@ -57,12 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         signLink,
         viewLink,
       });
-      await sendEmail({
-        to: buyerEmail,
-        subject: "Offer accepted — please review and sign",
-        html,
-        preheader,
-      });
+      await sendEmail({ to: buyerEmail, subject: "Offer accepted — please review and sign", html, preheader });
     }
 
     return NextResponse.json({ ok: true, trade: updated });
