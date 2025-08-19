@@ -80,7 +80,7 @@ export async function GET() {
     // Early check: if Clerk says onboarded, trust it
     const cu = await clerkClient.users.getUser(userId).catch(() => null);
     const clerkOnboarded = cu?.publicMetadata?.onboarded === true;
-    
+
     if (clerkOnboarded) {
       const res = NextResponse.json({ onboarded: true });
       res.headers.append("Set-Cookie", onboardedCookie(userId));
@@ -91,12 +91,12 @@ export async function GET() {
     const localUser = await getOrCreateLocalUser(userId);
     const profile = await prisma.userProfile.findUnique({
       where: { userId: localUser.id },
-      select: { 
+      select: {
         acceptTerms: true,
         email: true,
         fullName: true,
         firstName: true,
-        lastName: true
+        lastName: true,
       },
     });
 
@@ -104,8 +104,8 @@ export async function GET() {
     // 1. acceptTerms is true, OR
     // 2. Profile exists with basic info (email + name)
     const dbOnboarded = Boolean(
-      profile?.acceptTerms || 
-      (profile?.email && (profile?.fullName || (profile?.firstName && profile?.lastName)))
+      profile?.acceptTerms ||
+        (profile?.email && (profile?.fullName || (profile?.firstName && profile?.lastName)))
     );
 
     const onboarded = clerkOnboarded || dbOnboarded;
@@ -114,9 +114,9 @@ export async function GET() {
     if (onboarded && !clerkOnboarded) {
       clerkClient.users
         .updateUser(userId, {
-          publicMetadata: { 
+          publicMetadata: {
             ...cu?.publicMetadata,
-            onboarded: true 
+            onboarded: true,
           },
         })
         .catch((err) => {
@@ -129,10 +129,9 @@ export async function GET() {
       res.headers.append("Set-Cookie", onboardedCookie(userId));
     }
     return res;
-
   } catch (error) {
     console.error("GET /api/onboarding/init error:", error);
-    
+
     // On database errors, be permissive and let them through to onboarding
     // This prevents users from getting stuck if there are DB issues
     return NextResponse.json({ onboarded: false }, { status: 200 });
@@ -140,10 +139,11 @@ export async function GET() {
 }
 
 /* -------------------------------- POST ------------------------------- 
-   Expects: { fullName, email, [phone], [address], [smsOptIn], [role|tradeRole],
+   Expects: { fullName, email, [cellPhone|phone], [address], [smsOptIn], [role|tradeRole],
               [districts], [primaryDistrict], [waterTypes], [farms] }
    - Derives firstName/lastName from fullName for Prisma & Clerk.
    - Idempotent: updates if profile exists; marks acceptTerms=true.
+   - NOTE: `phone` is deprecated; it will be mapped to `cellPhone`.
 ----------------------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
@@ -151,7 +151,7 @@ export async function POST(req: Request) {
     if (!userId || !sessionId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    
+
     const localUser = await getOrCreateLocalUser(userId);
     const body = await req.json().catch(() => ({}));
 
@@ -160,7 +160,7 @@ export async function POST(req: Request) {
     const email: string = String(body.email ?? "").trim();
 
     // Optional contact
-    const phone: string = String(body.phone ?? "").trim();
+    const cellPhone: string = String((body.cellPhone ?? body.phone) ?? "").trim(); // map legacy `phone` -> `cellPhone`
     const address: string = String(body.address ?? "").trim();
     const smsOptIn: boolean = Boolean(body.smsOptIn);
 
@@ -199,7 +199,7 @@ export async function POST(req: Request) {
           lastName,
           fullName,
           email,
-          phone,
+          cellPhone: cellPhone || null, // <-- WRITE ONLY cellPhone
           address,
           smsOptIn,
           tradeRole: role,
@@ -213,7 +213,7 @@ export async function POST(req: Request) {
           lastName,
           fullName,
           email,
-          phone,
+          cellPhone: cellPhone || null, // <-- WRITE ONLY cellPhone
           address,
           smsOptIn,
           tradeRole: role,
@@ -264,9 +264,9 @@ export async function POST(req: Request) {
     if (!localUser.email || localUser.email.endsWith("@example.invalid")) {
       await prisma.user.update({
         where: { id: localUser.id },
-        data: { 
+        data: {
           email,
-          name: fullName || null
+          name: fullName || null,
         },
       });
     }
@@ -274,18 +274,20 @@ export async function POST(req: Request) {
     const res = NextResponse.json({ ok: true, onboarded: true });
     res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
-    
   } catch (e: any) {
     console.error("POST /api/onboarding/init error:", e);
-    
+
     // Log the full error for debugging
-    if (e?.code === 'P2002') {
+    if (e?.code === "P2002") {
       console.error("Unique constraint violation:", e.meta);
     }
-    
-    return NextResponse.json({ 
-      error: e?.message || "Unexpected error",
-      ...(process.env.NODE_ENV === 'development' && { details: e?.toString() })
-    }, { status: 500 });
+
+    return NextResponse.json(
+      {
+        error: e?.message || "Unexpected error",
+        ...(process.env.NODE_ENV === "development" && { details: e?.toString() }),
+      },
+      { status: 500 }
+    );
   }
 }
