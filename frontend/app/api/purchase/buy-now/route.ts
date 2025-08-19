@@ -1,44 +1,65 @@
+// app/api/purchase/buy-now/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 
 export async function POST(req: Request) {
   try {
     const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { listingId } = await req.json();
+    if (!listingId) return NextResponse.json({ error: "listingId is required" }, { status: 400 });
 
-    // Re-read listing from DB to ensure values match DB (ignore client numbers)
+    // 1) Re-read listing from DB to guarantee server-truth numbers
     const listing = await prisma.listing.findUnique({
       where: { id: String(listingId) },
-      select: { id: true, acreFeet: true, pricePerAF: true, sellerId: true },
+      select: {
+        id: true,
+        title: true,
+        acreFeet: true,
+        pricePerAF: true, // cents
+        sellerId: true,   // assumes you store seller's User.id here
+      },
     });
+    if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
 
-    if (!listing) {
-      return NextResponse.json({ error: "Listing not found" }, { status: 404 });
-    }
-
-    // Compute on server using DB-truth values
-    const { acreFeet, pricePerAF } = listing; // pricePerAF is cents
+    const { acreFeet, pricePerAF } = listing; // cents
     const totalCents = acreFeet * pricePerAF;
 
-    // Example: create an order record (adjust to your schema)
-    const order = await prisma.order.create({
-      data: {
-        listingId: listing.id,
-        buyerClerkId: userId,
-        acreFeet,
-        pricePerAF,      // cents
-        totalAmount: totalCents, // cents
-        status: "PENDING",
+    // 2) Ensure buyer exists in your local User table (by Clerk ID)
+    const cUser = await currentUser();
+    const buyer = await prisma.user.upsert({
+      where: { clerkId: userId },
+      update: {
+        email: cUser?.emailAddresses?.[0]?.emailAddress ?? undefined,
+        name: cUser ? [cUser.firstName, cUser.lastName].filter(Boolean).join(" ") || cUser.username || null : undefined,
+      },
+      create: {
+        clerkId: userId,
+        email: cUser?.emailAddresses?.[0]?.emailAddress ?? null,
+        name: cUser ? [cUser.firstName, cUser.lastName].filter(Boolean).join(" ") || cUser.username || null : null,
       },
       select: { id: true },
     });
 
-    return NextResponse.json({ orderId: order.id }, { status: 200 });
+    // 3) Create a Transaction (matches your admin transactions view)
+    const tx = await prisma.transaction.create({
+      data: {
+        listingId: listing.id,
+        buyerId: buyer.id,
+        sellerId: listing.sellerId,        // must exist on Listing
+        type: "BUY_NOW",                   // enum/string in your schema
+        status: "PENDING",                 // enum/string in your schema
+        acreFeet: listing.acreFeet,
+        pricePerAF: listing.pricePerAF,    // cents
+        totalAmount: totalCents,           // cents
+        listingTitleSnapshot: listing.title ?? null,
+      },
+      select: { id: true },
+    });
+
+    return NextResponse.json({ transactionId: tx.id }, { status: 200 });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
