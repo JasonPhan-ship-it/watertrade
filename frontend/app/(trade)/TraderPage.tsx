@@ -27,9 +27,11 @@ export default async function TradePage({ params, searchParams }: PageProps) {
     include: { listing: true },
   });
 
-  if (!trade) notFound();
+  if (!trade) {
+    notFound();
+  }
 
-  // Validate magic-link token (view-only; API routes also validate on mutate)
+  // Validate magic-link token (view-only; API routes will also validate on mutate)
   const tokenValid =
     (role === "seller" && token && token === (trade as any).sellerToken) ||
     (role === "buyer" && token && token === (trade as any).buyerToken);
