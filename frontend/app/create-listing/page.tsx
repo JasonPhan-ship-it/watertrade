@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -74,7 +75,12 @@ export default function CreateListingPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
+    <div className="max-w-2xl mx-auto p-6 space-y-4">
+      {/* Back to dashboard button */}
+      <Link href="/dashboard">
+        <Button variant="outline">← Back to Dashboard</Button>
+      </Link>
+
       <Card>
         <CardHeader>
           <CardTitle>Create Listing</CardTitle>
@@ -162,7 +168,12 @@ export default function CreateListingPage() {
                 </div>
                 <div>
                   <Label htmlFor="endDate">Auction End Date</Label>
-                  <Input id="endDate" name="endDate" type="datetime-local" required />
+                  <Input
+                    id="endDate"
+                    name="endDate"
+                    type="datetime-local"
+                    required
+                  />
                 </div>
               </div>
             )}
@@ -174,6 +185,7 @@ export default function CreateListingPage() {
           </CardFooter>
         </form>
       </Card>
+
       {message && <p className="mt-4 text-sm">{message}</p>}
     </div>
   );
