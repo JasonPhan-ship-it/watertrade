@@ -1,80 +1,72 @@
 // app/api/trades/[id]/seller/accept/route.ts
-export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getViewer, createBuyerSignatureLink } from "@/lib/trade";
+import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
-import { sendEmail, renderBuyerAcceptedEmail } from "@/lib/email";
-import { appUrl } from "@/lib/email";
+import { getViewer } from "@/lib/trade";
+import { sendEmail, renderBuyerAcceptedEmail, appUrl } from "@/lib/email";
 
-export async function GET(req: NextRequest, ctx: { params: { id: string }}) {
-  // Allow GET for magic-link click; you can also offer POST
-  return await POST(req, ctx);
-}
+export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const trade = await prisma.trade.findUnique({ where: { id: params.id } });
+    if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-export async function POST(req: NextRequest, { params }: { params: { id: string }}) {
-  const trade = await prisma.trade.findUnique({ where: { id: params.id } });
-  if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const viewer = await getViewer(trade);
+    if (viewer.role !== "seller") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-  const viewer = await getViewer(req, trade);
-  if (viewer.role !== "seller") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  // Ensure seller can act now
-  if (!["OFFERED", "COUNTERED_BY_BUYER"].includes(trade.status)) {
-    return NextResponse.json({ error: "Trade is not awaiting seller decision." }, { status: 400 });
-  }
-
-  // Transition → buyer needs to sign first
-  const buyerSignUrl = await createBuyerSignatureLink(trade.id, trade.buyerToken);
-  const updated = await prisma.trade.update({
-    where: { id: trade.id },
-    data: {
-      status: "ACCEPTED_PENDING_BUYER_SIGNATURE",
-      buyerSignStatus: "REQUESTED",
-      buyerSignUrl,
-      lastActor: "seller",
-      version: { increment: 1 },
-      events: { create: { actor: "seller", kind: "ACCEPT", payload: {} } },
-    },
-  });
-
-  // Notify buyer to sign
-  const buyer = await clerkClient.users.getUser(updated.buyerUserId).catch(() => null);
-  const buyerEmail =
-    buyer?.emailAddresses?.find(e => e.id === buyer?.primaryEmailAddressId)?.emailAddress ||
-    buyer?.emailAddresses?.[0]?.emailAddress;
-  const buyerName = [buyer?.firstName, buyer?.lastName].filter(Boolean).join(" ") || buyer?.username || "Buyer";
-
-  if (buyerEmail) {
-    const { html, preheader } = renderBuyerAcceptedEmail({
-      buyerName,
-      sellerName: undefined,
-      offer: {
-        listingTitle: updated.listingId,
-        district: updated.district,
-        waterType: updated.waterType ?? undefined,
-        volumeAf: updated.volumeAf,
-        pricePerAf: updated.pricePerAf,
-        priceLabel: `$${updated.pricePerAf.toLocaleString()}/AF`,
-        windowLabel: updated.windowLabel ?? undefined,
+    const updated = await prisma.trade.update({
+      where: { id: trade.id },
+      data: {
+        status: TradeStatus.ACCEPTED_PENDING_BUYER_SIGNATURE,
+        lastActor: Party.SELLER,
+        version: { increment: 1 },
+        events: {
+          create: {
+            actor: "seller",
+            kind: "ACCEPT",
+            payload: { round: trade.round },
+          },
+        },
       },
-      signLink: buyerSignUrl,
-      viewLink: appUrl(`/t/${updated.id}?token=${updated.buyerToken}`),
     });
 
-    await sendEmail({
-      to: buyerEmail,
-      subject: "Offer accepted — signature required",
-      html,
-      preheader,
-      idempotencyKey: `trade:${updated.id}:buyer-sign`,
-    });
-  }
+    // Email buyer to sign
+    const seller = await clerkClient.users.getUser(trade.sellerUserId).catch(() => null);
+    const buyer = await clerkClient.users.getUser(trade.buyerUserId).catch(() => null);
+    const buyerEmail =
+      buyer?.emailAddresses?.find(e => e.id === buyer.primaryEmailAddressId)?.emailAddress ??
+      buyer?.emailAddresses?.[0]?.emailAddress;
 
-  // If GET (magic link), redirect to the trade page
-  if (req.method === "GET") {
-    return NextResponse.redirect(appUrl(`/t/${updated.id}?token=${updated.sellerToken}`));
-  }
+    if (buyerEmail) {
+      const signLink = appUrl(`/t/${trade.id}?role=buyer&token=${trade.buyerToken}&action=sign`);
+      const viewLink = appUrl(`/t/${trade.id}?role=buyer&token=${trade.buyerToken}`);
+      const { html, preheader } = renderBuyerAcceptedEmail({
+        buyerName: buyer?.firstName || buyer?.username || "",
+        sellerName: seller?.firstName || seller?.username || "",
+        offer: {
+          listingTitle: updated.windowLabel || "Offer Terms",
+          district: updated.district,
+          waterType: updated.waterType ?? undefined,
+          volumeAf: updated.volumeAf,
+          pricePerAf: updated.pricePerAf,
+          priceLabel: `$${(updated.pricePerAf / 100).toLocaleString()}/AF`,
+          windowLabel: updated.windowLabel ?? undefined,
+        },
+        signLink,
+        viewLink,
+      });
+      await sendEmail({
+        to: buyerEmail,
+        subject: "Offer accepted — please review and sign",
+        html,
+        preheader,
+      });
+    }
 
-  return NextResponse.json({ ok: true, status: updated.status });
+    return NextResponse.json({ ok: true, trade: updated });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+  }
 }
