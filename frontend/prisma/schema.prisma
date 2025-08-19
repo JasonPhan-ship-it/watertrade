@@ -1,4 +1,4 @@
-// frontend/prisma/schema.prisma - Fixed version
+// frontend/prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,7 +8,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --------------- Models ----------------
+/* ========================= Users & Profiles ========================= */
 
 model User {
   id        String  @id @default(cuid())
@@ -26,13 +26,17 @@ model User {
   stripeSubscriptionId   String?   @unique
 
   // Relations
-  listings            Listing[]                  // listings this user is selling
+  listings            Listing[]                           // listings this user is selling
   buyerTransactions   Transaction[] @relation("BuyerTransactions")
   sellerTransactions  Transaction[] @relation("SellerTransactions")
-  bids                Bid[]                      // back-relation for Bid.bidder
-  notifications       Notification[]             // in-app notifications (optional)
-  profile             UserProfile?               // one-to-one profile created via onboarding
-  farms               Farm[]                     // farms owned by the user
+  bids                Bid[]                                 // back-relation for Bid.bidder
+  notifications       Notification[]                        // in-app notifications (optional)
+  profile             UserProfile?                          // one-to-one profile created via onboarding
+  farms               Farm[]                                // farms owned by the user
+
+  // Negotiations (new)
+  tradesAsBuyer       Trade[] @relation("TradeBuyer")
+  tradesAsSeller      Trade[] @relation("TradeSeller")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -41,6 +45,8 @@ model User {
   @@index([subscriptionStatus])
   @@index([clerkId])
 }
+
+/* ========================= Listings & Bids ========================= */
 
 model Listing {
   id           String         @id @default(cuid())
@@ -78,7 +84,8 @@ model Listing {
   reservePrice   Int?          // cents per AF
 
   bids          Bid[]
-  transactions  Transaction[]  // back-relation for Transaction.listing
+  transactions  Transaction[]  // escrow/payments pipeline
+  trades        Trade[]        // negotiations pipeline (new)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -104,6 +111,80 @@ model Bid {
   @@index([listingId, createdAt])
   @@index([bidderId, createdAt])
 }
+
+/* ========================= Negotiations (NEW) =========================
+   This runs the offer ↔ counter loop, acceptance, and signature requests.
+   When both parties sign, you can create/attach a Transaction record. */
+
+model Trade {
+  id                 String        @id @default(cuid())
+
+  listing            Listing       @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  listingId          String
+
+  seller             User          @relation("TradeSeller", fields: [sellerUserId], references: [id], onDelete: Restrict)
+  sellerUserId       String
+
+  buyer              User          @relation("TradeBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
+  buyerUserId        String
+
+  // Snapshot fields (denormalized for emails/audits & immutability per round)
+  district           String
+  waterType          String?
+  volumeAf           Int
+  pricePerAf         Int           // cents (per AF)
+  windowLabel        String?
+
+  status             TradeStatus   @default(OFFERED)
+  round              Int           @default(1)
+  lastActor          Party?
+
+  // Magic-link tokens for email access (store hashed if desired)
+  sellerToken        String        @default(uuid())
+  buyerToken         String        @default(uuid())
+
+  // Signature progression (simple flags; full details in Signature/Transaction if you prefer)
+  buyerSignStatus    SignatureProgress @default(NONE)
+  sellerSignStatus   SignatureProgress @default(NONE)
+  buyerSignUrl       String?
+  sellerSignUrl      String?
+
+  // Final doc once fully executed (or stored on Transaction)
+  agreementUrl       String?
+
+  // Optional link into escrow/payments pipeline
+  transaction        Transaction?  @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  transactionId      String?
+
+  // Optimistic concurrency
+  version            Int           @default(0)
+
+  events             TradeEvent[]
+
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([listingId, status, createdAt])
+  @@index([sellerUserId, status])
+  @@index([buyerUserId, status])
+}
+
+model TradeEvent {
+  id         String   @id @default(cuid())
+  trade      Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  tradeId    String
+
+  actor      String   // "buyer" | "seller" | "system"
+  kind       String   // "OFFER" | "COUNTER" | "ACCEPT" | "DECLINE" | "SIGN_REQUEST" | "SIGNED" | ...
+  payload    Json
+  createdAt  DateTime @default(now())
+
+  @@index([tradeId, createdAt])
+}
+
+/* ========================= Escrow / Payments =========================
+   Keep your existing Transaction/Signature for the payment/compliance side.
+   (Trade → Transaction link added above.) */
 
 model Transaction {
   id          String            @id @default(cuid())
@@ -139,6 +220,9 @@ model Transaction {
   complianceApprovedBy String?
   complianceApprovedAt DateTime?
 
+  // Final docs (duplicated here if you prefer Transaction-centric doc storage)
+  agreementUrl String?
+
   signatures Signature[]
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -160,11 +244,13 @@ model Signature {
   docusignEnvelopeId String?
   status             SignatureStatus @default(PENDING)
   completedAt        DateTime?
+  signerUrl          String?         // optional convenience
+  documentUrl        String?         // optional convenience
 
   @@index([transactionId, party])
 }
 
-/* ---------------- Onboarding Profile ---------------- */
+/* ========================= Onboarding Profile ========================= */
 
 model UserProfile {
   id               String       @id @default(cuid())
@@ -179,18 +265,18 @@ model UserProfile {
   fullName         String       // required single source of truth
   address          String?
   email            String?
-  phone            String?
+  // phone          String?      // REMOVED (use cellPhone only)
   cellPhone        String?
   smsOptIn         Boolean      @default(false)
   districts        String[]     @default([])
 
   // Legacy/optional fields retained for back-compat
   company          String?
-  tradeRole        ProfileRole  @default(BOTH)   
+  tradeRole        ProfileRole  @default(BOTH)
   primaryDistrict  String?
   waterTypes       String[]     @default([])
 
-  acceptTerms      Boolean      @default(false)  
+  acceptTerms      Boolean      @default(false)
 
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -198,7 +284,7 @@ model UserProfile {
   @@index([userId])
 }
 
-// -------- Farm records tied to a user --------
+/* ========================= Farm & Notifications ========================= */
 
 model Farm {
   id            String   @id @default(cuid())
@@ -213,8 +299,6 @@ model Farm {
   @@index([userId])
 }
 
-// -------- Notifications (optional) --------
-
 model Notification {
   id                   String   @id @default(cuid())
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -228,16 +312,18 @@ model Notification {
 
   relatedListingId     String?
   relatedTransactionId String?
+  relatedTradeId       String?    // NEW (optional cross-link)
 
   createdAt            DateTime @default(now())
 
   @@index([userId, deliveredAt])
   @@index([relatedListingId])
   @@index([relatedTransactionId])
+  @@index([relatedTradeId])
   @@index([kind, createdAt])
 }
 
-// --------------- Enums ----------------
+/* ========================= Enums ========================= */
 
 enum Role {
   USER
@@ -308,4 +394,24 @@ enum NotificationKind {
   COUNTER_OFFER
   PAYMENT_REQUESTED
   PAYMENT_CONFIRMED
+}
+
+/* ---- NEW (Negotiations) ---- */
+
+enum TradeStatus {
+  OFFERED
+  COUNTERED_BY_SELLER
+  COUNTERED_BY_BUYER
+  ACCEPTED_PENDING_BUYER_SIGNATURE
+  ACCEPTED_PENDING_SELLER_SIGNATURE
+  FULLY_EXECUTED
+  DECLINED
+  CANCELLED
+  EXPIRED
+}
+
+enum SignatureProgress {
+  NONE
+  REQUESTED
+  SIGNED
 }
