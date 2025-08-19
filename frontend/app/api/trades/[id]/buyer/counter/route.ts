@@ -10,8 +10,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const trade = await prisma.trade.findUnique({ where: { id: params.id } });
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // getViewer now expects (trade, req)
-    const viewer = await getViewer(trade, req);
+    // getViewer(req, trade)
+    const viewer = await getViewer(req, trade);
     if (viewer.role !== "buyer") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -57,23 +57,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         buyerName: buyer?.firstName || buyer?.username || "",
         offer: {
           listingTitle: updated.windowLabel || "Offer Terms",
-            district: updated.district,
-            waterType: updated.waterType ?? undefined,
-            volumeAf: updated.volumeAf,
-            pricePerAf: updated.pricePerAf,
-            priceLabel: `$${(updated.pricePerAf / 100).toLocaleString()}/AF`,
-            windowLabel: updated.windowLabel ?? undefined,
+          district: updated.district,
+          waterType: updated.waterType ?? undefined,
+          volumeAf: updated.volumeAf,
+          pricePerAf: updated.pricePerAf,
+          priceLabel: `$${(updated.pricePerAf / 100).toLocaleString()}/AF`,
+          windowLabel: updated.windowLabel ?? undefined,
         },
         viewLink,
         acceptLink,
         counterLink,
       });
-      await sendEmail({
-        to: sellerEmail,
-        subject: "New counteroffer received",
-        html,
-        preheader,
-      });
+      await sendEmail({ to: sellerEmail, subject: "New counteroffer received", html, preheader });
     }
 
     return NextResponse.json({ ok: true, trade: updated });
