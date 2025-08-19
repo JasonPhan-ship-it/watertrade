@@ -153,8 +153,8 @@ model Trade {
   agreementUrl       String?
 
   // Optional link into escrow/payments pipeline
-  transaction        Transaction?  @relation(fields: [transactionId], references: [id], onDelete: SetNull)
-  transactionId      String?
+  transaction   Transaction? @relation("TradeToTransaction", fields: [transactionId], references: [id], onDelete: SetNull)
+  transactionId String?
 
   // Optimistic concurrency
   version            Int           @default(0)
@@ -184,7 +184,7 @@ model TradeEvent {
 
 /* ========================= Escrow / Payments =========================
    Keep your existing Transaction/Signature for the payment/compliance side.
-   (Trade → Transaction link added above.) */
+   (Trade ↔ Transaction link is named "TradeToTransaction".) */
 
 model Transaction {
   id          String            @id @default(cuid())
@@ -222,6 +222,9 @@ model Transaction {
 
   // Final docs (duplicated here if you prefer Transaction-centric doc storage)
   agreementUrl String?
+
+  // Back-relation to Trade (no extra FK here)
+  trade Trade? @relation("TradeToTransaction")
 
   signatures Signature[]
   createdAt  DateTime @default(now())
@@ -265,7 +268,7 @@ model UserProfile {
   fullName         String       // required single source of truth
   address          String?
   email            String?
-  // phone          String?      // REMOVED (use cellPhone only)
+  // phone          String?      // intentionally removed from UI; keep or drop DB column per your migration plan
   cellPhone        String?
   smsOptIn         Boolean      @default(false)
   districts        String[]     @default([])
