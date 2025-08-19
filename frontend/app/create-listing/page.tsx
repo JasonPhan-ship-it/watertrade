@@ -1,16 +1,30 @@
-// app/create-listing/page.tsx
 "use client";
 
 import * as React from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardFooter,
+} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
+// Optional: common districts for suggestions (free-text still allowed)
+const DISTRICTS = [
+  "Westlands Water District",
+  "San Luis Water District",
+  "Panoche Water District",
+  "Arvin Edison Water District",
+];
+
 export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
+  const [isAuction, setIsAuction] = React.useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -22,143 +36,145 @@ export default function CreateListingPage() {
     try {
       const formData = new FormData(formEl);
 
-      // --- Extract fields BEFORE validation
-      const title = String(formData.get("title") ?? "").trim();
-      const description = String(formData.get("description") ?? "").trim();
-      const district = String(formData.get("district") ?? "").trim();
-
-      // numeric fields
-      const volumeAF = Number(formData.get("volumeAF") ?? 0);
-      const pricePerAF = Number(formData.get("pricePerAF") ?? 0); // dollars
-      const auction = String(formData.get("auction") ?? "") === "on";
-
-      // --- Basic validation
-      if (!title) throw new Error("Title is required.");
-      if (!district) throw new Error("Water District is required.");
-      if (!volumeAF || volumeAF <= 0) throw new Error("Volume (AF) must be greater than 0.");
-      if (!auction && (!pricePerAF || pricePerAF <= 0)) {
-        throw new Error("Price / AF must be greater than 0 (or enable Auction).");
-      }
-
-      // Build payload; convert price to cents on server if you prefer
-      const payload = {
-        title,
-        description,
-        district,
-        volumeAF,
-        pricePerAF, // assume dollars here; convert on API route to cents if needed
-        auction,
+      const payload: any = {
+        title: String(formData.get("title") || ""),
+        description: String(formData.get("description") || ""),
+        volumeAF: Number(formData.get("volumeAF") || 0),
+        pricePerAF: Number(formData.get("pricePerAF") || 0),
+        waterType: String(formData.get("waterType") || ""),
+        district: String(formData.get("district") || ""),
+        isAuction,
       };
+
+      if (isAuction) {
+        payload.startingBid = Number(formData.get("startingBid") || 0);
+        payload.reservePrice = Number(formData.get("reservePrice") || 0);
+        payload.endDate = String(formData.get("endDate") || "");
+      }
 
       const res = await fetch("/api/listings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        credentials: "include",
-        cache: "no-store",
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "Failed to create listing.");
+      if (res.ok) {
+        setMessage("Listing created successfully!");
+        formEl.reset();
+        setIsAuction(false);
+      } else {
+        const error = await res.text();
+        setMessage(error || "Failed to create listing.");
       }
-
-      setMessage("Listing created successfully.");
-      formEl.reset();
     } catch (err: any) {
-      setMessage(err?.message || "Something went wrong.");
+      setMessage(err.message || "Unexpected error");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="container mx-auto max-w-3xl px-4 py-8">
-      <Card className="rounded-2xl">
+    <div className="max-w-2xl mx-auto p-6">
+      <Card>
         <CardHeader>
           <CardTitle>Create Listing</CardTitle>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Title */}
-            <div className="grid gap-2">
+        <form onSubmit={handleSubmit}>
+          <CardContent className="space-y-4">
+            <div>
               <Label htmlFor="title">Title</Label>
-              <Input id="title" name="title" placeholder="e.g., Westlands 150 AF (2025 Window)" />
+              <Input id="title" name="title" required />
             </div>
-
-            {/* District */}
-            <div className="grid gap-2">
+            <div>
+              <Label htmlFor="description">Description</Label>
+              <Textarea id="description" name="description" rows={4} required />
+            </div>
+            <div>
+              <Label htmlFor="volumeAF">Volume (acre-feet)</Label>
+              <Input
+                id="volumeAF"
+                name="volumeAF"
+                type="number"
+                step="1.00"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="pricePerAF">Price per AF ($)</Label>
+              <Input
+                id="pricePerAF"
+                name="pricePerAF"
+                type="number"
+                step="0.01"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="waterType">Water Type</Label>
+              <Input id="waterType" name="waterType" required />
+            </div>
+            <div>
               <Label htmlFor="district">Water District</Label>
               <Input
                 id="district"
                 name="district"
-                placeholder="e.g., Westlands Water District"
-                autoComplete="organization"
+                list="district-options"
+                required
               />
+              <datalist id="district-options">
+                {DISTRICTS.map((d) => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
             </div>
 
-            {/* Description */}
-            <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                name="description"
-                placeholder="Notes about timing, transfer constraints, etc."
-                rows={4}
+            {/* Auction toggle */}
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isAuction"
+                checked={isAuction}
+                onChange={(e) => setIsAuction(e.target.checked)}
               />
+              <Label htmlFor="isAuction">Sell via Auction</Label>
             </div>
 
-            {/* Numbers row */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="volumeAF">Volume (AF)</Label>
-                <Input
-                  id="volumeAF"
-                  name="volumeAF"
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  min="0"
-                  placeholder="e.g., 150"
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="pricePerAF">Price / AF</Label>
-                  <div className="flex items-center gap-2">
-                    <input id="auction" name="auction" type="checkbox" className="h-4 w-4" />
-                    <Label htmlFor="auction" className="text-xs text-slate-600">
-                      Auction
-                    </Label>
-                  </div>
+            {isAuction && (
+              <div className="space-y-4 border rounded-md p-4 bg-slate-50">
+                <div>
+                  <Label htmlFor="startingBid">Starting Bid ($)</Label>
+                  <Input
+                    id="startingBid"
+                    name="startingBid"
+                    type="number"
+                    step="0.01"
+                    required
+                  />
                 </div>
-                <Input
-                  id="pricePerAF"
-                  name="pricePerAF"
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  min="0"
-                  placeholder="e.g., 425.00"
-                />
+                <div>
+                  <Label htmlFor="reservePrice">Reserve Price ($)</Label>
+                  <Input
+                    id="reservePrice"
+                    name="reservePrice"
+                    type="number"
+                    step="1.00"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="endDate">Auction End Date</Label>
+                  <Input id="endDate" name="endDate" type="datetime-local" required />
+                </div>
               </div>
-
-              <div className="grid gap-2">
-                <Label className="invisible">Spacer</Label>
-                <Button type="submit" disabled={loading}>
-                  {loading ? "Saving..." : "Create Listing"}
-                </Button>
-              </div>
-            </div>
-          </form>
-        </CardContent>
-        {message ? (
+            )}
+          </CardContent>
           <CardFooter>
-            <p className="text-sm">{message}</p>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Creating..." : "Create Listing"}
+            </Button>
           </CardFooter>
-        ) : null}
+        </form>
       </Card>
+      {message && <p className="mt-4 text-sm">{message}</p>}
     </div>
   );
 }
