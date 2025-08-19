@@ -1,4 +1,3 @@
-// app/api/trades/[id]/buyer/counter/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
@@ -11,7 +10,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const trade = await prisma.trade.findUnique({ where: { id: params.id } });
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const viewer = await getViewer(trade);
+    // getViewer now expects (trade, req)
+    const viewer = await getViewer(trade, req);
     if (viewer.role !== "buyer") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -57,12 +57,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         buyerName: buyer?.firstName || buyer?.username || "",
         offer: {
           listingTitle: updated.windowLabel || "Offer Terms",
-          district: updated.district,
-          waterType: updated.waterType ?? undefined,
-          volumeAf: updated.volumeAf,
-          pricePerAf: updated.pricePerAf,
-          priceLabel: `$${(updated.pricePerAf / 100).toLocaleString()}/AF`,
-          windowLabel: updated.windowLabel ?? undefined,
+            district: updated.district,
+            waterType: updated.waterType ?? undefined,
+            volumeAf: updated.volumeAf,
+            pricePerAf: updated.pricePerAf,
+            priceLabel: `$${(updated.pricePerAf / 100).toLocaleString()}/AF`,
+            windowLabel: updated.windowLabel ?? undefined,
         },
         viewLink,
         acceptLink,
