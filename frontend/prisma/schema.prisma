@@ -152,9 +152,9 @@ model Trade {
   // Final doc once fully executed (or stored on Transaction)
   agreementUrl       String?
 
-  // Optional link into escrow/payments pipeline
+  // Optional link into escrow/payments pipeline (1:1) — FK must be unique
   transaction   Transaction? @relation("TradeToTransaction", fields: [transactionId], references: [id], onDelete: SetNull)
-  transactionId String?
+  transactionId String?      @unique
 
   // Optimistic concurrency
   version            Int           @default(0)
