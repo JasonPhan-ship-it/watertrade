@@ -31,7 +31,6 @@ type ApiProfile = {
   // address/contact
   address?: string | null;
   email?: string | null;
-  phone?: string | null;
   cellPhone?: string | null;
   smsOptIn?: boolean | null;
 
@@ -77,7 +76,6 @@ export default function EditProfilePage() {
   // Contact
   const [address, setAddress] = React.useState("");
   const [email, setEmail] = React.useState("");
-  const [phone, setPhone] = React.useState("");
   const [cellPhone, setCellPhone] = React.useState("");
   const [smsOptIn, setSmsOptIn] = React.useState(false);
 
@@ -148,7 +146,6 @@ export default function EditProfilePage() {
         // Contact
         setAddress((p.address ?? "").trim());
         setEmail((p.email ?? user?.primaryEmailAddress?.emailAddress ?? "").trim());
-        setPhone((p.phone ?? "").trim());
         setCellPhone((p.cellPhone ?? "").trim());
         setSmsOptIn(Boolean(p.smsOptIn));
 
@@ -177,7 +174,7 @@ export default function EditProfilePage() {
         setCustomDistricts(Array.from(new Set(custom)));
 
         // Water types
-        setWaterTypes(Array.isArray(p.waterTypes) ? p.waterTypes.filter(Boolean).map(s => String(s)) : []);
+        setWaterTypes(Array.isArray(p.waterTypes) ? p.waterTypes.filter(Boolean).map(String) : []);
 
         // Farms
         const mapped = Array.isArray(apiFarms)
@@ -283,7 +280,6 @@ export default function EditProfilePage() {
           company: company.trim() || undefined,
           tradeRole: tradeRole || undefined,
           email: email.trim(),
-          phone: phone.trim() || undefined,
           cellPhone: cellPhone.trim() || undefined,
           address: address.trim() || undefined,
           smsOptIn,
@@ -461,20 +457,6 @@ export default function EditProfilePage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-600" htmlFor="phone">Phone</label>
-            <input
-              id="phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              inputMode="tel"
-              autoComplete="tel"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
             <label className="block text-sm text-slate-600" htmlFor="cellPhone">Cell Phone</label>
             <input
               id="cellPhone"
@@ -485,17 +467,18 @@ export default function EditProfilePage() {
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             />
           </div>
-          <div className="flex items-end">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                id="smsOptIn"
-                type="checkbox"
-                checked={smsOptIn}
-                onChange={(e) => setSmsOptIn(e.target.checked)}
-              />
-              <span>SMS Opt-In</span>
-            </label>
-          </div>
+        </div>
+
+        <div>
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input
+              id="smsOptIn"
+              type="checkbox"
+              checked={smsOptIn}
+              onChange={(e) => setSmsOptIn(e.target.checked)}
+            />
+            <span>SMS Opt-In</span>
+          </label>
         </div>
 
         {/* Primary District */}
@@ -508,7 +491,7 @@ export default function EditProfilePage() {
               onChange={(e) => setPrimaryDistrict(e.target.value)}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
-              {suggestedPrimaryOptions.map((d, idx) => (
+              {(["", ...PRESET_DISTRICTS, "__OTHER__"] as const).map((d, idx) => (
                 <option key={`${d}-${idx}`} value={d}>{d || "Select…"}</option>
               ))}
             </select>
@@ -662,7 +645,7 @@ export default function EditProfilePage() {
                       onChange={(e) => updateFarm(i, { district: e.target.value })}
                       className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     >
-                      {suggestedFarmDistricts.map((d, idx) => (
+                      {(["", ...PRESET_DISTRICTS, ...customDistricts] as string[]).map((d, idx) => (
                         <option key={`${d}-${idx}`} value={d}>
                           {d || "Select…"}
                         </option>
