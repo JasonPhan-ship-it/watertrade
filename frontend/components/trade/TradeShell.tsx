@@ -28,7 +28,7 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
     );
   }
 
-  // ---- Load the transaction safely
+  // ---- Load the transaction safely (include listing relation)
   let tx:
     | (NonNullable<Awaited<ReturnType<typeof prisma.transaction.findUnique>>>)
     | null = null;
@@ -103,7 +103,8 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
     }
   }
 
-  const title = tx.listing?.title || "Water Trade";
+  // Prefer live listing title; fall back to snapshot if you store one
+  const title = tx.listing?.title ?? (tx as any)?.titleSnapshot ?? "Water Trade";
   const qty = tx.acreFeet ?? 0;
   const pAf = tx.pricePerAF ?? 0; // cents
   const total = (tx.totalAmount ?? qty * pAf) || 0;
