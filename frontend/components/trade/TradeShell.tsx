@@ -6,12 +6,12 @@ import Link from "next/link";
 type Props = {
   tradeId: string;
   role?: string;   // "buyer" | "seller" | ""
-  token?: string;  // optional one-click token for emails (not enforced here)
-  action?: string; // e.g. "review"
+  token?: string;  // optional from email
+  action?: string; // e.g. "review" | "counter"
 };
 
-function moneyFromCents(cents: number) {
-  const n = (cents ?? 0) / 100;
+function moneyFromCents(cents?: number) {
+  const n = ((cents ?? 0) as number) / 100;
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
@@ -21,24 +21,48 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
       <div className="mx-auto max-w-2xl p-6">
         <h1 className="text-xl font-semibold">Transaction not found</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Missing transaction id. Try the newest email link or sign in to your dashboard.
+          Missing transaction id. Try the newest email link, or{" "}
+          <Link href="/dashboard" className="text-[#0E6A59] underline">go to your dashboard</Link>.
         </p>
       </div>
     );
   }
 
-  // Load the transaction with all UI-required joins
-  const tx = await prisma.transaction.findUnique({
-    where: { id: tradeId },
-    include: {
-      listing: {
-        select: { id: true, title: true, district: true, waterType: true, kind: true },
+  // ---- Load the transaction safely
+  let tx:
+    | (NonNullable<Awaited<ReturnType<typeof prisma.transaction.findUnique>>>)
+    | null = null;
+
+  try {
+    tx = await prisma.transaction.findUnique({
+      where: { id: tradeId },
+      include: {
+        listing: {
+          select: { id: true, title: true, district: true, waterType: true, kind: true },
+        },
+        seller: { select: { id: true, email: true, name: true } },
+        buyer: { select: { id: true, email: true, name: true } },
+        signatures: true,
       },
-      seller: { select: { id: true, email: true, name: true } },
-      buyer: { select: { id: true, email: true, name: true } },
-      signatures: true,
-    },
-  });
+    });
+  } catch (e: any) {
+    // This shows up in Vercel function logs; the UI remains friendly.
+    console.error("[TradeShell] DB query failed", { tradeId, error: e?.message });
+    return (
+      <div className="mx-auto max-w-2xl p-6">
+        <h1 className="text-xl font-semibold">We couldn’t load this transaction</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Our database returned an error while loading the transaction. Please try again or contact support.
+        </p>
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
+          <div><strong>ID:</strong> {tradeId}</div>
+          {process.env.NODE_ENV !== "production" && e?.message && (
+            <div className="mt-2"><strong>Error:</strong> {String(e.message)}</div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (!tx) {
     return (
@@ -48,11 +72,10 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
           This transaction may have been moved or deleted. Try opening the newest email, or{" "}
           <Link href="/dashboard" className="text-[#0E6A59] underline">go to your dashboard</Link>.
         </p>
-
-        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
           <div><strong>ID:</strong> {tradeId}</div>
           <div className="mt-2">
-            Tip: confirm the id exists in your DB at{" "}
+            Tip: confirm the id exists at{" "}
             <Link href="/api/transactions/recent" className="text-[#0E6A59] underline">/api/transactions/recent</Link>.
           </div>
         </div>
@@ -60,28 +83,30 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
     );
   }
 
-  // Determine viewer role:
-  // 1) honor query `role=buyer|seller` if present
-  // 2) else infer from Clerk user id -> local user -> match buyer/seller
+  // ---- Determine viewer role safely
   let viewerRole: "buyer" | "seller" | "guest" = "guest";
-  const hinted = role.toLowerCase();
+  const hinted = (role || "").toLowerCase();
   if (hinted === "buyer" || hinted === "seller") {
     viewerRole = hinted;
   } else {
-    const { userId: clerkId } = auth();
-    if (clerkId) {
-      const me = await prisma.user.findUnique({ where: { clerkId } });
-      if (me) {
-        if (me.id === tx.buyerId) viewerRole = "buyer";
-        else if (me.id === tx.sellerId) viewerRole = "seller";
+    try {
+      const { userId: clerkId } = auth();
+      if (clerkId) {
+        const me = await prisma.user.findUnique({ where: { clerkId } });
+        if (me) {
+          if (me.id === tx.buyerId) viewerRole = "buyer";
+          else if (me.id === tx.sellerId) viewerRole = "seller";
+        }
       }
+    } catch (e: any) {
+      console.warn("[TradeShell] auth() or user lookup failed", e?.message);
     }
   }
 
   const title = tx.listing?.title || "Water Trade";
-  const qty = tx.acreFeet;
-  const pAf = tx.pricePerAF; // cents
-  const total = tx.totalAmount ?? qty * (pAf ?? 0);
+  const qty = tx.acreFeet ?? 0;
+  const pAf = tx.pricePerAF ?? 0; // cents
+  const total = (tx.totalAmount ?? qty * pAf) || 0;
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -98,9 +123,9 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
           <dl className="mt-2 space-y-1 text-sm">
             <div className="flex justify-between"><dt>District</dt><dd>{tx.listing?.district || "—"}</dd></div>
             <div className="flex justify-between"><dt>Water Type</dt><dd>{tx.listing?.waterType || "—"}</dd></div>
-            <div className="flex justify-between"><dt>Acre-Feet</dt><dd>{qty?.toLocaleString() ?? "—"}</dd></div>
-            <div className="flex justify-between"><dt>Price / AF</dt><dd>{moneyFromCents(pAf ?? 0)}</dd></div>
-            <div className="flex justify-between font-medium"><dt>Total</dt><dd>{moneyFromCents(total ?? 0)}</dd></div>
+            <div className="flex justify-between"><dt>Acre-Feet</dt><dd>{qty.toLocaleString()}</dd></div>
+            <div className="flex justify-between"><dt>Price / AF</dt><dd>{moneyFromCents(pAf)}</dd></div>
+            <div className="flex justify-between font-medium"><dt>Total</dt><dd>{moneyFromCents(total)}</dd></div>
           </dl>
         </div>
 
@@ -179,9 +204,7 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
         )}
       </div>
 
-      <div className="mt-6 text-xs text-slate-500">
-        Tx ID: {tx.id}
-      </div>
+      <div className="mt-6 text-xs text-slate-500">Tx ID: {tx.id}</div>
     </div>
   );
 }
