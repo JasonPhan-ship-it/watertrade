@@ -7,113 +7,65 @@ type Normalized = {
   id: string;
   district: string;
   waterType?: string | null;
-  volumeAf: number;     // cents/AF
-  pricePerAf: number;
+  volumeAf: number;
+  pricePerAf: number; // cents per AF
   windowLabel?: string | null;
   round: number;
+  // Tokens are optional – only present if you've added them to Transaction
   sellerToken?: string | null;
   buyerToken?: string | null;
   listingTitle?: string | null;
 };
 
-// ---- Helpers to normalize shapes from either model ----
-function normalizeFromAny(t: any): Normalized {
+function normalizeFromTx(tx: any): Normalized {
   return {
-    id: t.id,
-    district: t.district ?? t.listing?.district ?? "—",
-    waterType: t.waterType ?? t.listing?.waterType ?? null,
-    volumeAf: Number(t.volumeAf ?? t.acreFeet ?? 0),
-    pricePerAf: Number(t.pricePerAf ?? t.pricePerAF ?? t.price_per_af ?? 0),
-    windowLabel: t.windowLabel ?? t.listing?.availability ?? null,
-    round: Number(t.round ?? 1),
-    sellerToken: t.sellerToken ?? null,
-    buyerToken: t.buyerToken ?? null,
-    listingTitle: t.listing?.title ?? null,
+    id: tx.id,
+    district: tx.district ?? tx.listing?.district ?? "—",
+    waterType: tx.waterType ?? tx.listing?.waterType ?? null,
+    volumeAf: Number(tx.volumeAf ?? tx.acreFeet ?? 0),
+    pricePerAf: Number(tx.pricePerAf ?? tx.pricePerAF ?? 0),
+    windowLabel: tx.windowLabel ?? tx.listing?.availability ?? null,
+    round: Number(tx.round ?? 1),
+    sellerToken: tx.sellerToken ?? null,
+    buyerToken: tx.buyerToken ?? null,
+    listingTitle: tx.listing?.title ?? null,
   };
 }
 
-// ---- Fetch by ID (try Trade, then Transaction; with/without relation) ----
-async function fetchById(id: string): Promise<Normalized | null> {
+async function fetchTransactionOnly(id: string): Promise<Normalized | null> {
   try {
-    const t = await prisma.trade.findUnique({ where: { id }, include: { listing: true } });
-    if (t) return normalizeFromAny(t);
+    const tx = await prisma.transaction.findUnique({
+      where: { id },
+      include: { listing: true },
+    } as any);
+    if (tx) return normalizeFromTx(tx);
   } catch (e: any) {
-    console.error("[TradeShell] trade.findUnique(include) by id failed", { id, message: e?.message });
-  }
-  try {
-    const t = await prisma.trade.findUnique({ where: { id } as any });
-    if (t) return normalizeFromAny(t);
-  } catch (e: any) {
-    console.error("[TradeShell] trade.findUnique by id failed", { id, message: e?.message });
-  }
-
-  try {
-    const tx = await prisma.transaction.findUnique({ where: { id }, include: { listing: true } } as any);
-    if (tx) return normalizeFromAny(tx);
-  } catch (e: any) {
-    console.error("[TradeShell] transaction.findUnique(include) by id failed", { id, message: e?.message });
+    console.error("[TradeShell] transaction.findUnique(include) failed", {
+      id,
+      message: e?.message,
+    });
   }
   try {
     const tx = await prisma.transaction.findUnique({ where: { id } } as any);
-    if (tx) return normalizeFromAny(tx);
+    if (tx) return normalizeFromTx(tx);
   } catch (e: any) {
-    console.error("[TradeShell] transaction.findUnique by id failed", { id, message: e?.message });
+    console.error("[TradeShell] transaction.findUnique failed", {
+      id,
+      message: e?.message,
+    });
   }
-  return null;
-}
-
-// ---- Fetch by token (works when the email carries a valid token but wrong id) ----
-async function fetchByToken(token: string): Promise<Normalized | null> {
-  if (!token) return null;
-
-  // Prefer Trade
-  try {
-    const t = await prisma.trade.findFirst({
-      where: { OR: [{ sellerToken: token }, { buyerToken: token }] },
-      include: { listing: true },
-    } as any);
-    if (t) return normalizeFromAny(t);
-  } catch (e: any) {
-    console.error("[TradeShell] trade.findFirst by token failed", { message: e?.message });
-  }
-
-  // Then Transaction (older rows may not have tokens, but try anyway)
-  try {
-    const tx = await prisma.transaction.findFirst({
-      where: { OR: [{ sellerToken: token }, { buyerToken: token }] },
-      include: { listing: true },
-    } as any);
-    if (tx) return normalizeFromAny(tx);
-  } catch (e: any) {
-    console.error("[TradeShell] transaction.findFirst by token failed", { message: e?.message });
-  }
-
   return null;
 }
 
 type Props = {
   tradeId: string;
   role: string;   // "seller" | "buyer"
-  token: string;  // magic-link token
+  token: string;  // magic-link token (optional if you don't use tokens)
   action: string; // "accept" | "counter" | "decline" | "sign" | ""
 };
 
 export default async function TradeShell({ tradeId, role, token, action }: Props) {
-  let rec: Normalized | null = null;
-
-  // 1) Try by id
-  rec = await fetchById(tradeId);
-
-  // 2) If not found, try by token (common when the link used a mismatched id)
-  if (!rec && token) {
-    rec = await fetchByToken(token);
-    if (rec) {
-      console.warn("[TradeShell] Record found by token but not by id", {
-        requestedId: tradeId,
-        resolvedId: rec.id,
-      });
-    }
-  }
+  const rec = await fetchTransactionOnly(tradeId);
 
   if (!rec) {
     return (
@@ -124,7 +76,7 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
     );
   }
 
-  // Token validation (if record has tokens, require a match; otherwise allow view)
+  // Token validation is soft: only if columns exist and values are present.
   const hasAnyToken = Boolean(rec.sellerToken || rec.buyerToken);
   const tokenValid = hasAnyToken
     ? (role === "seller" && token && token === rec.sellerToken) ||
@@ -151,15 +103,6 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
             <Link href="/sign-in" className="underline">sign in</Link>{" "}
             to view this transaction from your dashboard.
           </p>
-        </div>
-      )}
-
-      {!hasAnyToken && (
-        <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
-          <div className="text-sm">
-            This record doesn’t have a secure token on file. You may need to{" "}
-            <Link href="/sign-in" className="underline">sign in</Link> to take action.
-          </div>
         </div>
       )}
 
@@ -191,7 +134,7 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
 
         <div className="mt-6">
           <TradeActionRunner
-            tradeId={rec.id}                       // use canonical id we found
+            tradeId={rec.id}
             role={role}
             token={token}
             action={action}
