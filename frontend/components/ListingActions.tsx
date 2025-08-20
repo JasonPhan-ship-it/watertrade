@@ -241,7 +241,7 @@ function successText(mode: Mode) {
     case "SELL_NOW":
       return "Submitted sale — buyer will be notified";
     case "OFFER":
-      return "Offer sent to the counterparty";
+      return "Offer sent!";
     case "BID":
       return "Bid placed";
   }
