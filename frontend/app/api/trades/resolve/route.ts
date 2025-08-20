@@ -4,18 +4,36 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 type RoleHint = "buyer" | "seller" | "";
+
+const txInclude = Prisma.validator<Prisma.TransactionInclude>()({
+  listing: {
+    select: {
+      id: true,
+      title: true,
+      district: true,
+      waterType: true,
+      kind: true,
+    },
+  },
+  seller: { select: { id: true, email: true, name: true } },
+  buyer: { select: { id: true, email: true, name: true } },
+  signatures: true,
+});
+
+type TxWithJoins = Prisma.TransactionGetPayload<{ include: typeof txInclude }>;
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const id = (url.searchParams.get("id") || "").trim();
-  const token = (url.searchParams.get("token") || "").trim(); // optional one-click token
+  const token = (url.searchParams.get("token") || "").trim(); // optional, can be blank
   const roleHint = (url.searchParams.get("role") || "").toLowerCase() as RoleHint;
 
   if (!id) {
     return NextResponse.json(
-      { id, token, match: null, error: "missing id" },
+      { ok: false, id, token, error: "missing id", match: null },
       { status: 400 }
     );
   }
@@ -23,29 +41,14 @@ export async function GET(req: Request) {
   try {
     const row = await prisma.transaction.findUnique({
       where: { id },
-      include: {
-        listing: {
-          select: {
-            id: true,
-            title: true,
-            district: true,
-            waterType: true,
-            kind: true,
-          },
-        },
-        seller: { select: { id: true, email: true, name: true } },
-        buyer: { select: { id: true, email: true, name: true } },
-        signatures: true, // OK if you haven't used it yet
-      },
-    } as any);
+      include: txInclude,
+    });
 
     if (!row) {
-      return NextResponse.json({ id, token, match: null }, { status: 404 });
+      return NextResponse.json({ ok: false, id, token, match: null }, { status: 404 });
     }
 
-    // Figure out viewer role:
-    // 1) honor ?role=buyer|seller if present
-    // 2) else try to infer from logged-in Clerk user
+    // Determine viewer role
     let viewerRole: "buyer" | "seller" | "guest" = "guest";
     const { userId: clerkId } = auth();
 
@@ -59,38 +62,46 @@ export async function GET(req: Request) {
       }
     }
 
-    // Token gate (optional). If you later store per-email tokens on the row, validate here.
-    // For now we mark true when present, false when blank—UI can decide how strict to be.
-    const tokenOk = token.length > 0 ? true : false;
-
-    const trade = {
+    // Normalize payload for UI — include both listingId and listing object
+    const trade: Partial<TxWithJoins> & {
+      id: string;
+      type: any;
+      status: any;
+      acreFeet: number;
+      pricePerAF: number;
+      totalAmount: number;
+      listingId: string;
+      createdAt: Date;
+      updatedAt: Date;
+    } = {
       id: row.id,
-      type: row.type,                 // "BUY_NOW" | "OFFER" | "AUCTION"
-      status: row.status,             // enum TransactionStatus
+      type: row.type,               // "OFFER" | "BUY_NOW" | "AUCTION"
+      status: row.status,           // TransactionStatus
       acreFeet: row.acreFeet,
-      pricePerAF: row.pricePerAF,     // cents
-      totalAmount: row.totalAmount,   // cents
-      listing: row.listing,
-      seller: row.seller,
-      buyer: row.buyer,
+      pricePerAF: row.pricePerAF,   // cents
+      totalAmount: row.totalAmount, // cents
+      listingId: row.listingId,
+      listing: row.listing,         // joined object (typed from txInclude)
+      seller: row.seller,           // joined object
+      buyer: row.buyer,             // joined object
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      // include anything else your UI needs here:
-      // signatures: row.signatures,
+      signatures: row.signatures ?? [],
     };
 
-    // Backward-compat: some UIs expect "match". We return both.
     return NextResponse.json({
+      ok: true,
+      source: "byId",
       id,
       token,
       role: viewerRole,
-      tokenOk,
-      match: trade,
-      trade,
+      tokenOk: Boolean(token),
+      match: trade, // keep `match` for backwards-compat
+      trade,        // alias some clients read
     });
   } catch (e: any) {
     return NextResponse.json(
-      { id, token, match: null, error: e?.message || "lookup failed" },
+      { ok: false, id, token, match: null, error: e?.message || "lookup failed" },
       { status: 500 }
     );
   }
