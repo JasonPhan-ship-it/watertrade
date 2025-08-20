@@ -1,108 +1,103 @@
-import { prisma } from "@/lib/prisma";
-import BuyNowButton from "./BuyNowButton";
-import { revalidatePath } from "next/cache";
+// components/BuyNow.tsx
+"use client";
 
-export default async function BuyNow({ listingId }: { listingId: string }) {
-  const listing = await prisma.listing.findUnique({
-    where: { id: listingId },
-    // You can add more fields (e.g., availableAF, status) to validate availability
-    select: { id: true, title: true, acreFeet: true, pricePerAF: true },
-  });
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 
-  if (!listing) {
-    return (
-      <div className="rounded-2xl border p-4">
-        <div className="text-sm font-medium">Buy Now</div>
-        <div className="mt-2 text-sm text-red-600">Listing not found.</div>
-      </div>
-    );
+type BuyNowProps = {
+  listingId: string;
+  /** Price per AF in cents (e.g. 10000 for $100.00). Dollars are also accepted; API converts. */
+  pricePerAFCents: number;
+  defaultAcreFeet?: number;
+  className?: string;
+};
+
+export default function BuyNow({
+  listingId,
+  pricePerAFCents,
+  defaultAcreFeet = 1,
+  className,
+}: BuyNowProps) {
+  const router = useRouter();
+  const [acreFeet, setAcreFeet] = useState<number>(defaultAcreFeet);
+  const [pricePerAF, setPricePerAF] = useState<number>(pricePerAFCents);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function startBuyNow() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          listingId,
+          type: "BUY_NOW",
+          acreFeet,
+          // Can be cents or dollars; your API converts dollars -> cents if < 10000
+          pricePerAF,
+        }),
+      });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({} as any));
+        throw new Error(j?.error || `Failed to start Buy Now (${res.status})`);
+      }
+
+      const { id } = await res.json();
+      router.push(`/transactions/${id}`);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to start Buy Now");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const { id, title, acreFeet, pricePerAF } = listing;
-  const priceDollars = (pricePerAF / 100).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const totalDollars = ((acreFeet * pricePerAF) / 100).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-
-  // ---- Server Action: never trust client for price/qty; re-read from DB here
-  const buyNowAction = async (formData: FormData) => {
-    "use server";
-
-    const idFromForm = String(formData.get("listingId") || "");
-    if (!idFromForm) {
-      throw new Error("Missing listing id.");
-    }
-
-    // Re-read the freshest data
-    const fresh = await prisma.listing.findUnique({
-      where: { id: idFromForm },
-      // Add any fields you need to validate state/availability
-      select: { id: true, acreFeet: true, pricePerAF: true, title: true /*, status: true, availableAF: true*/ },
-    });
-
-    if (!fresh) {
-      throw new Error("Listing not found or was removed.");
-    }
-
-    // (Optional) Validate status/availability here
-    // if (fresh.status !== "ACTIVE") throw new Error("Listing is not available.");
-    // if (fresh.availableAF < fresh.acreFeet) throw new Error("Insufficient available AF.");
-
-    const totalCents = fresh.acreFeet * fresh.pricePerAF;
-
-    // Example: create an order row (adapt fields to your schema)
-    await prisma.order.create({
-      data: {
-        listingId: fresh.id,
-        // Persist snapshot pricing so later changes don’t affect the order
-        acreFeet: fresh.acreFeet,
-        pricePerAF: fresh.pricePerAF, // cents
-        totalAmount: totalCents,      // cents
-        status: "PENDING_PAYMENT",
-        titleSnapshot: fresh.title ?? null,
-      },
-    });
-
-    // Revalidate any pages that should reflect the change
-    revalidatePath("/dashboard"); // adjust as needed
-  };
-
   return (
-    <div className="rounded-2xl border p-4">
-      <div className="text-sm font-medium">Buy Now</div>
+    <div className={className}>
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-sm font-medium">Buy Now</div>
 
-      <div className="mt-2 text-sm text-slate-600">
-        {title ? <div className="font-medium text-slate-900">{title}</div> : null}
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="text-sm text-slate-700">
+            Acre-Feet
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={acreFeet}
+              onChange={(e) => setAcreFeet(Math.max(1, Number(e.target.value)))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            />
+          </label>
 
-        {/* Read-only values from DB */}
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          <div className="rounded-lg border px-3 py-2">
-            <div className="text-slate-500 text-xs">Acre-Feet</div>
-            <div className="text-slate-900 font-semibold">
-              {acreFeet.toLocaleString()}
+          <label className="text-sm text-slate-700">
+            Price / AF (cents)
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={pricePerAF}
+              onChange={(e) => setPricePerAF(Math.max(1, Number(e.target.value)))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            />
+            <div className="mt-1 text-xs text-slate-500">
+              Tip: enter <code>10000</code> for $100.00/AF (dollars are also accepted).
             </div>
-          </div>
-          <div className="rounded-lg border px-3 py-2">
-            <div className="text-slate-500 text-xs">Price / AF</div>
-            <div className="text-slate-900 font-semibold">${priceDollars}</div>
-          </div>
+          </label>
         </div>
 
-        <div className="mt-3 text-sm">
-          Total: <span className="font-semibold">${totalDollars}</span>
-        </div>
-      </div>
+        {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
 
-      <div className="mt-4">
-        <BuyNowButton
-          listingId={id}
-          action={buyNowAction} // ✅ pass server action, NOT numbers
-          label={`Buy ${acreFeet.toLocaleString()} AF @ $${priceDollars}/AF (Total $${totalDollars})`}
-        />
+        <button
+          onClick={startBuyNow}
+          disabled={loading}
+          className="mt-4 rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50"
+        >
+          {loading ? "Starting…" : "Start Buy Now"}
+        </button>
       </div>
     </div>
   );
