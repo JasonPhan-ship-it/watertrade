@@ -1,14 +1,14 @@
 // components/trade/TradeShell.tsx
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import TradeActionRunner from "./TradeRunner"; // <-- client component, safe to import directly
+import TradeActionRunner from "./TradeRunner"; // client component
 
 type Normalized = {
   id: string;
   district: string;
   waterType?: string | null;
-  volumeAf: number;
-  pricePerAf: number; // cents/AF
+  volumeAf: number;     // cents/AF
+  pricePerAf: number;
   windowLabel?: string | null;
   round: number;
   sellerToken?: string | null;
@@ -16,109 +16,76 @@ type Normalized = {
   listingTitle?: string | null;
 };
 
-async function fetchNormalized(tradeId: string): Promise<Normalized | null> {
-  // Try Trade with relation
+// ---- Helpers to normalize shapes from either model ----
+function normalizeFromAny(t: any): Normalized {
+  return {
+    id: t.id,
+    district: t.district ?? t.listing?.district ?? "—",
+    waterType: t.waterType ?? t.listing?.waterType ?? null,
+    volumeAf: Number(t.volumeAf ?? t.acreFeet ?? 0),
+    pricePerAf: Number(t.pricePerAf ?? t.pricePerAF ?? t.price_per_af ?? 0),
+    windowLabel: t.windowLabel ?? t.listing?.availability ?? null,
+    round: Number(t.round ?? 1),
+    sellerToken: t.sellerToken ?? null,
+    buyerToken: t.buyerToken ?? null,
+    listingTitle: t.listing?.title ?? null,
+  };
+}
+
+// ---- Fetch by ID (try Trade, then Transaction; with/without relation) ----
+async function fetchById(id: string): Promise<Normalized | null> {
   try {
-    const t = await prisma.trade.findUnique({
-      where: { id: tradeId },
-      include: { listing: true },
-    });
-    if (t) {
-      return {
-        id: t.id,
-        district: (t as any).district,
-        waterType: (t as any).waterType ?? null,
-        volumeAf: Number((t as any).volumeAf ?? 0),
-        pricePerAf: Number((t as any).pricePerAf ?? (t as any).pricePerAF ?? 0),
-        windowLabel: (t as any).windowLabel ?? null,
-        round: Number((t as any).round ?? 1),
-        sellerToken: (t as any).sellerToken ?? null,
-        buyerToken: (t as any).buyerToken ?? null,
-        listingTitle: (t as any).listing?.title ?? null,
-      };
-    }
+    const t = await prisma.trade.findUnique({ where: { id }, include: { listing: true } });
+    if (t) return normalizeFromAny(t);
   } catch (e: any) {
-    console.error("[TradeShell] prisma.trade.findUnique(include) failed", {
-      tradeId,
-      message: e?.message,
-    });
+    console.error("[TradeShell] trade.findUnique(include) by id failed", { id, message: e?.message });
+  }
+  try {
+    const t = await prisma.trade.findUnique({ where: { id } as any });
+    if (t) return normalizeFromAny(t);
+  } catch (e: any) {
+    console.error("[TradeShell] trade.findUnique by id failed", { id, message: e?.message });
   }
 
-  // Try Trade without relation
   try {
-    const t = await prisma.trade.findUnique({ where: { id: tradeId } as any });
-    if (t) {
-      return {
-        id: (t as any).id,
-        district: (t as any).district,
-        waterType: (t as any).waterType ?? null,
-        volumeAf: Number((t as any).volumeAf ?? 0),
-        pricePerAf: Number((t as any).pricePerAf ?? (t as any).pricePerAF ?? 0),
-        windowLabel: (t as any).windowLabel ?? null,
-        round: Number((t as any).round ?? 1),
-        sellerToken: (t as any).sellerToken ?? null,
-        buyerToken: (t as any).buyerToken ?? null,
-        listingTitle: null,
-      };
-    }
+    const tx = await prisma.transaction.findUnique({ where: { id }, include: { listing: true } } as any);
+    if (tx) return normalizeFromAny(tx);
   } catch (e: any) {
-    console.error("[TradeShell] prisma.trade.findUnique() failed", {
-      tradeId,
-      message: e?.message,
-    });
+    console.error("[TradeShell] transaction.findUnique(include) by id failed", { id, message: e?.message });
   }
-
-  // Try Transaction with relation (older schema)
   try {
-    const tx = await prisma.transaction.findUnique({
-      where: { id: tradeId },
+    const tx = await prisma.transaction.findUnique({ where: { id } } as any);
+    if (tx) return normalizeFromAny(tx);
+  } catch (e: any) {
+    console.error("[TradeShell] transaction.findUnique by id failed", { id, message: e?.message });
+  }
+  return null;
+}
+
+// ---- Fetch by token (works when the email carries a valid token but wrong id) ----
+async function fetchByToken(token: string): Promise<Normalized | null> {
+  if (!token) return null;
+
+  // Prefer Trade
+  try {
+    const t = await prisma.trade.findFirst({
+      where: { OR: [{ sellerToken: token }, { buyerToken: token }] },
       include: { listing: true },
     } as any);
-    if (tx) {
-      return {
-        id: (tx as any).id,
-        district: (tx as any).district ?? (tx as any).listing?.district ?? "—",
-        waterType: (tx as any).waterType ?? (tx as any).listing?.waterType ?? null,
-        volumeAf: Number((tx as any).volumeAf ?? (tx as any).acreFeet ?? 0),
-        pricePerAf: Number(
-          (tx as any).pricePerAf ?? (tx as any).pricePerAF ?? (tx as any).price_per_af ?? 0
-        ),
-        windowLabel: (tx as any).windowLabel ?? (tx as any).listing?.availability ?? null,
-        round: Number((tx as any).round ?? 1),
-        sellerToken: (tx as any).sellerToken ?? null,
-        buyerToken: (tx as any).buyerToken ?? null,
-        listingTitle: (tx as any).listing?.title ?? null,
-      };
-    }
+    if (t) return normalizeFromAny(t);
   } catch (e: any) {
-    console.error("[TradeShell] prisma.transaction.findUnique(include) failed", {
-      tradeId,
-      message: e?.message,
-    });
+    console.error("[TradeShell] trade.findFirst by token failed", { message: e?.message });
   }
 
-  // Try Transaction without relation
+  // Then Transaction (older rows may not have tokens, but try anyway)
   try {
-    const tx = await prisma.transaction.findUnique({ where: { id: tradeId } } as any);
-    if (tx) {
-      return {
-        id: (tx as any).id,
-        district: (tx as any).district ?? "—",
-        waterType: (tx as any).waterType ?? null,
-        volumeAf: Number((tx as any).volumeAf ?? (tx as any).acreFeet ?? 0),
-        pricePerAf: Number((tx as any).pricePerAf ?? (tx as any).pricePerAF ?? 0),
-        windowLabel: (tx as any).windowLabel ?? null,
-        round: Number((tx as any).round ?? 1),
-        sellerToken: (tx as any).sellerToken ?? null,
-        buyerToken: (tx as any).buyerToken ?? null,
-        listingTitle: null,
-      };
-    }
+    const tx = await prisma.transaction.findFirst({
+      where: { OR: [{ sellerToken: token }, { buyerToken: token }] },
+      include: { listing: true },
+    } as any);
+    if (tx) return normalizeFromAny(tx);
   } catch (e: any) {
-    console.error("[TradeShell] prisma.transaction.findUnique() failed", {
-      tradeId,
-      message: e?.message,
-    });
+    console.error("[TradeShell] transaction.findFirst by token failed", { message: e?.message });
   }
 
   return null;
@@ -134,31 +101,30 @@ type Props = {
 export default async function TradeShell({ tradeId, role, token, action }: Props) {
   let rec: Normalized | null = null;
 
-  try {
-    rec = await fetchNormalized(tradeId);
-  } catch (e: any) {
-    console.error("[TradeShell] Unexpected fetch error", {
-      tradeId,
-      role,
-      hasToken: Boolean(token),
-      action,
-      message: e?.message,
-      stack: e?.stack,
-    });
-    return <ProblemCard title="We couldn’t load this transaction" body="Our database returned an error while loading the transaction. Please try again or contact support." />;
+  // 1) Try by id
+  rec = await fetchById(tradeId);
+
+  // 2) If not found, try by token (common when the link used a mismatched id)
+  if (!rec && token) {
+    rec = await fetchByToken(token);
+    if (rec) {
+      console.warn("[TradeShell] Record found by token but not by id", {
+        requestedId: tradeId,
+        resolvedId: rec.id,
+      });
+    }
   }
 
   if (!rec) {
-    console.warn("[TradeShell] No record found in Trade or Transaction", {
-      tradeId,
-      role,
-      hasToken: Boolean(token),
-      action,
-    });
-    return <ProblemCard title="Transaction not found" body="This transaction may have been moved or deleted. Try opening the newest email, or sign in to your dashboard." />;
+    return (
+      <ProblemCard
+        title="Transaction not found"
+        body="This transaction may have been moved or deleted. Try opening the newest email, or sign in to your dashboard."
+      />
+    );
   }
 
-  // Token check (optional: older rows may not have tokens)
+  // Token validation (if record has tokens, require a match; otherwise allow view)
   const hasAnyToken = Boolean(rec.sellerToken || rec.buyerToken);
   const tokenValid = hasAnyToken
     ? (role === "seller" && token && token === rec.sellerToken) ||
@@ -225,7 +191,7 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
 
         <div className="mt-6">
           <TradeActionRunner
-            tradeId={rec.id}
+            tradeId={rec.id}                       // use canonical id we found
             role={role}
             token={token}
             action={action}
