@@ -1,13 +1,14 @@
 // components/trade/TradeShell.tsx
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
+import TradeActionRunner from "./TradeRunner"; // <-- client component, safe to import directly
 
 type Normalized = {
   id: string;
   district: string;
   waterType?: string | null;
-  volumeAf: number;        // normalized from volumeAf OR acreFeet
-  pricePerAf: number;      // cents/AF (normalized from pricePerAf OR pricePerAF)
+  volumeAf: number;
+  pricePerAf: number; // cents/AF
   windowLabel?: string | null;
   round: number;
   sellerToken?: string | null;
@@ -25,7 +26,7 @@ async function fetchNormalized(tradeId: string): Promise<Normalized | null> {
     if (t) {
       return {
         id: t.id,
-        district: t.district,
+        district: (t as any).district,
         waterType: (t as any).waterType ?? null,
         volumeAf: Number((t as any).volumeAf ?? 0),
         pricePerAf: Number((t as any).pricePerAf ?? (t as any).pricePerAF ?? 0),
@@ -43,7 +44,7 @@ async function fetchNormalized(tradeId: string): Promise<Normalized | null> {
     });
   }
 
-  // Try Trade without relation (if relation name mismatched)
+  // Try Trade without relation
   try {
     const t = await prisma.trade.findUnique({ where: { id: tradeId } as any });
     if (t) {
@@ -82,12 +83,9 @@ async function fetchNormalized(tradeId: string): Promise<Normalized | null> {
         pricePerAf: Number(
           (tx as any).pricePerAf ?? (tx as any).pricePerAF ?? (tx as any).price_per_af ?? 0
         ),
-        windowLabel:
-          (tx as any).windowLabel ??
-          (tx as any).listing?.availability ??
-          null,
+        windowLabel: (tx as any).windowLabel ?? (tx as any).listing?.availability ?? null,
         round: Number((tx as any).round ?? 1),
-        sellerToken: (tx as any).sellerToken ?? null, // most Transaction rows won’t have tokens
+        sellerToken: (tx as any).sellerToken ?? null,
         buyerToken: (tx as any).buyerToken ?? null,
         listingTitle: (tx as any).listing?.title ?? null,
       };
@@ -147,12 +145,7 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
       message: e?.message,
       stack: e?.stack,
     });
-    return (
-      <ProblemCard
-        title="We couldn’t load this transaction"
-        body="Our database returned an error while loading the transaction. Please try again or contact support."
-      />
-    );
+    return <ProblemCard title="We couldn’t load this transaction" body="Our database returned an error while loading the transaction. Please try again or contact support." />;
   }
 
   if (!rec) {
@@ -162,20 +155,15 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
       hasToken: Boolean(token),
       action,
     });
-    return (
-      <ProblemCard
-        title="Transaction not found"
-        body="This transaction may have been moved or deleted. Try opening the newest email, or sign in to your dashboard."
-      />
-    );
+    return <ProblemCard title="Transaction not found" body="This transaction may have been moved or deleted. Try opening the newest email, or sign in to your dashboard." />;
   }
 
-  // Token check (optional: older Transaction rows may not have tokens)
+  // Token check (optional: older rows may not have tokens)
   const hasAnyToken = Boolean(rec.sellerToken || rec.buyerToken);
   const tokenValid = hasAnyToken
     ? (role === "seller" && token && token === rec.sellerToken) ||
       (role === "buyer" && token && token === rec.buyerToken)
-    : true; // if no tokens exist on record, don’t block viewing
+    : true;
 
   const priceLabel = `$${(Number(rec.pricePerAf || 0) / 100).toLocaleString()}/AF`;
 
@@ -236,19 +224,16 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
         </div>
 
         <div className="mt-6">
-          {/* The client-side runner (accept/counter/decline) */}
-          {/* If tokens are missing, actions will likely be rejected by the API; UI still renders. */}
-          {/* @ts-expect-error Client Component import is fine */}
-          {(await import("./TradeRunner")).default({
-            tradeId: rec.id,
-            role,
-            token,
-            action,
-            defaultPricePerAf: Number(rec.pricePerAf || 0),
-            defaultVolumeAf: Number(rec.volumeAf || 0),
-            defaultWindowLabel: rec.windowLabel || "",
-            disabled: !tokenValid,
-          })}
+          <TradeActionRunner
+            tradeId={rec.id}
+            role={role}
+            token={token}
+            action={action}
+            defaultPricePerAf={Number(rec.pricePerAf || 0)}
+            defaultVolumeAf={Number(rec.volumeAf || 0)}
+            defaultWindowLabel={rec.windowLabel || ""}
+            disabled={!tokenValid}
+          />
         </div>
       </section>
 
