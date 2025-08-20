@@ -1,11 +1,7 @@
 // components/trade/TradeShell.tsx
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-
-/**
- * NOTE: We avoid throwing (notFound/error) in production so we don't crash the route.
- * Instead we render a friendly card and log the details server-side.
- */
+import TradeActionRunner from "./TradeRunner"; // client component; safe to import directly in a server component
 
 type Props = {
   tradeId: string;
@@ -22,7 +18,6 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
       include: { listing: true },
     });
   } catch (e: any) {
-    // Server log with enough context to find in Vercel logs
     console.error("[TradeShell] DB error", {
       tradeId,
       role,
@@ -49,7 +44,6 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
     );
   }
 
-  // Validate magic-link token
   const tokenValid =
     (role === "seller" && token && token === trade.sellerToken) ||
     (role === "buyer" && token && token === trade.buyerToken);
@@ -108,17 +102,15 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
         </div>
 
         <div className="mt-6">
-          {/* Lazy import to avoid hydration issues if something above fails */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {/** @ts-expect-error async Server Component wrapper */}
-          <ClientRunnerWrapper
-            trade={trade}
+          <TradeActionRunner
+            tradeId={trade.id}
             role={role}
             token={token}
             action={action}
-            tokenValid={tokenValid}
-            pricePerAf={pricePerAf}
-            volumeAf={volumeAf}
+            defaultPricePerAf={pricePerAf}
+            defaultVolumeAf={volumeAf}
+            defaultWindowLabel={trade.windowLabel || ""}
+            disabled={!tokenValid}
           />
         </div>
       </section>
@@ -147,40 +139,5 @@ function ProblemCard({ title, body }: { title: string; body: string }) {
         <p className="mt-1 text-sm">{body}</p>
       </div>
     </div>
-  );
-}
-
-/**
- * Small server->client handoff to keep the surface tight.
- */
-async function ClientRunnerWrapper({
-  trade,
-  role,
-  token,
-  action,
-  tokenValid,
-  pricePerAf,
-  volumeAf,
-}: {
-  trade: any;
-  role: string;
-  token: string;
-  action: string;
-  tokenValid: boolean;
-  pricePerAf: number;
-  volumeAf: number;
-}) {
-  const TradeActionRunner = (await import("./TradeRunner")).default;
-  return (
-    <TradeActionRunner
-      tradeId={trade.id}
-      role={role}
-      token={token}
-      action={action}
-      defaultPricePerAf={pricePerAf}
-      defaultVolumeAf={volumeAf}
-      defaultWindowLabel={trade.windowLabel || ""}
-      disabled={!tokenValid}
-    />
   );
 }
