@@ -1,8 +1,11 @@
 // components/trade/TradeShell.tsx
 import { prisma } from "@/lib/prisma";
-import { notFound } from "next/navigation";
 import Link from "next/link";
-import TradeActionRunner from "./TradeRunner";
+
+/**
+ * NOTE: We avoid throwing (notFound/error) in production so we don't crash the route.
+ * Instead we render a friendly card and log the details server-side.
+ */
 
 type Props = {
   tradeId: string;
@@ -12,18 +15,48 @@ type Props = {
 };
 
 export default async function TradeShell({ tradeId, role, token, action }: Props) {
-  const trade = await prisma.trade.findUnique({
-    where: { id: tradeId },
-    include: { listing: true },
-  });
+  let trade: any | null = null;
+  try {
+    trade = await prisma.trade.findUnique({
+      where: { id: tradeId },
+      include: { listing: true },
+    });
+  } catch (e: any) {
+    // Server log with enough context to find in Vercel logs
+    console.error("[TradeShell] DB error", {
+      tradeId,
+      role,
+      hasToken: Boolean(token),
+      action,
+      message: e?.message,
+      stack: e?.stack,
+    });
+    return (
+      <ProblemCard
+        title="We couldn’t load this transaction"
+        body="Our database returned an error while loading the transaction. Please try again or contact support."
+      />
+    );
+  }
 
-  if (!trade) notFound();
+  if (!trade) {
+    console.warn("[TradeShell] trade not found", { tradeId, role, hasToken: Boolean(token), action });
+    return (
+      <ProblemCard
+        title="Transaction not found"
+        body="This transaction may have been moved or deleted. Check that you opened the newest email, or sign in to your dashboard."
+      />
+    );
+  }
 
+  // Validate magic-link token
   const tokenValid =
-    (role === "seller" && token && token === (trade as any).sellerToken) ||
-    (role === "buyer" && token && token === (trade as any).buyerToken);
+    (role === "seller" && token && token === trade.sellerToken) ||
+    (role === "buyer" && token && token === trade.buyerToken);
 
-  const priceLabel = `$${(trade.pricePerAf / 100).toLocaleString()}/AF`;
+  const pricePerAf = Number.isFinite(trade.pricePerAf) ? Number(trade.pricePerAf) : 0;
+  const volumeAf = Number.isFinite(trade.volumeAf) ? Number(trade.volumeAf) : 0;
+  const priceLabel = `$${(pricePerAf / 100).toLocaleString()}/AF`;
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -32,7 +65,7 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
         <p className="mt-1 text-sm text-slate-600">
           Offer & counterflow for{" "}
           <span className="font-medium">
-            {trade.listing?.title || trade.windowLabel || "Listing"}
+            {trade?.listing?.title || trade?.windowLabel || "Listing"}
           </span>
         </p>
       </header>
@@ -53,22 +86,10 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
           <div>
             <div className="text-sm font-semibold text-slate-900">Current Terms</div>
             <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="text-sm">
-                <div className="text-slate-500">District</div>
-                <div className="font-medium">{trade.district}</div>
-              </div>
-              <div className="text-sm">
-                <div className="text-slate-500">Water Type</div>
-                <div className="font-medium">{trade.waterType || "—"}</div>
-              </div>
-              <div className="text-sm">
-                <div className="text-slate-500">Volume (AF)</div>
-                <div className="font-medium">{trade.volumeAf.toLocaleString()}</div>
-              </div>
-              <div className="text-sm">
-                <div className="text-slate-500">Price</div>
-                <div className="font-medium">{priceLabel}</div>
-              </div>
+              <Info label="District" value={trade.district || "—"} />
+              <Info label="Water Type" value={trade.waterType || "—"} />
+              <Info label="Volume (AF)" value={Number(volumeAf).toLocaleString()} />
+              <Info label="Price" value={priceLabel} />
             </div>
             {trade.windowLabel && (
               <div className="mt-3 text-sm">
@@ -80,22 +101,24 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
 
           <span
             className="inline-flex items-center rounded-full bg-gradient-to-r from-[#0E6A59] to-[#004434] px-3 py-1 text-[11px] font-semibold text-white shadow-sm"
-            title={`Round ${trade.round}`}
+            title={`Round ${trade.round ?? 1}`}
           >
-            Round {trade.round}
+            Round {trade.round ?? 1}
           </span>
         </div>
 
         <div className="mt-6">
-          <TradeActionRunner
-            tradeId={trade.id}
+          {/* Lazy import to avoid hydration issues if something above fails */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/** @ts-expect-error async Server Component wrapper */}
+          <ClientRunnerWrapper
+            trade={trade}
             role={role}
             token={token}
             action={action}
-            defaultPricePerAf={trade.pricePerAf}
-            defaultVolumeAf={trade.volumeAf}
-            defaultWindowLabel={trade.windowLabel || ""}
-            disabled={!tokenValid}
+            tokenValid={tokenValid}
+            pricePerAf={pricePerAf}
+            volumeAf={volumeAf}
           />
         </div>
       </section>
@@ -104,5 +127,60 @@ export default async function TradeShell({ tradeId, role, token, action }: Props
         Secure link for: <span className="font-medium uppercase">{role || "unknown"}</span>
       </div>
     </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="text-sm">
+      <div className="text-slate-500">{label}</div>
+      <div className="font-medium">{value}</div>
+    </div>
+  );
+}
+
+function ProblemCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="mx-auto max-w-3xl p-6">
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-900">
+        <div className="text-sm font-semibold">{title}</div>
+        <p className="mt-1 text-sm">{body}</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Small server->client handoff to keep the surface tight.
+ */
+async function ClientRunnerWrapper({
+  trade,
+  role,
+  token,
+  action,
+  tokenValid,
+  pricePerAf,
+  volumeAf,
+}: {
+  trade: any;
+  role: string;
+  token: string;
+  action: string;
+  tokenValid: boolean;
+  pricePerAf: number;
+  volumeAf: number;
+}) {
+  const TradeActionRunner = (await import("./TradeRunner")).default;
+  return (
+    <TradeActionRunner
+      tradeId={trade.id}
+      role={role}
+      token={token}
+      action={action}
+      defaultPricePerAf={pricePerAf}
+      defaultVolumeAf={volumeAf}
+      defaultWindowLabel={trade.windowLabel || ""}
+      disabled={!tokenValid}
+    />
   );
 }
