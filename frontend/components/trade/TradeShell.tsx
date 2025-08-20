@@ -2,6 +2,7 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
+import type { Prisma } from "@prisma/client";
 
 type Props = {
   tradeId: string;
@@ -14,6 +15,19 @@ function moneyFromCents(cents?: number) {
   const n = ((cents ?? 0) as number) / 100;
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
+
+// ✅ Exact type for the query result INCLUDING relations you include below
+type TxWithJoins = Prisma.TransactionGetPayload<{
+  include: {
+    listing: { select: { id: true; title: true; district: true; waterType: true; kind: true } };
+    seller: { select: { id: true; email: true; name: true } };
+    buyer: { select: { id: true; email: true; name: true } };
+    signatures: true;
+  };
+}> & {
+  // Optional: if you have these snapshot columns on your Transaction table, add them here
+  titleSnapshot?: string | null;
+};
 
 export default async function TradeShell({ tradeId, role = "", token = "", action = "" }: Props) {
   if (!tradeId) {
@@ -29,9 +43,7 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
   }
 
   // ---- Load the transaction safely (include listing relation)
-  let tx:
-    | (NonNullable<Awaited<ReturnType<typeof prisma.transaction.findUnique>>>)
-    | null = null;
+  let tx: TxWithJoins | null = null;
 
   try {
     tx = await prisma.transaction.findUnique({
@@ -46,7 +58,6 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
       },
     });
   } catch (e: any) {
-    // This shows up in Vercel function logs; the UI remains friendly.
     console.error("[TradeShell] DB query failed", { tradeId, error: e?.message });
     return (
       <div className="mx-auto max-w-2xl p-6">
@@ -103,8 +114,8 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
     }
   }
 
-  // Prefer live listing title; fall back to snapshot if you store one
-  const title = tx.listing?.title ?? (tx as any)?.titleSnapshot ?? "Water Trade";
+  // Prefer live listing title; fall back to snapshot if present
+  const title = tx.listing?.title ?? tx.titleSnapshot ?? "Water Trade";
   const qty = tx.acreFeet ?? 0;
   const pAf = tx.pricePerAF ?? 0; // cents
   const total = (tx.totalAmount ?? qty * pAf) || 0;
