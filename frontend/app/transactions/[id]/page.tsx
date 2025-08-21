@@ -1,8 +1,9 @@
 // app/transactions/[id]/page.tsx
 import TradeShell from "@/components/trade/TradeShell";
 
-export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type PageProps = {
   params: { id: string };
