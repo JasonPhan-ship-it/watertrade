@@ -1,4 +1,4 @@
-// ✅ Force Prisma to run on Node.js, and avoid cached fetches
+// components/trade/TradeShell.tsx
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -19,28 +19,29 @@ function moneyFromCents(cents?: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
-// 🔒 Keep the include minimal to avoid schema mismatches while debugging.
-// Remove fields you don't actually have in your Prisma schema.
+// Exact payload type including relations we include below
 type TxWithJoins = Prisma.TransactionGetPayload<{
   include: {
-    listing: { select: { id: true; title: true; district: true; waterType: true } };
+    listing: {
+      select: {
+        id: true;
+        title: true;
+        district: true;
+        waterType: true;
+        kind: true;
+      };
+    };
     seller: { select: { id: true; email: true; name: true } };
     buyer: { select: { id: true; email: true; name: true } };
-    // If your relation is named something else (e.g., TransactionSignature[]),
-    // rename it here to match. Or comment out while debugging:
-    // signatures: true,
+    signatures: true;
   };
-}> & {
-  titleSnapshot?: string | null;
-};
+}>;
 
 export default async function TradeShell({ tradeId, role = "", token = "", action = "" }: Props) {
-  // Basic guard to avoid accidental undefined/empty ids
   if (!tradeId || typeof tradeId !== "string" || tradeId.trim().length === 0) {
     return uiError("Transaction not found", "Missing or invalid transaction id.", tradeId);
   }
 
-  // ---- Load the transaction safely
   let tx: TxWithJoins | null = null;
 
   try {
@@ -48,22 +49,20 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
       where: { id: tradeId },
       include: {
         listing: {
-          select: { id: true, title: true, district: true, waterType: true },
+          select: { id: true, title: true, district: true, waterType: true, kind: true },
         },
         seller: { select: { id: true, email: true, name: true } },
         buyer: { select: { id: true, email: true, name: true } },
-        // signatures: true, // enable only if this relation exists in your schema
+        signatures: true,
       },
     });
   } catch (e: any) {
-    // Log full error (message + stack + code) to Vercel logs
     console.error("[TradeShell] DB query failed", {
       tradeId,
       message: e?.message,
       code: e?.code,
       stack: e?.stack,
     });
-
     return uiError(
       "We couldn’t load this transaction",
       "Our database returned an error while loading the transaction. Please try again or contact support.",
@@ -80,7 +79,7 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
     );
   }
 
-  // ---- Determine viewer role safely
+  // Determine viewer role
   let viewerRole: "buyer" | "seller" | "guest" = "guest";
   const hinted = (role || "").toLowerCase();
   if (hinted === "buyer" || hinted === "seller") {
@@ -100,7 +99,8 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
     }
   }
 
-  const title = tx.listing?.title ?? tx.titleSnapshot ?? "Water Trade";
+  // Prefer live listing title; fall back to snapshot
+  const title = tx.listing?.title ?? tx.listingTitleSnapshot ?? "Water Trade";
   const qty = tx.acreFeet ?? 0;
   const pAf = tx.pricePerAF ?? 0; // cents
   const total = (tx.totalAmount ?? qty * pAf) || 0;
@@ -130,10 +130,10 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
           <div className="text-xs uppercase text-slate-500">Parties</div>
           <dl className="mt-2 space-y-1 text-sm">
             <div className="flex justify-between">
-              <dt>Seller</dt><dd>{tx.seller?.name || tx.seller?.email || "—"}</dd>
+              <dt>Seller</dt><dd>{tx.seller?.name || tx.seller?.email || tx.sellerNameSnapshot || tx.sellerEmailSnapshot || "—"}</dd>
             </div>
             <div className="flex justify-between">
-              <dt>Buyer</dt><dd>{tx.buyer?.name || tx.buyer?.email || "—"}</dd>
+              <dt>Buyer</dt><dd>{tx.buyer?.name || tx.buyer?.email || tx.buyerNameSnapshot || tx.buyerEmailSnapshot || "—"}</dd>
             </div>
             <div className="flex justify-between">
               <dt>Your Role</dt><dd className="capitalize">{viewerRole}</dd>
@@ -145,7 +145,61 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
         </div>
       </div>
 
-      {/* Actions ... (unchanged) */}
+      {/* Actions (unchanged) */}
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        {viewerRole === "seller" ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <form action={`/api/trades/${tx.id}/seller/accept`} method="post">
+              <input type="hidden" name="token" value={token} />
+              <button
+                type="submit"
+                className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f]"
+              >
+                Accept Offer
+              </button>
+            </form>
+            <Link
+              href={`/t/${tx.id}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`}
+              className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Counter
+            </Link>
+            <form action={`/api/trades/${tx.id}/seller/decline`} method="post">
+              <input type="hidden" name="token" value={token} />
+              <button
+                type="submit"
+                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Decline
+              </button>
+            </form>
+          </div>
+        ) : viewerRole === "buyer" ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href={`/t/${tx.id}?role=buyer&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`}
+              className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Counter
+            </Link>
+            <form action={`/api/trades/${tx.id}/buyer/decline`} method="post">
+              <input type="hidden" name="token" value={token} />
+              <button
+                type="submit"
+                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Decline
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="text-sm text-slate-600">
+            You’re viewing as a guest.{" "}
+            <Link href="/sign-in" className="text-[#0E6A59] underline">Sign in</Link>{" "}
+            to take action.
+          </div>
+        )}
+      </div>
 
       <div className="mt-6 text-xs text-slate-500">Tx ID: {tx.id}</div>
     </div>
@@ -160,10 +214,7 @@ function uiError(title: string, details: string, tradeId?: string, err?: unknown
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
         {tradeId ? <div><strong>ID:</strong> {tradeId}</div> : null}
         {process.env.NODE_ENV !== "production" && err && (
-          <div className="mt-2">
-            <strong>Error:</strong>{" "}
-            {String((err as any)?.message || err)}
-          </div>
+          <div className="mt-2"><strong>Error:</strong> {String((err as any)?.message || err)}</div>
         )}
         <div className="mt-2">
           Tip: confirm the id exists at{" "}
