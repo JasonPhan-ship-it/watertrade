@@ -8,10 +8,10 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 
 type Props = {
-  tradeId: string;
-  role?: string;   // "buyer" | "seller" | ""
-  token?: string;  // optional from email
-  action?: string; // e.g. "review" | "counter"
+  tradeId: string;      // can be a Transaction.id or a Trade.id
+  role?: string;
+  token?: string;
+  action?: string;
 };
 
 function moneyFromCents(cents?: number) {
@@ -19,23 +19,48 @@ function moneyFromCents(cents?: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
-// Exact payload type including relations we include below
+// Transaction shape with joins used by the UI
 type TxWithJoins = Prisma.TransactionGetPayload<{
   include: {
-    listing: {
-      select: {
-        id: true;
-        title: true;
-        district: true;
-        waterType: true;
-        kind: true;
-      };
-    };
+    listing: { select: { id: true; title: true; district: true; waterType: true; kind: true } };
     seller: { select: { id: true; email: true; name: true } };
     buyer: { select: { id: true; email: true; name: true } };
     signatures: true;
   };
 }>;
+
+// Load a Transaction either directly by its id or via a Trade id
+async function loadTransactionByAnyId(anyId: string): Promise<TxWithJoins | null> {
+  // 1) Try direct Transaction.id
+  const txDirect = await prisma.transaction.findUnique({
+    where: { id: anyId },
+    include: {
+      listing: { select: { id: true, title: true, district: true, waterType: true, kind: true } },
+      seller: { select: { id: true, email: true, name: true } },
+      buyer: { select: { id: true, email: true, name: true } },
+      signatures: true,
+    },
+  });
+  if (txDirect) return txDirect;
+
+  // 2) Try Trade.id -> follow Trade.transactionId
+  const trade = await prisma.trade.findUnique({
+    where: { id: anyId },
+    select: { transactionId: true },
+  });
+  if (!trade?.transactionId) return null;
+
+  const txViaTrade = await prisma.transaction.findUnique({
+    where: { id: trade.transactionId },
+    include: {
+      listing: { select: { id: true, title: true, district: true, waterType: true, kind: true } },
+      seller: { select: { id: true, email: true, name: true } },
+      buyer: { select: { id: true, email: true, name: true } },
+      signatures: true,
+    },
+  });
+  return txViaTrade;
+}
 
 export default async function TradeShell({ tradeId, role = "", token = "", action = "" }: Props) {
   if (!tradeId || typeof tradeId !== "string" || tradeId.trim().length === 0) {
@@ -45,20 +70,10 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
   let tx: TxWithJoins | null = null;
 
   try {
-    tx = await prisma.transaction.findUnique({
-      where: { id: tradeId },
-      include: {
-        listing: {
-          select: { id: true, title: true, district: true, waterType: true, kind: true },
-        },
-        seller: { select: { id: true, email: true, name: true } },
-        buyer: { select: { id: true, email: true, name: true } },
-        signatures: true,
-      },
-    });
+    tx = await loadTransactionByAnyId(tradeId);
   } catch (e: any) {
     console.error("[TradeShell] DB query failed", {
-      tradeId,
+      inputId: tradeId,
       message: e?.message,
       code: e?.code,
       stack: e?.stack,
@@ -208,7 +223,7 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
 
 function uiError(title: string, details: string, tradeId?: string, err?: unknown) {
   const isDev = process.env.NODE_ENV !== "production";
-  const showErr = isDev && err != null; // ✅ boolean, not unknown
+  const showErr = isDev && err != null;
 
   return (
     <div className="mx-auto max-w-2xl p-6">
@@ -216,18 +231,14 @@ function uiError(title: string, details: string, tradeId?: string, err?: unknown
       <p className="mt-2 text-sm text-slate-600">{details}</p>
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
         {tradeId ? <div><strong>ID:</strong> {tradeId}</div> : null}
-
         {showErr ? (
           <div className="mt-2">
             <strong>Error:</strong> {String((err as any)?.message ?? err)}
           </div>
         ) : null}
-
         <div className="mt-2">
           Tip: confirm the id exists at{" "}
-          <Link href="/api/transactions/recent" className="text-[#0E6A59] underline">
-            /api/transactions/recent
-          </Link>.
+          <Link href="/api/transactions/recent" className="text-[#0E6A59] underline">/api/transactions/recent</Link>.
         </div>
       </div>
     </div>
