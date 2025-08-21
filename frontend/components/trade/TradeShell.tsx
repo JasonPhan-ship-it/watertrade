@@ -62,27 +62,32 @@ async function loadTransactionByAnyId(anyId: string): Promise<TxWithJoins | null
   return txViaTrade;
 }
 
+// Wrap loader so any throw becomes a friendly error string for uiError()
+async function safeLoad(tradeOrTxId: string): Promise<{ tx: TxWithJoins | null; err?: string }> {
+  try {
+    const tx = await loadTransactionByAnyId(tradeOrTxId);
+    return { tx };
+  } catch (e: any) {
+    const code = e?.code ?? "";
+    const msg = e?.message ?? String(e);
+    console.error("[TradeShell] loadTransactionByAnyId threw", { tradeOrTxId, code, msg });
+    return { tx: null, err: `${code} ${msg}` };
+  }
+}
+
 export default async function TradeShell({ tradeId, role = "", token = "", action = "" }: Props) {
   if (!tradeId || typeof tradeId !== "string" || tradeId.trim().length === 0) {
     return uiError("Transaction not found", "Missing or invalid transaction id.", tradeId);
   }
 
-  let tx: TxWithJoins | null = null;
+  const { tx, err } = await safeLoad(tradeId);
 
-  try {
-    tx = await loadTransactionByAnyId(tradeId);
-  } catch (e: any) {
-    console.error("[TradeShell] DB query failed", {
-      inputId: tradeId,
-      message: e?.message,
-      code: e?.code,
-      stack: e?.stack,
-    });
+  if (err) {
     return uiError(
       "We couldn’t load this transaction",
       "Our database returned an error while loading the transaction. Please try again or contact support.",
       tradeId,
-      e
+      err
     );
   }
 
