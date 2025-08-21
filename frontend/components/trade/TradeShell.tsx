@@ -207,18 +207,27 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
 }
 
 function uiError(title: string, details: string, tradeId?: string, err?: unknown) {
+  const isDev = process.env.NODE_ENV !== "production";
+  const showErr = isDev && err != null; // ✅ boolean, not unknown
+
   return (
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="text-xl font-semibold">{title}</h1>
       <p className="mt-2 text-sm text-slate-600">{details}</p>
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
         {tradeId ? <div><strong>ID:</strong> {tradeId}</div> : null}
-        {process.env.NODE_ENV !== "production" && err && (
-          <div className="mt-2"><strong>Error:</strong> {String((err as any)?.message || err)}</div>
-        )}
+
+        {showErr ? (
+          <div className="mt-2">
+            <strong>Error:</strong> {String((err as any)?.message ?? err)}
+          </div>
+        ) : null}
+
         <div className="mt-2">
           Tip: confirm the id exists at{" "}
-          <Link href="/api/transactions/recent" className="text-[#0E6A59] underline">/api/transactions/recent</Link>.
+          <Link href="/api/transactions/recent" className="text-[#0E6A59] underline">
+            /api/transactions/recent
+          </Link>.
         </div>
       </div>
     </div>
