@@ -222,8 +222,9 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
 }
 
 function uiError(title: string, details: string, tradeId?: string, err?: unknown) {
-  const isDev = process.env.NODE_ENV !== "production";
-  const showErr = isDev && err != null;
+  // Show errors in prod if DEBUG_ERRORS==='1'
+  const showErr =
+    process.env.NODE_ENV !== "production" || process.env.DEBUG_ERRORS === "1";
 
   return (
     <div className="mx-auto max-w-2xl p-6">
@@ -238,7 +239,9 @@ function uiError(title: string, details: string, tradeId?: string, err?: unknown
         ) : null}
         <div className="mt-2">
           Tip: confirm the id exists at{" "}
-          <Link href="/api/transactions/recent" className="text-[#0E6A59] underline">/api/transactions/recent</Link>.
+          <Link href="/api/transactions/recent" className="text-[#0E6A59] underline">
+            /api/transactions/recent
+          </Link>.
         </div>
       </div>
     </div>
