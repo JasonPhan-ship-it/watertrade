@@ -10,7 +10,7 @@ import type { Prisma } from "@prisma/client";
 // ---------- Types ----------
 type Props = {
   tradeId: string;                // can be a Transaction.id OR a Trade.id
-  role?: string;                  // "buyer" | "seller" | (optional hint)
+  role?: string;                  // "Buyer" | "Seller" | (optional hint)
   token?: string;                 // optional magic token for server actions
   action?: string;                // "review" | ... (not used in summary UI)
 };
