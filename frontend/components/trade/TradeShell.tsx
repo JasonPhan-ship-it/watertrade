@@ -8,7 +8,7 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 
 type Props = {
-  tradeId: string;      // can be a Transaction.id or a Trade.id
+  tradeId: string; // can be a Transaction.id or a Trade.id
   role?: string;
   token?: string;
   action?: string;
@@ -19,13 +19,22 @@ function moneyFromCents(cents?: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
+// ---- Use a safe subset for signatures to avoid selecting non-existent columns
+const signatureSelect = {
+  id: true,
+  party: true,
+  docusignEnvelopeId: true,
+  status: true,
+  completedAt: true,
+} as const;
+
 // Transaction shape with joins used by the UI
 type TxWithJoins = Prisma.TransactionGetPayload<{
   include: {
     listing: { select: { id: true; title: true; district: true; waterType: true; kind: true } };
     seller: { select: { id: true; email: true; name: true } };
     buyer: { select: { id: true; email: true; name: true } };
-    signatures: true;
+    signatures: { select: typeof signatureSelect };
   };
 }>;
 
@@ -38,7 +47,7 @@ async function loadTransactionByAnyId(anyId: string): Promise<TxWithJoins | null
       listing: { select: { id: true, title: true, district: true, waterType: true, kind: true } },
       seller: { select: { id: true, email: true, name: true } },
       buyer: { select: { id: true, email: true, name: true } },
-      signatures: true,
+      signatures: { select: signatureSelect },
     },
   });
   if (txDirect) return txDirect;
@@ -56,7 +65,7 @@ async function loadTransactionByAnyId(anyId: string): Promise<TxWithJoins | null
       listing: { select: { id: true, title: true, district: true, waterType: true, kind: true } },
       seller: { select: { id: true, email: true, name: true } },
       buyer: { select: { id: true, email: true, name: true } },
-      signatures: true,
+      signatures: { select: signatureSelect },
     },
   });
   return txViaTrade;
@@ -98,6 +107,13 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
       tradeId
     );
   }
+
+  // ---- Fetch linked Trade (if any) to drive action URLs
+  const linkedTrade = await prisma.trade.findFirst({
+    where: { transactionId: tx.id },
+    select: { id: true, status: true },
+  });
+  const linkedTradeId = linkedTrade?.id || null;
 
   // Determine viewer role
   let viewerRole: "buyer" | "seller" | "guest" = "guest";
@@ -165,30 +181,47 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
         </div>
       </div>
 
-      {/* Actions (unchanged) */}
+      {/* Actions (now use linkedTradeId; disable if no Trade yet) */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
-            <form action={`/api/trades/${tx.id}/seller/accept`} method="post">
+            <form action={linkedTradeId ? `/api/trades/${linkedTradeId}/seller/accept` : undefined} method="post">
               <input type="hidden" name="token" value={token} />
               <button
                 type="submit"
-                className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f]"
+                disabled={!linkedTradeId}
+                className={`rounded-xl px-5 py-2 text-white ${
+                  linkedTradeId ? "bg-[#004434] hover:bg-[#003a2f]" : "bg-slate-400 cursor-not-allowed"
+                }`}
+                title={linkedTradeId ? "" : "No Trade linked to this Transaction"}
               >
                 Accept Offer
               </button>
             </form>
+
             <Link
-              href={`/t/${tx.id}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`}
-              className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              href={
+                linkedTradeId
+                  ? `/t/${linkedTradeId}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
+                  : "#"
+              }
+              className={`rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium ${
+                linkedTradeId ? "text-slate-700 hover:bg-slate-50" : "text-slate-400 cursor-not-allowed"
+              }`}
+              aria-disabled={!linkedTradeId}
             >
               Counter
             </Link>
-            <form action={`/api/trades/${tx.id}/seller/decline`} method="post">
+
+            <form action={linkedTradeId ? `/api/trades/${linkedTradeId}/seller/decline` : undefined} method="post">
               <input type="hidden" name="token" value={token} />
               <button
                 type="submit"
-                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                disabled={!linkedTradeId}
+                className={`rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium ${
+                  linkedTradeId ? "text-slate-700 hover:bg-slate-50" : "text-slate-400 cursor-not-allowed"
+                }`}
+                title={linkedTradeId ? "" : "No Trade linked to this Transaction"}
               >
                 Decline
               </button>
@@ -197,16 +230,27 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
             <Link
-              href={`/t/${tx.id}?role=buyer&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`}
-              className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              href={
+                linkedTradeId
+                  ? `/t/${linkedTradeId}?role=buyer&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
+                  : "#"
+              }
+              className={`rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium ${
+                linkedTradeId ? "text-slate-700 hover:bg-slate-50" : "text-slate-400 cursor-not-allowed"
+              }`}
+              aria-disabled={!linkedTradeId}
             >
               Counter
             </Link>
-            <form action={`/api/trades/${tx.id}/buyer/decline`} method="post">
+            <form action={linkedTradeId ? `/api/trades/${linkedTradeId}/buyer/decline` : undefined} method="post">
               <input type="hidden" name="token" value={token} />
               <button
                 type="submit"
-                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                disabled={!linkedTradeId}
+                className={`rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium ${
+                  linkedTradeId ? "text-slate-700 hover:bg-slate-50" : "text-slate-400 cursor-not-allowed"
+                }`}
+                title={linkedTradeId ? "" : "No Trade linked to this Transaction"}
               >
                 Decline
               </button>
@@ -221,7 +265,10 @@ export default async function TradeShell({ tradeId, role = "", token = "", actio
         )}
       </div>
 
-      <div className="mt-6 text-xs text-slate-500">Tx ID: {tx.id}</div>
+      <div className="mt-6 text-xs text-slate-500">
+        Tx ID: {tx.id}
+        {linkedTradeId ? <span className="ml-2">· Trade ID: {linkedTradeId}</span> : null}
+      </div>
     </div>
   );
 }
