@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     const { userId: clerkId } = auth();
     if (!clerkId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // ---- Parse + validate body
+    // ---- Parse body
     if (!req.headers.get("content-type")?.includes("application/json")) {
       return NextResponse.json({ error: "Expected application/json" }, { status: 415 });
     }
@@ -29,25 +29,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "acreFeet must be a positive number" }, { status: 400 });
     }
 
-    // Round down to whole AF (adjust if you support fractional AF)
+    // Whole AF (adjust if you support fractional)
     const acreFeet = Math.max(1, Math.floor(acreFeetReq));
 
-    // ---- Resolve viewer to internal User
+    // ---- Resolve buyer user
     const buyer = await prisma.user.findUnique({ where: { clerkId }, select: { id: true } });
     if (!buyer) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    // ---- Load listing; lock price from DB (in cents)
+    // ---- Load listing (server‑trusted price + seller)
     const listing = await prisma.listing.findUnique({
       where: { id: listingId },
       select: {
         id: true,
         title: true,
-        district: true,   // if these don't exist in your model, remove them
-        waterType: true,  // ^
+        district: true,   // remove if not in your model
+        waterType: true,  // remove if not in your model
         pricePerAF: true, // cents
+        sellerId: true,   // REQUIRED to satisfy Transaction.sellerId
       },
     });
     if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+    if (!listing.sellerId) {
+      return NextResponse.json({ error: "Listing is missing sellerId" }, { status: 400 });
+    }
 
     const pricePerAF = Number(listing.pricePerAF || 0);
     if (!Number.isFinite(pricePerAF) || pricePerAF <= 0) {
@@ -56,54 +60,47 @@ export async function POST(req: Request) {
 
     const totalAmount = pricePerAF * acreFeet; // cents
 
-    // ---- Create Transaction (snapshot key fields)
+    // ---- Create Transaction (enum‑safe)
     const tx = await prisma.transaction.create({
       data: {
-        // Use Prisma enums so TS matches your schema; if enum names differ,
-        // use your IDE autocomplete after "Prisma." to pick the correct ones.
         type: Prisma.TransactionType.BUY_NOW,
-        status: Prisma.TransactionStatus.PENDING,
+        status: Prisma.TransactionStatus.PENDING, // or omit if you have a DB default
         listingId: listing.id,
         buyerId: buyer.id,
-        listingTitleSnapshot: listing.title,
-        // If your Transaction model has these snapshot columns, keep them;
-        // otherwise delete them.
+        sellerId: listing.sellerId,          // ✅ FIX: required by your schema
+        listingTitleSnapshot: listing.title, // keep if column exists
+
+        // If these snapshot columns don't exist, delete them:
         // districtSnapshot: listing.district,
         // waterTypeSnapshot: listing.waterType,
 
-        pricePerAF,   // cents (server-trusted)
-        acreFeet,     // quantity
-        totalAmount,  // cents
+        pricePerAF,     // cents
+        acreFeet,       // quantity
+        totalAmount,    // cents
       },
       select: { id: true },
     });
 
-    // Optional: create a Trade tied to this Transaction if your UI requires it.
-    // We wrap in try/catch so missing Trade table won't crash the endpoint.
-    /*
-    try {
-      await prisma.trade.create({
-        data: {
-          id: crypto.randomUUID(),
-          listingId: listing.id,
-          sellerUserId: "<SELLER_ID_HERE>", // if you have it on Listing
-          buyerUserId: buyer.id,
-          district: listing.district ?? "",
-          waterType: listing.waterType ?? null,
-          volumeAf: acreFeet,
-          pricePerAf: pricePerAF,
-          status: "OFFERED",
-          transactionId: tx.id,
-        },
-      });
-    } catch (e: any) {
-      if (e?.code !== "P2021") {
-        console.warn("[buy-now] trade create skipped:", e?.message || e);
-      }
-    }
-    */
+    // Optional: also create a Trade row if your UI expects it
+    // try {
+    //   await prisma.trade.create({
+    //     data: {
+    //       id: crypto.randomUUID(),
+    //       listingId: listing.id,
+    //       sellerUserId: listing.sellerId,
+    //       buyerUserId: buyer.id,
+    //       district: listing.district ?? "",
+    //       waterType: listing.waterType ?? null,
+    //       volumeAf: acreFeet,
+    //       pricePerAf: pricePerAF,
+    //       status: "OFFERED",
+    //       transactionId: tx.id,
+    //     },
+    //   });
+    // } catch (e: any) {
+    //   if (e?.code !== "P2021") console.warn("[buy-now] trade create skipped:", e?.message || e);
+    // }
 
-    // 201 + Location header so callers can redirect without parsing JSON
     const res = NextResponse.json({ id: tx.id }, { status: 201 });
     res.headers.set("Location", `/transactions/${tx.id}?action=review`);
     return res;
