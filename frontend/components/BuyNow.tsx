@@ -6,8 +6,10 @@ import { useRouter } from "next/navigation";
 
 type BuyNowProps = {
   listingId: string;
-  /** Price per AF in cents (e.g. 10000 for $100.00). Dollars are also accepted; API converts. */
+  /** Listing price per AF in **cents** (e.g. 10000 for $100.00). */
   pricePerAFCents: number;
+  /** Optional max AF a user can buy in one go (e.g., listing's available AF). */
+  maxAcreFeet?: number;
   defaultAcreFeet?: number;
   className?: string;
 };
@@ -15,29 +17,36 @@ type BuyNowProps = {
 export default function BuyNow({
   listingId,
   pricePerAFCents,
+  maxAcreFeet,
   defaultAcreFeet = 1,
   className,
 }: BuyNowProps) {
   const router = useRouter();
   const [acreFeet, setAcreFeet] = useState<number>(defaultAcreFeet);
-  const [pricePerAF, setPricePerAF] = useState<number>(pricePerAFCents);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const priceDollars = (pricePerAFCents / 100).toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+  });
+
+  const totalDollars = ((pricePerAFCents * Math.max(1, acreFeet)) / 100).toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+  });
 
   async function startBuyNow() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch("/api/transactions", {
+      const res = await fetch("/api/transactions/buy-now", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           listingId,
-          type: "BUY_NOW",
-          acreFeet,
-          // Can be cents or dollars; your API converts dollars -> cents if < 10000
-          pricePerAF,
+          acreFeet, // ← ONLY send quantity; server will read price from Listing
         }),
       });
 
@@ -47,7 +56,7 @@ export default function BuyNow({
       }
 
       const { id } = await res.json();
-      router.push(`/transactions/${id}`);
+      router.push(`/transactions/${id}?action=review`);
     } catch (e: any) {
       setErr(e?.message || "Failed to start Buy Now");
     } finally {
@@ -62,31 +71,36 @@ export default function BuyNow({
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="text-sm text-slate-700">
-            Acre-Feet
+            Acre‑Feet
             <input
               type="number"
               min={1}
+              max={maxAcreFeet ?? undefined}
               step={1}
               value={acreFeet}
-              onChange={(e) => setAcreFeet(Math.max(1, Number(e.target.value)))}
+              onChange={(e) => {
+                const v = Math.max(1, Number(e.target.value));
+                setAcreFeet(maxAcreFeet ? Math.min(v, maxAcreFeet) : v);
+              }}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             />
+            {maxAcreFeet ? (
+              <div className="mt-1 text-xs text-slate-500">Max available: {maxAcreFeet.toLocaleString()} AF</div>
+            ) : null}
           </label>
 
-          <label className="text-sm text-slate-700">
-            Price / AF (cents)
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={pricePerAF}
-              onChange={(e) => setPricePerAF(Math.max(1, Number(e.target.value)))}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            />
-            <div className="mt-1 text-xs text-slate-500">
-              Tip: enter <code>10000</code> for $100.00/AF (dollars are also accepted).
+          <div className="text-sm text-slate-700">
+            Price / AF
+            <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              {priceDollars}
             </div>
-          </label>
+            <div className="mt-1 text-xs text-slate-500">Price is fixed by the listing.</div>
+          </div>
+        </div>
+
+        <div className="mt-3 text-sm">
+          <span className="text-slate-600">Total:</span>{" "}
+          <span className="font-medium">{totalDollars}</span>
         </div>
 
         {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
