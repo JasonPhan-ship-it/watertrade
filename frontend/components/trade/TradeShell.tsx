@@ -10,7 +10,7 @@ import type { Prisma } from "@prisma/client";
 // ---------- Types ----------
 type Props = {
   tradeId: string;                // can be a Transaction.id OR a Trade.id
-  role?: string;                  // "Buyer" | "Seller" | (optional hint)
+  role?: string;                  // "buyer" | "seller" | (optional hint, case-insensitive)
   token?: string;                 // optional magic token for server actions
   action?: string;                // "review" | ... (not used in summary UI)
 };
@@ -160,6 +160,22 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
   const status = tx.status ?? "—";
 
+  // Pre-compute fallback action endpoints (work with or without a Trade row)
+  const acceptUrlSeller =
+    tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/accept` : `/api/transactions/${tx.id}/seller/accept`;
+  const declineUrlSeller =
+    tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/decline` : `/api/transactions/${tx.id}/seller/decline`;
+  const declineUrlBuyer =
+    tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
+
+  const counterHrefSeller = tradeIdLinked
+    ? `/t/${tradeIdLinked}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
+    : `/transactions/${tx.id}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`;
+
+  const counterHrefBuyer = tradeIdLinked
+    ? `/t/${tradeIdLinked}?role=buyer&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
+    : `/transactions/${tx.id}?role=buyer&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`;
+
   return (
     <div className="mx-auto max-w-3xl p-6">
       {/* Header */}
@@ -176,10 +192,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         <div className="mb-3 flex items-center justify-between">
           <div className="text-xs uppercase text-slate-500">Summary</div>
           <div className="text-xs text-slate-600">
-            Role:&nbsp;
-            <Badge tone="slate" >
-              {viewerRole}
-            </Badge>
+            Role:&nbsp;<Badge tone="slate">{viewerRole}</Badge>
           </div>
         </div>
 
@@ -211,47 +224,32 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         </div>
       </div>
 
-      {/* Actions */}
+      {/* Actions — now work with or without a Trade row */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
-            <form action={tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/accept` : undefined} method="post">
+            <form action={acceptUrlSeller} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
                 type="submit"
-                disabled={!tradeIdLinked}
-                className={`rounded-xl px-5 py-2 text-white ${
-                  tradeIdLinked ? "bg-[#004434] hover:bg-[#003a2f]" : "bg-slate-400 cursor-not-allowed"
-                }`}
-                title={tradeIdLinked ? "" : "No Trade linked to this Transaction"}
+                className="rounded-xl px-5 py-2 text-white bg-[#004434] hover:bg-[#003a2f]"
               >
                 Accept
               </button>
             </form>
 
             <Link
-              href={
-                tradeIdLinked
-                  ? `/t/${tradeIdLinked}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
-                  : "#"
-              }
-              className={`rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium ${
-                tradeIdLinked ? "text-slate-700 hover:bg-slate-50" : "text-slate-400 cursor-not-allowed"
-              }`}
-              aria-disabled={!tradeIdLinked}
+              href={counterHrefSeller}
+              className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Counter
             </Link>
 
-            <form action={tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/decline` : undefined} method="post">
+            <form action={declineUrlSeller} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
                 type="submit"
-                disabled={!tradeIdLinked}
-                className={`rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium ${
-                  tradeIdLinked ? "text-slate-700 hover:bg-slate-50" : "text-slate-400 cursor-not-allowed"
-                }`}
-                title={tradeIdLinked ? "" : "No Trade linked to this Transaction"}
+                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Decline
               </button>
@@ -260,28 +258,17 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
             <Link
-              href={
-                tradeIdLinked
-                  ? `/t/${tradeIdLinked}?role=buyer&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
-                  : "#"
-              }
-              className={`rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium ${
-                tradeIdLinked ? "text-slate-700 hover:bg-slate-50" : "text-slate-400 cursor-not-allowed"
-              }`}
-              aria-disabled={!tradeIdLinked}
+              href={counterHrefBuyer}
+              className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Counter
             </Link>
 
-            <form action={tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : undefined} method="post">
+            <form action={declineUrlBuyer} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
                 type="submit"
-                disabled={!tradeIdLinked}
-                className={`rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium ${
-                  tradeIdLinked ? "text-slate-700 hover:bg-slate-50" : "text-slate-400 cursor-not-allowed"
-                }`}
-                title={tradeIdLinked ? "" : "No Trade linked to this Transaction"}
+                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Decline
               </button>
