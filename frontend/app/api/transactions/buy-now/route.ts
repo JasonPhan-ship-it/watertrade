@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { TransactionType, TransactionStatus } from "@prisma/client"; // ✅ named enums
+import { TransactionType, TransactionStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
 
@@ -32,10 +32,10 @@ export async function POST(req: Request) {
       select: {
         id: true,
         title: true,
-        district: true,    // remove if not in your model
-        waterType: true,   // remove if not in your model
         pricePerAF: true,  // cents
         sellerId: true,    // required by Transaction.sellerId
+        // district: true,  // include only if your Transaction has snapshot columns
+        // waterType: true,
       },
     });
     if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
@@ -45,18 +45,18 @@ export async function POST(req: Request) {
     if (!Number.isFinite(pricePerAF) || pricePerAF <= 0) {
       return NextResponse.json({ error: "Listing has invalid price" }, { status: 400 });
     }
-    const totalAmount = pricePerAF * acreFeet;
+    const totalAmount = pricePerAF * acreFeet; // cents
 
     const tx = await prisma.transaction.create({
       data: {
-        type: TransactionType.BUY_NOW,          // ✅ use enum
-        status: TransactionStatus.PENDING,      // ✅ use enum (or omit if DB default)
+        type: TransactionType.BUY_NOW,
+        status: TransactionStatus.INITIATED, // ← use a valid enum (or omit if you have a DB default)
         listingId: listing.id,
         buyerId: buyer.id,
         sellerId: listing.sellerId,
         listingTitleSnapshot: listing.title,
-        // districtSnapshot: listing.district,   // keep only if column exists
-        // waterTypeSnapshot: listing.waterType, // keep only if column exists
+        // districtSnapshot: listing.district,   // include only if these columns exist
+        // waterTypeSnapshot: listing.waterType,
         pricePerAF,
         acreFeet,
         totalAmount,
