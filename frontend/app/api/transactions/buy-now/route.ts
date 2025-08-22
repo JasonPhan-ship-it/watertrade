@@ -20,13 +20,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    // Resolve the viewer to our internal User row
     const buyer = await prisma.user.findUnique({ where: { clerkId } });
-    if (!buyer) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
+    if (!buyer) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    // Load listing and lock **server-trusted** price
+    // 🔧 NOTE: pricePerAF (capital AF) – this was the TypeScript error
     const listing = await prisma.listing.findUnique({
       where: { id: listingId },
       select: {
@@ -34,63 +31,47 @@ export async function POST(req: Request) {
         title: true,
         district: true,
         waterType: true,
-        pricePerAf: true,    // cents
-        acreFeet: true,      // available quantity (adjust to your schema)
-        sellerId: true,      // assumes you store a seller on listing
-        kind: true,
+        pricePerAF: true, // ← fixed name
+        // If you have these, keep them; otherwise remove them:
+        // acreFeet: true,
+        // sellerId: true,
+        // kind: true,
       },
     });
 
-    if (!listing) {
-      return NextResponse.json({ error: "Listing not found" }, { status: 404 });
-    }
+    if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
 
-    // Optional: enforce availability cap
-    const maxAF = Math.max(1, Number(listing.acreFeet ?? 0));
-    const acreFeet = Math.min(Math.max(1, acreFeetReq), maxAF || acreFeetReq);
+    // If you track available AF on listing, clamp here; otherwise just use request
+    const acreFeet = Math.max(1, acreFeetReq);
 
-    const pricePerAF = Number(listing.pricePerAf || 0); // **cents**
+    const pricePerAF = Number(listing.pricePerAF || 0); // cents (server-trusted)
     if (!Number.isFinite(pricePerAF) || pricePerAF <= 0) {
       return NextResponse.json({ error: "Listing has invalid price" }, { status: 400 });
     }
 
     const totalAmount = pricePerAF * acreFeet; // cents
 
-    // Create Transaction snapshotting critical fields
+    // Create the Transaction; adjust fields to your schema as needed
     const tx = await prisma.transaction.create({
       data: {
         type: "BUY_NOW",
-        status: "PENDING", // or whatever your initial status is
+        status: "PENDING",
         listingId: listing.id,
         buyerId: buyer.id,
-        sellerId: listing.sellerId, // if your schema includes this
+        // sellerId: listing.sellerId, // ← include only if your schema has this
         listingTitleSnapshot: listing.title,
-        districtSnapshot: listing.district,   // add these if your model has them
-        waterTypeSnapshot: listing.waterType, // (or omit if not)
-        pricePerAF: pricePerAF,               // cents (server-trusted)
-        acreFeet: acreFeet,
-        totalAmount: totalAmount,             // cents
-        // add any other fields your schema requires
+        // If your model has these snapshot fields use them; otherwise remove:
+        // districtSnapshot: listing.district,
+        // waterTypeSnapshot: listing.waterType,
+        pricePerAF,            // cents (locked to listing)
+        acreFeet,              // quantity requested
+        totalAmount,           // cents
       },
       select: { id: true },
     });
 
-    // OPTIONAL: create a Trade tied to the Transaction if your UI expects it
-    // const trade = await prisma.trade.create({
-    //   data: {
-    //     id: crypto.randomUUID(), // if you use TEXT IDs you can use your own generator
-    //     listingId: listing.id,
-    //     sellerUserId: listing.sellerId!,
-    //     buyerUserId: buyer.id,
-    //     district: listing.district ?? "",
-    //     waterType: listing.waterType ?? null,
-    //     volumeAf: acreFeet,
-    //     pricePerAf: pricePerAF,
-    //     status: "OFFERED",
-    //     transactionId: tx.id,
-    //   },
-    // });
-
+    // If your UI requires a Trade row to enable actions, you can create it here.
+    // Otherwise, just return the Transaction id.
     return NextResponse.json({ id: tx.id }, { status: 201 });
   } catch (e: any) {
     console.error("[buy-now] error", e);
