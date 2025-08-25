@@ -29,7 +29,19 @@ async function readBody(req: NextRequest) {
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const tx = await prisma.transaction.findUnique({ where: { id: params.id } });
+    const tx = await prisma.transaction.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        sellerId: true,
+        buyerId: true,
+        listingId: true,                         // ⬅️ include listingId
+        pricePerAF: true,
+        acreFeet: true,
+        listingDistrictSnapshot: true,
+        listingWaterTypeSnapshot: true,
+      },
+    });
     if (!tx) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
 
     // AuthZ: must be the buyer on this transaction
@@ -44,6 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       trade = await prisma.trade.create({
         data: {
           transactionId: tx.id,
+          listingId: tx.listingId!,              // ⬅️ REQUIRED by your schema
           sellerUserId: tx.sellerId!,
           buyerUserId: tx.buyerId!,
           district: tx.listingDistrictSnapshot ?? null,
