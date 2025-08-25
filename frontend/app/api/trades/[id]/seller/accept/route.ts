@@ -7,8 +7,6 @@ import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus, TransactionStatus } from "@prisma/client";
 import { getViewer } from "@/lib/trade";
 
-// NOTE: Remove the GET debug handler you had before; keeping APIs lean avoids accidental exposure.
-
 async function findTradeByAnyId(id: string) {
   const byTradeId = await prisma.trade.findUnique({ where: { id } });
   if (byTradeId) return byTradeId;
@@ -27,17 +25,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // AuthZ
+    // AuthZ: only seller can accept
     const viewer = await getViewer(req, trade);
     if (viewer.role !== "seller") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Update trade
+    // Update Trade to your valid enum value
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
-        status: TradeStatus.ACCEPTED_BY_SELLER,
+        status: TradeStatus.ACCEPTED_PENDING_BUYER_SIGNATURE,
         lastActor: Party.SELLER,
         version: { increment: 1 },
         events: {
@@ -51,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       select: { id: true, transactionId: true },
     });
 
-    // (Optional) also update the linked Transaction
+    // (Optional) reflect on Transaction
     if (updated.transactionId) {
       await prisma.transaction.update({
         where: { id: updated.transactionId },
@@ -62,7 +60,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
     const redirectUrl = `${base}/t/${updated.id}?role=seller&action=review`;
 
-    // If the client asked for JSON, send JSON (great for fetch calls)
     const wantsJson =
       (req.headers.get("accept") || "").includes("application/json") ||
       (req.headers.get("x-requested-with") || "").toLowerCase() === "fetch";
@@ -70,8 +67,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (wantsJson) {
       return NextResponse.json({ ok: true, redirect: redirectUrl });
     }
-
-    // Otherwise (forms), do an HTTP redirect
     return NextResponse.redirect(redirectUrl, 303);
   } catch (e: any) {
     console.error("[trades/:id/seller/accept] error", e);
