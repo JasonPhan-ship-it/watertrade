@@ -4,15 +4,10 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { Party, TradeStatus } from "@prisma/client";
-import { clerkClient } from "@clerk/nextjs/server";
+import { Party, TradeStatus, TransactionStatus } from "@prisma/client";
 import { getViewer } from "@/lib/trade";
-import { sendEmail, renderBuyerAcceptedEmail, appUrl } from "@/lib/email";
 
-// ✅ Add this to confirm the route is wired up
-export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
-  return NextResponse.json({ ok: true, route: "trades/:id/seller/accept", id: params.id });
-}
+// NOTE: Remove the GET debug handler you had before; keeping APIs lean avoids accidental exposure.
 
 async function findTradeByAnyId(id: string) {
   const byTradeId = await prisma.trade.findUnique({ where: { id } });
@@ -32,34 +27,52 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
+    // AuthZ
     const viewer = await getViewer(req, trade);
     if (viewer.role !== "seller") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // Update trade
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
-        status: TradeStatus.ACCEPTED_PENDING_BUYER_SIGNATURE,
+        status: TradeStatus.ACCEPTED_BY_SELLER,
         lastActor: Party.SELLER,
         version: { increment: 1 },
+        events: {
+          create: {
+            actor: "seller",
+            kind: "ACCEPT",
+            payload: { previousStatus: trade.status, round: trade.round },
+          },
+        },
       },
+      select: { id: true, transactionId: true },
     });
 
-    await prisma.tradeEvent.create({
-      data: {
-        id: crypto.randomUUID(),
-        tradeId: updated.id,
-        actor: "seller",
-        kind: "ACCEPT",
-        payload: { previousStatus: trade.status, round: trade.round },
-      },
-    });
-
-    // (Email logic unchanged)… if you want to skip emails for debugging, comment out the block.
+    // (Optional) also update the linked Transaction
+    if (updated.transactionId) {
+      await prisma.transaction.update({
+        where: { id: updated.transactionId },
+        data: { status: TransactionStatus.ACCEPTED },
+      });
+    }
 
     const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
-    return NextResponse.redirect(new URL(`/t/${updated.id}?role=seller&action=review`, base));
+    const redirectUrl = `${base}/t/${updated.id}?role=seller&action=review`;
+
+    // If the client asked for JSON, send JSON (great for fetch calls)
+    const wantsJson =
+      (req.headers.get("accept") || "").includes("application/json") ||
+      (req.headers.get("x-requested-with") || "").toLowerCase() === "fetch";
+
+    if (wantsJson) {
+      return NextResponse.json({ ok: true, redirect: redirectUrl });
+    }
+
+    // Otherwise (forms), do an HTTP redirect
+    return NextResponse.redirect(redirectUrl, 303);
   } catch (e: any) {
     console.error("[trades/:id/seller/accept] error", e);
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
