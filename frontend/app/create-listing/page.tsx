@@ -291,7 +291,7 @@ export default function CreateListingPage() {
                       inputMode="decimal"
                       min={0}
                       step="0.01"
-                      placeholder="e.g., 450.00"
+                      placeholder="e.g., 150.00"
                       value={pricePerAF}
                       onChange={(e) =>
                         setPricePerAF(e.target.value === "" ? "" : Number(e.target.value))
@@ -352,7 +352,7 @@ export default function CreateListingPage() {
                         type="number"
                         inputMode="decimal"
                         min={0}
-                        step="0.01"
+                        step={1}
                         placeholder="Optional"
                         value={reservePrice}
                         onChange={(e) =>
