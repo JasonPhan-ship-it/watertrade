@@ -1,3 +1,4 @@
+// app/create-listing/page.tsx
 "use client";
 
 import * as React from "react";
@@ -17,7 +18,6 @@ import { Button } from "@/components/ui/button";
 const CTA_GREEN = "#004434";
 const CTA_GREEN_HOVER = "#00392f";
 
-// Optional: common districts for suggestions (free-text still allowed)
 const DISTRICTS = [
   "Westlands Water District",
   "San Luis Water District",
@@ -26,7 +26,6 @@ const DISTRICTS = [
 ];
 
 function toLocalDatetimeInputValue(d: Date) {
-  // Format: YYYY-MM-DDTHH:mm
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = d.getFullYear();
   const mm = pad(d.getMonth() + 1);
@@ -41,19 +40,19 @@ export default function CreateListingPage() {
   const [message, setMessage] = React.useState<string | null>(null);
   const [isAuction, setIsAuction] = React.useState(false);
 
-  // Form state (for live preview + sensible defaults)
+  // Form state
   const [description, setDescription] = React.useState("");
   const [volumeAF, setVolumeAF] = React.useState<number | "">("");
   const [pricePerAF, setPricePerAF] = React.useState<number | "">("");
   const [waterType, setWaterType] = React.useState("");
   const [district, setDistrict] = React.useState("");
 
-  // Auction-specific state
+  // Auction-specific
   const [startingBid, setStartingBid] = React.useState<number | "">("");
   const [reservePrice, setReservePrice] = React.useState<number | "">("");
   const [endDate, setEndDate] = React.useState(() => {
     const d = new Date();
-    d.setHours(d.getHours() + 24); // default: +24h
+    d.setHours(d.getHours() + 24);
     return toLocalDatetimeInputValue(d);
   });
 
@@ -100,7 +99,7 @@ export default function CreateListingPage() {
     const formEl = e.currentTarget;
 
     try {
-      // Basic client-side sanity checks
+      // Basic sanity checks
       if (!district.trim() || !waterType.trim()) {
         throw new Error("Please provide both Water District and Water Type.");
       }
@@ -127,15 +126,9 @@ export default function CreateListingPage() {
         }
       }
 
-      // Build payload from FormData (but we're using controlled state anyway)
+      // Build payload
       const formData = new FormData(formEl);
-
-      // Generate a clean title for backend (UI has no title field)
-      const derivedTitle = [
-        district.trim(),
-        waterType.trim(),
-        volumeAF ? `${volumeAF} AF` : "",
-      ]
+      const derivedTitle = [district.trim(), waterType.trim(), volumeAF ? `${volumeAF} AF` : ""]
         .filter(Boolean)
         .join(" • ");
 
@@ -202,7 +195,9 @@ export default function CreateListingPage() {
     <div className="mx-auto max-w-5xl p-6 space-y-4">
       {/* Top actions */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Create Listing</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+          Create Listing
+        </h1>
         <Link href="/dashboard" className="shrink-0">
           <Button variant="outline">← Back to Dashboard</Button>
         </Link>
@@ -215,6 +210,7 @@ export default function CreateListingPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Listing Details</CardTitle>
             </CardHeader>
+
             <CardContent className="space-y-5">
               <div>
                 <Label htmlFor="description">Description</Label>
@@ -275,7 +271,9 @@ export default function CreateListingPage() {
                     step="1"
                     placeholder="e.g., 50"
                     value={volumeAF}
-                    onChange={(e) => setVolumeAF(e.target.value === "" ? "" : Number(e.target.value))}
+                    onChange={(e) =>
+                      setVolumeAF(e.target.value === "" ? "" : Number(e.target.value))
+                    }
                     required
                   />
                 </div>
@@ -380,9 +378,14 @@ export default function CreateListingPage() {
               </div>
             </CardContent>
 
-            <CardFooter className="justify-between">
+            {/* Footer: disclaimer + button with spacing/link */}
+            <CardFooter className="flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="text-xs text-slate-500">
-                By creating a listing you agree to our terms and marketplace rules.
+                By creating a listing you agree to our{" "}
+                <Link href="/rules" className="text-[#004434] underline hover:text-[#00392f]">
+                  terms and marketplace rules
+                </Link>
+                .
               </div>
               <Button
                 type="submit"
