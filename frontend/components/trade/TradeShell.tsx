@@ -16,7 +16,7 @@ type Props = {
   tradeId: string;                // can be a Transaction.id OR a Trade.id
   role?: string;                  // "buyer" | "seller" | (optional hint, case-insensitive)
   token?: string;                 // optional magic token for server actions
-  action?: string;                // "review" | ... (not used in summary UI)
+  action?: string;                // "review" | ...
 };
 
 const signatureSelect = {
@@ -162,15 +162,23 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
   const status = tx.status ?? "—";
 
-  // Action endpoints (Accept/Decline available via Trade or Transaction)
-  const acceptUrlSeller =
-    tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/accept` : `/api/transactions/${tx.id}/seller/accept`;
-  const declineUrlBuyer =
-    tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
+  // Build token suffix once
+  const tokenQS = token ? `?token=${encodeURIComponent(token)}` : "";
 
-  // Strict counter endpoints — ONLY when a Trade exists
-  const counterUrlSeller = tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/counter` : null;
-  const counterUrlBuyer  = tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/counter`  : null;
+  // Action endpoints (Accept/Decline available via Trade or Transaction) — append token
+  const acceptUrlSeller =
+    tradeIdLinked
+      ? `/api/trades/${tradeIdLinked}/seller/accept${tokenQS}`
+      : `/api/transactions/${tx.id}/seller/accept${tokenQS}`;
+
+  const declineUrlBuyer =
+    tradeIdLinked
+      ? `/api/trades/${tradeIdLinked}/buyer/decline${tokenQS}`
+      : `/api/transactions/${tx.id}/buyer/decline${tokenQS}`;
+
+  // Strict counter endpoints — ONLY when a Trade exists (append token)
+  const counterUrlSeller = tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/counter${tokenQS}` : null;
+  const counterUrlBuyer  = tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/counter${tokenQS}`  : null;
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -248,7 +256,8 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
 
             {/* Decline (seller) */}
             <DeclineButton
-              transactionId={tx.id}
+              // prefer Trade id when present; your DeclineButton targets /api/trades/:id/...
+              transactionId={tradeIdLinked ?? tx.id}
               className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
               label="Decline"
             />
