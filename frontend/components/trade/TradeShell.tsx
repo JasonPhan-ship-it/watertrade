@@ -232,20 +232,22 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* Accept (client button; works with Trade or Transaction path) */}
+            {/* Accept */}
             <AcceptButton
               postUrl={acceptUrlSeller}
+              token={token}
               label="Accept"
               className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
               confirm
               confirmMessage="Accept this offer?"
             />
 
-            {/* Counter (SELLER) — only when a Trade exists */}
+            {/* Counter (SELLER) */}
             {counterUrlSeller ? (
               <CounterButton
                 postUrl={counterUrlSeller}
                 role="seller"
+                token={token}
                 currentPriceCents={priceAf}
                 currentQty={qty}
                 label="Counter"
@@ -256,7 +258,6 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
 
             {/* Decline (seller) */}
             <DeclineButton
-              // prefer Trade id when present; your DeclineButton targets /api/trades/:id/...
               transactionId={tradeIdLinked ?? tx.id}
               className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
               label="Decline"
@@ -264,11 +265,12 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* Counter (BUYER) — only when a Trade exists */}
+            {/* Counter (BUYER) */}
             {counterUrlBuyer ? (
               <CounterButton
                 postUrl={counterUrlBuyer}
                 role="buyer"
+                token={token}
                 currentPriceCents={priceAf}
                 currentQty={qty}
                 label="Counter"
@@ -277,7 +279,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
               <EnsureTradeButton transactionId={tx.id} />
             )}
 
-            {/* Decline (buyer) via POST form (kept simple) */}
+            {/* Decline (buyer) simple form */}
             <form action={declineUrlBuyer} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
