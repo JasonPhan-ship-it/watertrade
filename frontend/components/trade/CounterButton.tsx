@@ -7,10 +7,10 @@ import { useRouter } from "next/navigation";
 type Role = "buyer" | "seller";
 
 type Props = {
-  postUrl: string;             // API endpoint to POST the counter to
-  role: Role;                  // "buyer" | "seller" (for copy only)
+  postUrl: string;             // API endpoint to POST the counter
+  role: Role;                  // "buyer" | "seller"
   currentPriceCents: number;   // current price per AF (in cents)
-  currentQty: number;          // current volume in AF
+  currentQty: number;          // current volume (AF)
   label?: string;
   className?: string;
 };
@@ -29,14 +29,12 @@ export default function CounterButton({
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
-  // Inputs
   const [priceUsd, setPriceUsd] = React.useState<string>(() =>
     (Math.max(0, currentPriceCents) / 100).toString()
   );
   const [qtyAf, setQtyAf] = React.useState<string>(() =>
     String(Math.max(0, currentQty || 0))
   );
-  const [windowLabel, setWindowLabel] = React.useState<string>("");
 
   const minUsd = Math.max(0, currentPriceCents) / 100;
 
@@ -50,7 +48,6 @@ export default function CounterButton({
     e.preventDefault();
     setErr(null);
 
-    // Client-side validation
     const priceNum = Number(priceUsd);
     const qtyNum = Number(qtyAf);
 
@@ -68,9 +65,8 @@ export default function CounterButton({
     }
 
     const payload = {
-      pricePerAf: Math.round(priceNum * 100), // cents
+      pricePerAf: Math.round(priceNum * 100),
       volumeAf: qtyNum,
-      windowLabel: windowLabel || undefined,
     };
 
     try {
@@ -83,7 +79,6 @@ export default function CounterButton({
         body: JSON.stringify(payload),
       });
 
-      // IMPORTANT: consume body exactly once based on content-type
       const ct = res.headers.get("content-type") || "";
       const isJson = ct.includes("application/json");
 
@@ -94,18 +89,7 @@ export default function CounterButton({
         throw new Error(message);
       }
 
-      // Success payload (ignored; we just show confirmation)
-      if (isJson) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const _data = await res.json().catch(() => null);
-      } else {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const _txt = await res.text().catch(() => null);
-      }
-
-      // Show a quick success dialog
       alert(`Counter sent!`);
-
       resetAndClose();
       router.refresh();
     } catch (e: any) {
@@ -117,7 +101,6 @@ export default function CounterButton({
 
   return (
     <>
-      {/* Trigger */}
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -126,12 +109,10 @@ export default function CounterButton({
           className ??
           "inline-flex h-9 items-center justify-center rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         }
-        title={`Send a counter as ${role}`}
       >
         {busy ? "Submitting…" : label}
       </button>
 
-      {/* Modal */}
       {open && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/40" onClick={resetAndClose} />
@@ -167,17 +148,6 @@ export default function CounterButton({
                   onChange={(e) => setQtyAf(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   placeholder={String(currentQty)}
-                />
-              </label>
-
-              <label className="block text-sm">
-                <span className="text-slate-700">Window (optional)</span>
-                <input
-                  type="text"
-                  value={windowLabel}
-                  onChange={(e) => setWindowLabel(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  placeholder="e.g., 2025 Q1 delivery"
                 />
               </label>
 
