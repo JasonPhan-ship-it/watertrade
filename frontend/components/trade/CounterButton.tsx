@@ -4,13 +4,12 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
-type Role = "buyer" | "seller";
-
 type Props = {
-  postUrl: string;             // API endpoint to POST the counter
-  role: Role;                  // "buyer" | "seller"
-  currentPriceCents: number;   // current price per AF (in cents)
-  currentQty: number;          // current volume (AF)
+  postUrl: string;             // e.g. /api/trades/:id/seller/counter?token=...
+  role: "buyer" | "seller";
+  token?: string;              // ⬅ add
+  currentPriceCents: number;
+  currentQty: number;
   label?: string;
   className?: string;
 };
@@ -18,82 +17,86 @@ type Props = {
 export default function CounterButton({
   postUrl,
   role,
+  token,
   currentPriceCents,
   currentQty,
   label = "Counter",
   className,
 }: Props) {
   const router = useRouter();
-
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
-  const [priceUsd, setPriceUsd] = React.useState<string>(() =>
-    (Math.max(0, currentPriceCents) / 100).toString()
-  );
-  const [qtyAf, setQtyAf] = React.useState<string>(() =>
-    String(Math.max(0, currentQty || 0))
-  );
+  const [price, setPrice] = React.useState((currentPriceCents / 100).toString());
+  const [qty, setQty] = React.useState(currentQty.toString());
 
-  const minUsd = Math.max(0, currentPriceCents) / 100;
-
-  function resetAndClose() {
+  function close() {
     setOpen(false);
     setErr(null);
-    setBusy(false);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
+    if (busy) return;
 
-    const priceNum = Number(priceUsd);
-    const qtyNum = Number(qtyAf);
+    const priceNum = Math.round(Number(price) * 100); // cents
+    const qtyNum = Number(qty);
 
     if (!Number.isFinite(priceNum) || priceNum <= 0) {
-      setErr("Please enter a valid price (USD/AF) greater than 0.");
+      setErr("Enter a valid price (USD/AF).");
       return;
     }
     if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
-      setErr("Please enter a valid quantity (AF) greater than 0.");
+      setErr("Enter a valid quantity (AF).");
       return;
     }
-    if (priceNum < minUsd) {
-      setErr(`Counter price must be at least ${minUsd.toFixed(2)} USD/AF.`);
+    if (priceNum < currentPriceCents) {
+      setErr("Your counter price cannot be lower than the current offer.");
       return;
     }
-
-    const payload = {
-      pricePerAf: Math.round(priceNum * 100),
-      volumeAf: qtyNum,
-    };
 
     try {
       setBusy(true);
+      setErr(null);
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        headers["X-Magic-Token"] = token;
+      }
 
       const res = await fetch(postUrl, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify({
+          token,             // body token
+          role,              // sometimes used server-side
+          pricePerAf: priceNum,
+          volumeAf: qtyNum,
+        }),
       });
 
-      const ct = res.headers.get("content-type") || "";
-      const isJson = ct.includes("application/json");
-
       if (!res.ok) {
-        const message = isJson
-          ? ((await res.json()).error || "Counter failed.")
-          : ((await res.text()) || "Counter failed.");
+        let message = "Counter failed.";
+        try {
+          const ct = res.headers.get("content-type") || "";
+          if (ct.includes("application/json")) {
+            const j = await res.json();
+            message = j?.error || message;
+          } else {
+            message = (await res.text()) || message;
+          }
+        } catch { /* ignore */ }
         throw new Error(message);
       }
 
-      alert(`Counter sent!`);
-      resetAndClose();
+      close();
+      alert("Counter sent.");
       router.refresh();
     } catch (e: any) {
-      setErr(e?.message || "Something went wrong sending your counter.");
+      setErr(e?.message || "Something went wrong sending the counter.");
     } finally {
       setBusy(false);
     }
@@ -109,32 +112,31 @@ export default function CounterButton({
           className ??
           "inline-flex h-9 items-center justify-center rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         }
+        title="Make a counteroffer"
       >
-        {busy ? "Submitting…" : label}
+        {label}
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-          <div className="absolute inset-0 bg-black/40" onClick={resetAndClose} />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/40" onClick={close} />
 
           <div className="relative z-[110] w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-slate-900">Send Counter</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Counteroffer</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Current: <strong>{minUsd.toLocaleString(undefined, { style: "currency", currency: "USD" })}</strong> per AF ·{" "}
-              <strong>{currentQty}</strong> AF
+              Your counter price must be <strong>≥ current offer</strong>.
             </p>
 
-            <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+            <form className="mt-4 space-y-3" onSubmit={onSubmit}>
               <label className="block text-sm">
                 <span className="text-slate-700">Price (USD/AF)</span>
                 <input
                   type="number"
-                  min={0}
                   step="0.01"
-                  value={priceUsd}
-                  onChange={(e) => setPriceUsd(e.target.value)}
+                  min="0"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  placeholder={minUsd.toFixed(2)}
                 />
               </label>
 
@@ -142,12 +144,11 @@ export default function CounterButton({
                 <span className="text-slate-700">Quantity (AF)</span>
                 <input
                   type="number"
-                  min={0}
                   step="1"
-                  value={qtyAf}
-                  onChange={(e) => setQtyAf(e.target.value)}
+                  min="1"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  placeholder={String(currentQty)}
                 />
               </label>
 
@@ -160,7 +161,7 @@ export default function CounterButton({
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={resetAndClose}
+                  onClick={close}
                   className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancel
@@ -168,7 +169,7 @@ export default function CounterButton({
                 <button
                   type="submit"
                   disabled={busy}
-                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                  className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003a2f] disabled:opacity-60"
                 >
                   {busy ? "Submitting…" : "Send Counter"}
                 </button>
