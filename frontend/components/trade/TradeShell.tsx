@@ -9,6 +9,7 @@ import type { Prisma } from "@prisma/client";
 import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
+import EnsureTradeButton from "@/components/trade/EnsureTradeButton";
 
 // ---------- Types ----------
 type Props = {
@@ -242,7 +243,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
                 label="Counter"
               />
             ) : (
-              <span className="text-xs text-slate-500">Counter unavailable (no Trade record yet)</span>
+              <EnsureTradeButton transactionId={tx.id} />
             )}
 
             {/* Decline (seller) */}
@@ -264,7 +265,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
                 label="Counter"
               />
             ) : (
-              <span className="text-xs text-slate-500">Counter unavailable (no Trade record yet)</span>
+              <EnsureTradeButton transactionId={tx.id} />
             )}
 
             {/* Decline (buyer) via POST form (kept simple) */}
