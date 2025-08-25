@@ -30,7 +30,6 @@ type ApiProfile = {
   lastName?: string | null;
   address?: string | null;
   email?: string | null;
-  phone?: string | null;
   cellPhone?: string | null;
   smsOptIn?: boolean | null;
 
