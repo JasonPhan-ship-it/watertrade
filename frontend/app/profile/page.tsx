@@ -148,7 +148,6 @@ export default function ProfilePage() {
 
   const name = displayName(profile);
   const email = (profile?.email ?? "").trim() || "";
-  const phone = (profile?.phone ?? "").trim();
   const cell = (profile?.cellPhone ?? "").trim();
   const address = (profile?.address ?? "").trim();
   const role = (profile?.tradeRole ?? "").trim();
@@ -221,10 +220,6 @@ export default function ProfilePage() {
           <div>
             <dt className="text-xs text-slate-500">Email</dt>
             <dd className="mt-1 text-sm text-slate-900">{email || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-slate-500">Phone</dt>
-            <dd className="mt-1 text-sm text-slate-900">{phone || "—"}</dd>
           </div>
           <div>
             <dt className="text-xs text-slate-500">Cell</dt>
