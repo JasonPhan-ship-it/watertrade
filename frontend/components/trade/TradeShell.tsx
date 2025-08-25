@@ -39,6 +39,7 @@ function moneyFromCents(cents?: number) {
 }
 
 async function loadTransactionByAnyId(anyId: string): Promise<TxWithJoins | null> {
+  // 1) Try as Transaction.id
   const direct = await prisma.transaction.findUnique({
     where: { id: anyId },
     include: {
@@ -48,6 +49,7 @@ async function loadTransactionByAnyId(anyId: string): Promise<TxWithJoins | null
   });
   if (direct) return direct;
 
+  // 2) Try as Trade.id → follow Trade.transactionId
   const trade = await prisma.trade.findUnique({
     where: { id: anyId },
     select: { transactionId: true },
@@ -164,9 +166,9 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const declineUrlBuyer =
     tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
 
-  // Counter API: use Trade if available; else Transaction
-  const counterUrl =
-    tradeIdLinked ? `/api/trades/${tradeIdLinked}/counter` : `/api/transactions/${tx.id}/counter`;
+  // Role-specific counter endpoints (require a Trade row)
+  const counterUrlSeller = tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/counter` : null;
+  const counterUrlBuyer  = tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/counter`  : null;
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -230,14 +232,22 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
               </button>
             </form>
 
-            <CounterButton
-              postUrl={counterUrl}
-              role="seller"
-              currentPriceCents={priceAf}
-              currentQty={qty}
-              label="Counter"
-            />
+            {/* Counter (seller) */}
+            {counterUrlSeller ? (
+              <CounterButton
+                postUrl={counterUrlSeller}
+                role="seller"
+                currentPriceCents={priceAf}
+                currentQty={qty}
+                label="Counter"
+              />
+            ) : (
+              <span className="text-xs text-slate-500">
+                Counter unavailable (no Trade record yet)
+              </span>
+            )}
 
+            {/* Decline (seller) */}
             <DeclineButton
               transactionId={tx.id}
               className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
@@ -246,14 +256,22 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            <CounterButton
-              postUrl={counterUrl}
-              role="buyer"
-              currentPriceCents={priceAf}
-              currentQty={qty}
-              label="Counter"
-            />
+            {/* Counter (buyer) */}
+            {counterUrlBuyer ? (
+              <CounterButton
+                postUrl={counterUrlBuyer}
+                role="buyer"
+                currentPriceCents={priceAf}
+                currentQty={qty}
+                label="Counter"
+              />
+            ) : (
+              <span className="text-xs text-slate-500">
+                Counter unavailable (no Trade record yet)
+              </span>
+            )}
 
+            {/* Decline (buyer) still a simple form */}
             <form action={declineUrlBuyer} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
