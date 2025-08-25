@@ -6,17 +6,15 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
-import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
 import EnsureTradeButton from "@/components/trade/EnsureTradeButton";
 
-// ---------- Types ----------
 type Props = {
-  tradeId: string;                // can be a Transaction.id OR a Trade.id
-  role?: string;                  // "buyer" | "seller" | (optional hint, case-insensitive)
-  token?: string;                 // optional magic token for server actions
-  action?: string;                // "review" | ...
+  tradeId: string;   // Transaction.id OR Trade.id
+  role?: string;     // "buyer" | "seller" | (optional hint)
+  token?: string;    // magic token for server actions
+  action?: string;   // "review" | ...
 };
 
 const signatureSelect = {
@@ -136,7 +134,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   });
   const tradeIdLinked = linkedTrade?.id ?? null;
 
-  // Resolve viewer role
+  // Resolve viewer role for UI (server routes still validate independently)
   let viewerRole: "buyer" | "seller" | "guest" =
     role.toLowerCase() === "buyer" || role.toLowerCase() === "seller" ? (role.toLowerCase() as any) : "guest";
   if (viewerRole === "guest") {
@@ -162,23 +160,33 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
   const status = tx.status ?? "—";
 
-  // Build token suffix once
-  const tokenQS = token ? `?token=${encodeURIComponent(token)}` : "";
+  // Build query suffixes
+  const baseQS = new URLSearchParams();
+  if (token) baseQS.set("token", token);
 
-  // Action endpoints (Accept/Decline available via Trade or Transaction) — append token
-  const acceptUrlSeller =
-    tradeIdLinked
-      ? `/api/trades/${tradeIdLinked}/seller/accept${tokenQS}`
-      : `/api/transactions/${tx.id}/seller/accept${tokenQS}`;
+  const qsFor = (extra: Record<string, string>) => {
+    const p = new URLSearchParams(baseQS);
+    for (const [k, v] of Object.entries(extra)) p.set(k, v);
+    const s = p.toString();
+    return s ? `?${s}` : "";
+  };
 
-  const declineUrlBuyer =
-    tradeIdLinked
-      ? `/api/trades/${tradeIdLinked}/buyer/decline${tokenQS}`
-      : `/api/transactions/${tx.id}/buyer/decline${tokenQS}`;
+  // STRICT: use Trade endpoints only; otherwise show EnsureTradeButton
+  const acceptUrlSeller = tradeIdLinked
+    ? `/api/trades/${tradeIdLinked}/seller/accept${qsFor({ role: "seller" })}`
+    : null;
 
-  // Strict counter endpoints — ONLY when a Trade exists (append token)
-  const counterUrlSeller = tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/counter${tokenQS}` : null;
-  const counterUrlBuyer  = tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/counter${tokenQS}`  : null;
+  const counterUrlSeller = tradeIdLinked
+    ? `/api/trades/${tradeIdLinked}/seller/counter${qsFor({ role: "seller" })}`
+    : null;
+
+  const counterUrlBuyer = tradeIdLinked
+    ? `/api/trades/${tradeIdLinked}/buyer/counter${qsFor({ role: "buyer" })}`
+    : null;
+
+  const declineUrlBuyer = tradeIdLinked
+    ? `/api/trades/${tradeIdLinked}/buyer/decline${qsFor({ role: "buyer" })}`
+    : null;
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -232,17 +240,21 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* Accept */}
-            <AcceptButton
-              postUrl={acceptUrlSeller}
-              token={token}
-              label="Accept"
-              className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
-              confirm
-              confirmMessage="Accept this offer?"
-            />
+            {/* Accept (seller) */}
+            {acceptUrlSeller ? (
+              <AcceptButton
+                postUrl={acceptUrlSeller}
+                token={token}
+                label="Accept"
+                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
+                confirm
+                confirmMessage="Accept this offer?"
+              />
+            ) : (
+              <EnsureTradeButton transactionId={tx.id} />
+            )}
 
-            {/* Counter (SELLER) */}
+            {/* Counter (seller) */}
             {counterUrlSeller ? (
               <CounterButton
                 postUrl={counterUrlSeller}
@@ -255,17 +267,10 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
             ) : (
               <EnsureTradeButton transactionId={tx.id} />
             )}
-
-            {/* Decline (seller) */}
-            <DeclineButton
-              transactionId={tradeIdLinked ?? tx.id}
-              className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
-              label="Decline"
-            />
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* Counter (BUYER) */}
+            {/* Counter (buyer) */}
             {counterUrlBuyer ? (
               <CounterButton
                 postUrl={counterUrlBuyer}
@@ -279,16 +284,20 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
               <EnsureTradeButton transactionId={tx.id} />
             )}
 
-            {/* Decline (buyer) simple form */}
-            <form action={declineUrlBuyer} method="post">
-              {token ? <input type="hidden" name="token" value={token} /> : null}
-              <button
-                type="submit"
-                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Decline
-              </button>
-            </form>
+            {/* Decline (buyer) — only when Trade exists */}
+            {declineUrlBuyer ? (
+              <form action={declineUrlBuyer} method="post">
+                {token ? <input type="hidden" name="token" value={token} /> : null}
+                <button
+                  type="submit"
+                  className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Decline
+                </button>
+              </form>
+            ) : (
+              <EnsureTradeButton transactionId={tx.id} />
+            )}
           </div>
         ) : (
           <div className="text-sm text-slate-600">
