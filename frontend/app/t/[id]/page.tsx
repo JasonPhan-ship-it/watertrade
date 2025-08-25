@@ -1,5 +1,6 @@
 // app/t/[id]/page.tsx
 import TradeShell from "@/components/trade/TradeShell";
+import DeclineButton from "@/components/trades/DeclineButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,5 +21,16 @@ export default function Page({ params, searchParams }: PageProps) {
   const token = getParam(searchParams, "token");
   const action = (getParam(searchParams, "action") || "").toLowerCase();
 
-  return <TradeShell tradeId={id} role={role} token={token} action={action} />;
+  return (
+    <div className="space-y-6">
+      <TradeShell tradeId={id} role={role} token={token} action={action} />
+
+      {/* Example: Decline button shown only if user is the seller */}
+      {role === "seller" && (
+        <div className="mt-6">
+          <DeclineButton transactionId={id} />
+        </div>
+      )}
+    </div>
+  );
 }
