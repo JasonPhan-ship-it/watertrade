@@ -15,7 +15,7 @@ type StatusResponse = {
 export default function BillingPage() {
   const { isSignedIn, user, isLoaded } = useUser();
   const [loading, setLoading] = React.useState(true);
-  const [busy, setBusy] = React.useState<null | "portal" | "downgrade" | "cancel">(null);
+  const [busy, setBusy] = React.useState<null | "portal" | "downgrade">(null);
   const [err, setErr] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<StatusResponse | null>(null);
 
@@ -36,7 +36,7 @@ export default function BillingPage() {
 
   React.useEffect(() => {
     if (!isLoaded) return;
-    if (!isSignedIn) return; // Next.js middleware should redirect, but guard anyway
+    if (!isSignedIn) return;
     fetchStatus();
   }, [isLoaded, isSignedIn, fetchStatus]);
 
@@ -50,7 +50,6 @@ export default function BillingPage() {
         return;
       }
       if (!r.ok) {
-        // Try to parse JSON first
         let url = "";
         try {
           const j = await r.json();
@@ -60,7 +59,6 @@ export default function BillingPage() {
           window.location.href = url;
           return;
         }
-        // Fallback: local billing page (this page)
         throw new Error((await r.text()) || "Could not open billing portal.");
       }
       const { url } = await r.json();
@@ -74,7 +72,6 @@ export default function BillingPage() {
   }
 
   async function downgradeToFree() {
-    // Confirm intent
     if (!window.confirm("Downgrade to the Free plan now? Some premium features will be disabled.")) return;
     try {
       setBusy("downgrade");
@@ -85,39 +82,12 @@ export default function BillingPage() {
         headers: { "Content-Type": "application/json" },
       });
       if (!r.ok) {
-        // If the endpoint isn't implemented, fall back to opening the Stripe portal
         await openPortal();
         return;
       }
       await fetchStatus();
     } catch (e: any) {
       setErr(e?.message || "Failed to downgrade. You can also manage this in the billing portal.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function cancelMembership() {
-    const atPeriodEnd = window.confirm(
-      "Click OK to cancel at the end of the current billing period (recommended). Click Cancel to cancel immediately."
-    );
-    try {
-      setBusy("cancel");
-      setErr(null);
-      const r = await fetch("/api/subscription/cancel", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ atPeriodEnd: atPeriodEnd ? true : false }),
-      });
-      if (!r.ok) {
-        // Fall back to portal if API not available
-        await openPortal();
-        return;
-      }
-      await fetchStatus();
-    } catch (e: any) {
-      setErr(e?.message || "Cancellation failed. You can also manage this in the billing portal.");
     } finally {
       setBusy(null);
     }
@@ -191,24 +161,14 @@ export default function BillingPage() {
             </button>
 
             {isPremium ? (
-              <>
-                <button
-                  onClick={downgradeToFree}
-                  disabled={busy !== null}
-                  className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                  title="Switch to the Free plan immediately"
-                >
-                  {busy === "downgrade" ? "Downgrading…" : "Downgrade to Free"}
-                </button>
-                <button
-                  onClick={cancelMembership}
-                  disabled={busy !== null}
-                  className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
-                  title="Cancel your subscription"
-                >
-                  {busy === "cancel" ? "Canceling…" : "Cancel Membership"}
-                </button>
-              </>
+              <button
+                onClick={downgradeToFree}
+                disabled={busy !== null}
+                className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                title="Switch to the Free plan immediately"
+              >
+                {busy === "downgrade" ? "Downgrading…" : "Downgrade to Free"}
+              </button>
             ) : (
               <Link
                 href="/pricing/checkout"
@@ -232,8 +192,6 @@ export default function BillingPage() {
           </div>
         )}
       </section>
-
-      {/* Invoices preview could be added here in the future by calling /api/billing/invoices */}
     </div>
   );
 }
