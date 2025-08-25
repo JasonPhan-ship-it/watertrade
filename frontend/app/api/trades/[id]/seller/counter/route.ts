@@ -30,8 +30,20 @@ async function readBody(req: NextRequest) {
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    // Load transaction
-    const tx = await prisma.transaction.findUnique({ where: { id: params.id } });
+    // Load transaction (need listingId for Trade create)
+    const tx = await prisma.transaction.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        sellerId: true,
+        buyerId: true,
+        listingId: true,                         // ⬅️ include listingId
+        pricePerAF: true,
+        acreFeet: true,
+        listingDistrictSnapshot: true,
+        listingWaterTypeSnapshot: true,
+      },
+    });
     if (!tx) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
 
     // AuthZ: must be the seller on this transaction
@@ -46,6 +58,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       trade = await prisma.trade.create({
         data: {
           transactionId: tx.id,
+          listingId: tx.listingId!,              // ⬅️ REQUIRED by your schema
           sellerUserId: tx.sellerId!,
           buyerUserId: tx.buyerId!,
           district: tx.listingDistrictSnapshot ?? null,
@@ -67,7 +80,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (pricePerAfNum <= 0 || volumeAfNum <= 0)
       return NextResponse.json({ error: "pricePerAf and volumeAf must be > 0" }, { status: 400 });
 
-    // Guard: price must be >= current (use trade.pricePerAf when present, else tx.pricePerAF)
+    // Guard: price must be >= current
     const currentCents = trade.pricePerAf ?? tx.pricePerAF ?? 0;
     if (pricePerAfNum < currentCents) {
       return NextResponse.json(
@@ -76,7 +89,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // Update Trade as seller counter
+    // Update trade
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
@@ -103,7 +116,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     });
 
-    // Notify buyer
+    // Notify buyer (unchanged)
     const [buyerUser, sellerUser] = await Promise.all([
       prisma.user.findUnique({ where: { id: updated.buyerUserId || tx.buyerId! } }),
       prisma.user.findUnique({ where: { id: updated.sellerUserId || tx.sellerId! } }),
