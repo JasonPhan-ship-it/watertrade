@@ -155,7 +155,7 @@ export default function EditProfilePage() {
           setPrimaryDistrict(pd);
           setPrimaryDistrictOther("");
         } else if (pd) {
-          setPrimaryDistrict("__OTHER__");
+          setPrimaryDistrict("Other");
           setPrimaryDistrictOther(pd);
         } else {
           setPrimaryDistrict("");
