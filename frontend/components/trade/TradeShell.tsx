@@ -163,9 +163,9 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
 
   // Pre-compute fallback action endpoints (work with or without a Trade row)
   const acceptUrlSeller =
-    tradeIdLinked ? `/api/trade/${tradeIdLinked}/seller/accept` : `/api/transactions/${tx.id}/seller/accept`;
+    tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/accept` : `/api/transactions/${tx.id}/seller/accept`;
   const declineUrlBuyer =
-    tradeIdLinked ? `/api/trade/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
+    tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
 
   const counterHrefSeller = tradeIdLinked
     ? `/t/${tradeIdLinked}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
