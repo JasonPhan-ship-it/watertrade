@@ -5,12 +5,12 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 type Props = {
-  postUrl: string;              // API endpoint to accept (works for trade or transaction paths)
-  label?: string;               // button label (default: "Accept")
-  className?: string;           // optional extra classes
-  confirm?: boolean;            // whether to show confirm dialog (default: true)
-  confirmMessage?: string;      // custom confirm text
-  onSuccess?: () => void;       // optional: run after success (before router.refresh)
+  postUrl: string;
+  label?: string;
+  className?: string;
+  confirm?: boolean;
+  confirmMessage?: string;
+  onSuccess?: () => void;
 };
 
 export default function AcceptButton({
@@ -28,7 +28,6 @@ export default function AcceptButton({
   async function handleClick() {
     if (busy) return;
     setErr(null);
-
     if (confirm && !window.confirm(confirmMessage)) return;
 
     try {
@@ -37,7 +36,11 @@ export default function AcceptButton({
       const res = await fetch(postUrl, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          // Tell the server we want JSON so it returns { redirect }
+          "Accept": "application/json",
+          "X-Requested-With": "fetch",
+        },
       });
 
       const ct = res.headers.get("content-type") || "";
@@ -46,19 +49,22 @@ export default function AcceptButton({
       if (!res.ok) {
         const message = isJson
           ? ((await res.json()).error || "Accept failed.")
-          : ((await res.text()) || "Accept failed.");
+          : ((await res.text().catch(() => "")) || "Accept failed.");
         throw new Error(message);
       }
 
-      // Consume once for completeness; ignore payload structure
-      if (isJson) {
-        await res.json().catch(() => null);
-      } else {
-        await res.text().catch(() => null);
+      // Expect JSON with a redirect URL
+      const body = isJson ? await res.json().catch(() => null) : null;
+      const redirect = body?.redirect as string | undefined;
+
+      if (redirect) {
+        window.location.href = redirect;
+        return;
       }
 
-      alert("Offer accepted!");
+      // Fallback: refresh if no redirect provided
       if (onSuccess) onSuccess();
+      alert("Offer accepted!");
       router.refresh();
     } catch (e: any) {
       setErr(e?.message || "Something went wrong while accepting.");
