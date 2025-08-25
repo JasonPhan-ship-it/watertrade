@@ -160,20 +160,15 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
   const status = tx.status ?? "—";
 
-  // Action endpoints
+  // Action endpoints (Accept/Decline available via Trade or Transaction)
   const acceptUrlSeller =
     tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/accept` : `/api/transactions/${tx.id}/seller/accept`;
   const declineUrlBuyer =
     tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
 
-  // Role-specific counter endpoints (use Trade if available, else Transaction)
-  const counterUrlSeller = tradeIdLinked
-    ? `/api/trades/${tradeIdLinked}/seller/counter`
-    : `/api/transactions/${tx.id}/seller/counter`;
-
-  const counterUrlBuyer = tradeIdLinked
-    ? `/api/trades/${tradeIdLinked}/buyer/counter`
-    : `/api/transactions/${tx.id}/buyer/counter`;
+  // Strict counter endpoints — ONLY when a Trade exists
+  const counterUrlSeller = tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/counter` : null;
+  const counterUrlBuyer  = tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/counter`  : null;
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -227,6 +222,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
+            {/* Accept (works with either Trade or Transaction endpoints) */}
             <form action={acceptUrlSeller} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
@@ -237,14 +233,20 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
               </button>
             </form>
 
-            <CounterButton
-              postUrl={counterUrlSeller}
-              role="seller"
-              currentPriceCents={priceAf}
-              currentQty={qty}
-              label="Counter"
-            />
+            {/* Counter (SELLER) — ONLY when trade exists */}
+            {counterUrlSeller ? (
+              <CounterButton
+                postUrl={counterUrlSeller}
+                role="seller"
+                currentPriceCents={priceAf}
+                currentQty={qty}
+                label="Counter"
+              />
+            ) : (
+              <span className="text-xs text-slate-500">Counter unavailable (no Trade record yet)</span>
+            )}
 
+            {/* Decline (seller) */}
             <DeclineButton
               transactionId={tx.id}
               className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
@@ -253,14 +255,20 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            <CounterButton
-              postUrl={counterUrlBuyer}
-              role="buyer"
-              currentPriceCents={priceAf}
-              currentQty={qty}
-              label="Counter"
-            />
+            {/* Counter (BUYER) — ONLY when trade exists */}
+            {counterUrlBuyer ? (
+              <CounterButton
+                postUrl={counterUrlBuyer}
+                role="buyer"
+                currentPriceCents={priceAf}
+                currentQty={qty}
+                label="Counter"
+              />
+            ) : (
+              <span className="text-xs text-slate-500">Counter unavailable (no Trade record yet)</span>
+            )}
 
+            {/* Decline (buyer) via POST form (kept simple) */}
             <form action={declineUrlBuyer} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
