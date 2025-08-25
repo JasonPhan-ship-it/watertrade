@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma migrate deploy && next build",
+    "build": "next build",
     "start": "next start",
     "postinstall": "prisma generate",
 
@@ -15,9 +15,7 @@
 
     "lint": "next lint --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write .",
-
-    "vercel-build": "npm run db:deploy && next build"
+    "format": "prettier --write ."
   },
   "engines": {
     "node": ">=20 <21"
