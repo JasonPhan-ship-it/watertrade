@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
+import DeclineButton from "@/components/trades/DeclineButton"; // ⬅️ use the client button for seller decline
 
 // ---------- Types ----------
 type Props = {
@@ -163,8 +164,6 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   // Pre-compute fallback action endpoints (work with or without a Trade row)
   const acceptUrlSeller =
     tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/accept` : `/api/transactions/${tx.id}/seller/accept`;
-  const declineUrlSeller =
-    tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/decline` : `/api/transactions/${tx.id}/seller/decline`;
   const declineUrlBuyer =
     tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
 
@@ -224,10 +223,12 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         </div>
       </div>
 
-      {/* Actions — now work with or without a Trade row */}
+      {/* Actions — Decline wired inside for seller using client fetch */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
+            {/* Accept still uses a POST form; if your API returns JSON it will render it.
+                If you want the same UX as Decline, I can provide an AcceptButton too. */}
             <form action={acceptUrlSeller} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
@@ -245,15 +246,12 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
               Counter
             </Link>
 
-            <form action={declineUrlSeller} method="post">
-              {token ? <input type="hidden" name="token" value={token} /> : null}
-              <button
-                type="submit"
-                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Decline
-              </button>
-            </form>
+            {/* ⬇️ Replaces the old <form> decline for seller */}
+            <DeclineButton
+              transactionId={tx.id}
+              className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
+              label="Decline"
+            />
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
@@ -264,6 +262,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
               Counter
             </Link>
 
+            {/* Buyer decline remains a simple POST form; happy to convert to a client button too. */}
             <form action={declineUrlBuyer} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
