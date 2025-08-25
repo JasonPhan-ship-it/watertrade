@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
-import DeclineButton from "@/components/trades/DeclineButton"; // ⬅️ use the client button for seller decline
+import DeclineButton from "@/components/trade/DeclineButton"; // ⬅️ use the client button for seller decline
 
 // ---------- Types ----------
 type Props = {
