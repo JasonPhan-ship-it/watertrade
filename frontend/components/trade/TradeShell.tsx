@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
-import DeclineButton from "@/components/trade/DeclineButton"; // ⬅️ use the client button for seller decline
+import DeclineButton from "@/components/trade/DeclineButton";
+import CounterButton from "@/components/trade/CounterButton";
 
 // ---------- Types ----------
 type Props = {
@@ -38,7 +39,6 @@ function moneyFromCents(cents?: number) {
 }
 
 async function loadTransactionByAnyId(anyId: string): Promise<TxWithJoins | null> {
-  // 1) Try as Transaction.id
   const direct = await prisma.transaction.findUnique({
     where: { id: anyId },
     include: {
@@ -48,7 +48,6 @@ async function loadTransactionByAnyId(anyId: string): Promise<TxWithJoins | null
   });
   if (direct) return direct;
 
-  // 2) Try as Trade.id → follow Trade.transactionId
   const trade = await prisma.trade.findUnique({
     where: { id: anyId },
     select: { transactionId: true },
@@ -133,7 +132,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   });
   const tradeIdLinked = linkedTrade?.id ?? null;
 
-  // Resolve viewer role (hint → auth inference)
+  // Resolve viewer role
   let viewerRole: "buyer" | "seller" | "guest" =
     role.toLowerCase() === "buyer" || role.toLowerCase() === "seller" ? (role.toLowerCase() as any) : "guest";
   if (viewerRole === "guest") {
@@ -146,9 +145,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           else if (tx.sellerId === me.id) viewerRole = "seller";
         }
       }
-    } catch {
-      /* noop */
-    }
+    } catch { /* noop */ }
   }
 
   // View model
@@ -161,19 +158,15 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
   const status = tx.status ?? "—";
 
-  // Pre-compute fallback action endpoints (work with or without a Trade row)
+  // Action endpoints
   const acceptUrlSeller =
     tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/accept` : `/api/transactions/${tx.id}/seller/accept`;
   const declineUrlBuyer =
     tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
 
-  const counterHrefSeller = tradeIdLinked
-    ? `/t/${tradeIdLinked}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
-    : `/transactions/${tx.id}?role=seller&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`;
-
-  const counterHrefBuyer = tradeIdLinked
-    ? `/t/${tradeIdLinked}?role=buyer&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`
-    : `/transactions/${tx.id}?role=buyer&action=counter${token ? `&token=${encodeURIComponent(token)}` : ""}`;
+  // Counter API: use Trade if available; else Transaction
+  const counterUrl =
+    tradeIdLinked ? `/api/trades/${tradeIdLinked}/counter` : `/api/transactions/${tx.id}/counter`;
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -186,7 +179,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         </div>
       </div>
 
-      {/* Consolidated Summary Card */}
+      {/* Summary */}
       <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <div className="text-xs uppercase text-slate-500">Summary</div>
@@ -223,12 +216,10 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         </div>
       </div>
 
-      {/* Actions — Decline wired inside for seller using client fetch */}
+      {/* Actions */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* Accept still uses a POST form; if your API returns JSON it will render it.
-                If you want the same UX as Decline, I can provide an AcceptButton too. */}
             <form action={acceptUrlSeller} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
@@ -239,14 +230,14 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
               </button>
             </form>
 
-            <Link
-              href={counterHrefSeller}
-              className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Counter
-            </Link>
+            <CounterButton
+              postUrl={counterUrl}
+              role="seller"
+              currentPriceCents={priceAf}
+              currentQty={qty}
+              label="Counter"
+            />
 
-            {/* ⬇️ Replaces the old <form> decline for seller */}
             <DeclineButton
               transactionId={tx.id}
               className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
@@ -255,14 +246,14 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href={counterHrefBuyer}
-              className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Counter
-            </Link>
+            <CounterButton
+              postUrl={counterUrl}
+              role="buyer"
+              currentPriceCents={priceAf}
+              currentQty={qty}
+              label="Counter"
+            />
 
-            {/* Buyer decline remains a simple POST form; happy to convert to a client button too. */}
             <form action={declineUrlBuyer} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
