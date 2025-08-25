@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 type Props = {
   postUrl: string;
+  token?: string;                // ⬅ add
   label?: string;
   className?: string;
   confirm?: boolean;
@@ -15,6 +16,7 @@ type Props = {
 
 export default function AcceptButton({
   postUrl,
+  token,
   label = "Accept",
   className,
   confirm = true,
@@ -28,43 +30,44 @@ export default function AcceptButton({
   async function handleClick() {
     if (busy) return;
     setErr(null);
+
     if (confirm && !window.confirm(confirmMessage)) return;
 
     try {
       setBusy(true);
 
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        headers["X-Magic-Token"] = token;
+      }
+
+      // also include token in body, and leave token in query string on postUrl (already added in TradeShell)
       const res = await fetch(postUrl, {
         method: "POST",
         credentials: "include",
-        headers: {
-          // Tell the server we want JSON so it returns { redirect }
-          "Accept": "application/json",
-          "X-Requested-With": "fetch",
-        },
+        headers,
+        body: JSON.stringify({ token }),
       });
 
-      const ct = res.headers.get("content-type") || "";
-      const isJson = ct.includes("application/json");
-
       if (!res.ok) {
-        const message = isJson
-          ? ((await res.json()).error || "Accept failed.")
-          : ((await res.text().catch(() => "")) || "Accept failed.");
+        // try to read json first; if it fails, fall back to text
+        let message = "Accept failed.";
+        try {
+          const ct = res.headers.get("content-type") || "";
+          if (ct.includes("application/json")) {
+            const j = await res.json();
+            message = j?.error || message;
+          } else {
+            message = (await res.text()) || message;
+          }
+        } catch { /* ignore */ }
         throw new Error(message);
       }
 
-      // Expect JSON with a redirect URL
-      const body = isJson ? await res.json().catch(() => null) : null;
-      const redirect = body?.redirect as string | undefined;
-
-      if (redirect) {
-        window.location.href = redirect;
-        return;
-      }
-
-      // Fallback: refresh if no redirect provided
-      if (onSuccess) onSuccess();
+      // success UX
       alert("Offer accepted!");
+      onSuccess?.();
       router.refresh();
     } catch (e: any) {
       setErr(e?.message || "Something went wrong while accepting.");
