@@ -1,6 +1,6 @@
 // app/t/[id]/page.tsx
 import TradeShell from "@/components/trade/TradeShell";
-import DeclineButton from "@/components/trades/DeclineButton";
+import DeclineButton from "@/components/trade/DeclineButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
