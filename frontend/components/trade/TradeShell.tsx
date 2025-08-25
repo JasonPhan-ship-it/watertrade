@@ -8,6 +8,7 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
+import AcceptButton from "@/components/trade/AcceptButton";
 
 // ---------- Types ----------
 type Props = {
@@ -222,18 +223,16 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* Accept (works with either Trade or Transaction endpoints) */}
-            <form action={acceptUrlSeller} method="post">
-              {token ? <input type="hidden" name="token" value={token} /> : null}
-              <button
-                type="submit"
-                className="rounded-xl px-5 py-2 text-white bg-[#004434] hover:bg-[#003a2f]"
-              >
-                Accept
-              </button>
-            </form>
+            {/* Accept (client button; works with Trade or Transaction path) */}
+            <AcceptButton
+              postUrl={acceptUrlSeller}
+              label="Accept"
+              className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
+              confirm
+              confirmMessage="Accept this offer?"
+            />
 
-            {/* Counter (SELLER) — ONLY when trade exists */}
+            {/* Counter (SELLER) — only when a Trade exists */}
             {counterUrlSeller ? (
               <CounterButton
                 postUrl={counterUrlSeller}
@@ -255,7 +254,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* Counter (BUYER) — ONLY when trade exists */}
+            {/* Counter (BUYER) — only when a Trade exists */}
             {counterUrlBuyer ? (
               <CounterButton
                 postUrl={counterUrlBuyer}
