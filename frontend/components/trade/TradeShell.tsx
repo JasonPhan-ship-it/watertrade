@@ -166,9 +166,14 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const declineUrlBuyer =
     tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/decline` : `/api/transactions/${tx.id}/buyer/decline`;
 
-  // Role-specific counter endpoints (require a Trade row)
-  const counterUrlSeller = tradeIdLinked ? `/api/trades/${tradeIdLinked}/seller/counter` : null;
-  const counterUrlBuyer  = tradeIdLinked ? `/api/trades/${tradeIdLinked}/buyer/counter`  : null;
+  // Role-specific counter endpoints (use Trade if available, else Transaction)
+  const counterUrlSeller = tradeIdLinked
+    ? `/api/trades/${tradeIdLinked}/seller/counter`
+    : `/api/transactions/${tx.id}/seller/counter`;
+
+  const counterUrlBuyer = tradeIdLinked
+    ? `/api/trades/${tradeIdLinked}/buyer/counter`
+    : `/api/transactions/${tx.id}/buyer/counter`;
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -232,22 +237,14 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
               </button>
             </form>
 
-            {/* Counter (seller) */}
-            {counterUrlSeller ? (
-              <CounterButton
-                postUrl={counterUrlSeller}
-                role="seller"
-                currentPriceCents={priceAf}
-                currentQty={qty}
-                label="Counter"
-              />
-            ) : (
-              <span className="text-xs text-slate-500">
-                Counter unavailable (no Trade record yet)
-              </span>
-            )}
+            <CounterButton
+              postUrl={counterUrlSeller}
+              role="seller"
+              currentPriceCents={priceAf}
+              currentQty={qty}
+              label="Counter"
+            />
 
-            {/* Decline (seller) */}
             <DeclineButton
               transactionId={tx.id}
               className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
@@ -256,22 +253,14 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* Counter (buyer) */}
-            {counterUrlBuyer ? (
-              <CounterButton
-                postUrl={counterUrlBuyer}
-                role="buyer"
-                currentPriceCents={priceAf}
-                currentQty={qty}
-                label="Counter"
-              />
-            ) : (
-              <span className="text-xs text-slate-500">
-                Counter unavailable (no Trade record yet)
-              </span>
-            )}
+            <CounterButton
+              postUrl={counterUrlBuyer}
+              role="buyer"
+              currentPriceCents={priceAf}
+              currentQty={qty}
+              label="Counter"
+            />
 
-            {/* Decline (buyer) still a simple form */}
             <form action={declineUrlBuyer} method="post">
               {token ? <input type="hidden" name="token" value={token} /> : null}
               <button
