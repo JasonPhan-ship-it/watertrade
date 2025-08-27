@@ -155,6 +155,16 @@ function withPreheader(html: string, preheader?: string) {
 type Cta = { label: string; href: string; primary?: boolean };
 type KeyValue = { label: string; value: string };
 
+function brandLogoUrl() {
+  return process.env.NEXT_PUBLIC_EMAIL_LOGO_URL || appUrl("/brand-email.png");
+}
+
+/** Format cents into $X.XX/AF */
+function formatUsdPerAf(cents: number) {
+  const dollars = (cents ?? 0) / 100;
+  return `$${dollars.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/AF`;
+}
+
 function renderEmailLayout(params: {
   title: string;
   subtitle?: string;
@@ -266,11 +276,13 @@ type OfferSummary = {
   district: string;
   waterType?: string | null;
   volumeAf: number;
-  pricePerAf: number;
-  priceLabel?: string;
+  pricePerAf: number;  // cents
+  priceLabel?: string; // optional preformatted
   windowLabel?: string;
 };
 const fmt = (n: number) => new Intl.NumberFormat("en-US").format(n);
+
+const DEFAULT_LOGO = brandLogoUrl();
 
 /** Email to SELLER when a new offer (or buyer counter) arrives */
 export function renderSellerOfferEmail(params: {
@@ -293,7 +305,7 @@ export function renderSellerOfferEmail(params: {
       { label: "District", value: offer.district },
       ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
       { label: "Volume (AF)", value: fmt(offer.volumeAf) },
-      { label: "Price", value: offer.priceLabel ?? `$${fmt(offer.pricePerAf)}/AF` },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
     ctas: [
@@ -301,7 +313,7 @@ export function renderSellerOfferEmail(params: {
       { label: "Counter Offer", href: counterLink },
       { label: "View Details", href: viewLink },
     ],
-    logoUrl: appUrl("/brand-email.png"),
+    logoUrl: DEFAULT_LOGO,
   });
   return { html, preheader: "New offer received—review and respond." };
 }
@@ -326,14 +338,14 @@ export function renderBuyerAcceptedEmail(params: {
       { label: "District", value: offer.district },
       ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
       { label: "Volume (AF)", value: fmt(offer.volumeAf) },
-      { label: "Price", value: offer.priceLabel ?? `$${fmt(offer.pricePerAf)}/AF` },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
     ctas: [
       { label: "Review & Sign", href: signLink, primary: true },
       ...(viewLink ? [{ label: "View Details", href: viewLink }] : []),
     ],
-    logoUrl: appUrl("/brand-email.png"),
+    logoUrl: DEFAULT_LOGO,
   });
   return { html, preheader: "Seller accepted—please review and sign." };
 }
@@ -359,7 +371,7 @@ export function renderBuyerCounterEmail(params: {
       { label: "District", value: offer.district },
       ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
       { label: "Volume (AF)", value: fmt(offer.volumeAf) },
-      { label: "Price", value: offer.priceLabel ?? `$${fmt(offer.pricePerAf)}/AF` },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
     ctas: [
@@ -367,7 +379,7 @@ export function renderBuyerCounterEmail(params: {
       { label: "Decline", href: declineLink },
       { label: "View Details", href: viewLink },
     ],
-    logoUrl: appUrl("/brand-email.png"),
+    logoUrl: DEFAULT_LOGO,
   });
   return { html, preheader: "Counteroffer received—review and respond." };
 }
@@ -393,7 +405,7 @@ export function renderSellerCounterEmail(params: {
       { label: "District", value: offer.district },
       ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
       { label: "Volume (AF)", value: fmt(offer.volumeAf) },
-      { label: "Price", value: offer.priceLabel ?? `$${fmt(offer.pricePerAf)}/AF` },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
     ctas: [
@@ -401,7 +413,7 @@ export function renderSellerCounterEmail(params: {
       { label: "Decline", href: declineLink },
       { label: "View Details", href: viewLink },
     ],
-    logoUrl: appUrl("/brand-email.png"),
+    logoUrl: DEFAULT_LOGO,
   });
   return { html, preheader: "Counteroffer received—review and respond." };
 }
@@ -425,14 +437,14 @@ export function renderBuyerDeclinedEmail(params: {
       { label: "District", value: offer.district },
       ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
       { label: "Volume (AF)", value: fmt(offer.volumeAf) },
-      { label: "Price", value: offer.priceLabel ?? `$${fmt(offer.pricePerAf)}/AF` },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
     ctas: [
       ...(viewLink ? [{ label: "View Listing", href: viewLink, primary: true }] : []),
       { label: "Browse Listings", href: appUrl("/listings") },
     ],
-    logoUrl: appUrl("/brand-email.png"),
+    logoUrl: DEFAULT_LOGO,
   });
   return { html, preheader: "Offer declined—browse similar opportunities." };
 }
