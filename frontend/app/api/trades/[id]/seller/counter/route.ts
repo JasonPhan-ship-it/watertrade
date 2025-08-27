@@ -140,7 +140,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           <ul>
             <li>Volume: ${updated.volumeAf} AF</li>
             <li>Price: ${priceLabel}</li>
-            <li>Window: ${updated.windowLabel ?? "—"}</li>
           </ul>
           <p>
             <a href="${viewLink}">View</a> ·
