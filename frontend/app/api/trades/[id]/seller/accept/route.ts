@@ -6,6 +6,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus, TransactionStatus } from "@prisma/client";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
+import { clerkClient } from "@clerk/nextjs/server";
+import {
+  sendEmail,
+  appUrl,
+  renderBuyerAcceptedEmail,
+} from "@/lib/email";
+import { createBuyerSignatureLink } from "@/lib/trade";
 
 /** Pick a "pending buyer signature" transaction status that exists in your enum */
 function pickTxnPendingBuyerSig():
@@ -21,7 +28,6 @@ function pickTxnPendingBuyerSig():
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  // Optional: lightweight route check
   const url = new URL(req.url);
   return NextResponse.json({
     ok: true,
@@ -77,14 +83,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             id: crypto.randomUUID(),
             actor: "seller",
             kind: "ACCEPT",
-            payload: {
-              previousStatus: trade.status,
-              round: trade.round,
-            },
+            payload: { previousStatus: trade.status, round: trade.round },
           },
         },
       },
-      select: { id: true, status: true, transactionId: true },
+      select: {
+        id: true,
+        status: true,
+        transactionId: true,
+        // include fields for the email summary
+        windowLabel: true,
+        district: true,
+        waterType: true,
+        volumeAf: true,
+        pricePerAf: true,
+        buyerUserId: true,
+        sellerUserId: true,
+      },
     });
 
     // Best-effort Transaction sync
@@ -102,30 +117,93 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Build a URL the client can navigate to
+    // ---- Notify buyer to sign ----
+    // Prefer local email, fallback to Clerk by clerkId
+    const [buyerLocal, sellerLocal] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: updated.buyerUserId || "" },
+        select: { email: true, name: true, clerkId: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: updated.sellerUserId || "" },
+        select: { name: true, clerkId: true },
+      }),
+    ]);
+
+    let buyerName = buyerLocal?.name || "";
+    let sellerName = sellerLocal?.name || "";
+    let buyerEmail = buyerLocal?.email || "";
+
+    if ((!buyerEmail || !buyerName) && buyerLocal?.clerkId) {
+      try {
+        const buyerClerk = await clerkClient.users.getUser(buyerLocal.clerkId);
+        buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || "";
+        const primary =
+          buyerClerk.emailAddresses?.find(e => e.id === buyerClerk.primaryEmailAddressId)?.emailAddress;
+        buyerEmail = buyerEmail || primary || buyerClerk.emailAddresses?.[0]?.emailAddress || "";
+      } catch {/* non-fatal */}
+    }
+    if (!sellerName && sellerLocal?.clerkId) {
+      try {
+        const sellerClerk = await clerkClient.users.getUser(sellerLocal.clerkId);
+        sellerName = sellerName || sellerClerk.firstName || sellerClerk.username || "";
+      } catch {/* non-fatal */}
+    }
+
+    // Build links for buyer
+    const signLink = await createBuyerSignatureLink(updated.id, (trade as any).buyerToken);
+    const viewLinkForBuyer = appUrl(
+      `/t/${updated.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=review`
+    );
+
+    if (buyerEmail) {
+      const { html, preheader } = renderBuyerAcceptedEmail({
+        buyerName: buyerName || "Buyer",
+        sellerName: sellerName || "Seller",
+        offer: {
+          listingTitle: updated.windowLabel || "Offer Terms",
+          district: updated.district || "",
+          waterType: updated.waterType ?? undefined,
+          volumeAf: updated.volumeAf,
+          pricePerAf: updated.pricePerAf,
+          windowLabel: updated.windowLabel ?? undefined,
+        },
+        signLink,
+        viewLink: viewLinkForBuyer,
+      });
+
+      try {
+        await sendEmail({
+          to: buyerEmail,
+          subject: "Seller accepted — review & sign",
+          html,
+          preheader,
+        });
+      } catch (e) {
+        console.warn("[seller/accept] sendEmail failed:", (e as any)?.message);
+        // do not fail the accept flow if email provider hiccups
+      }
+    } else {
+      console.warn("[seller/accept] No buyer email available; skipped email.");
+    }
+
+    // Build a URL for seller’s UI (no redirect here—client will navigate or show a banner)
     const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
     const inUrl = new URL(req.url);
     const token = inUrl.searchParams.get("token") || undefined;
     const role = inUrl.searchParams.get("role") || "seller";
 
-    const out = new URL(`/t/${updated.id}`, base);
-    out.searchParams.set("role", role);
-    out.searchParams.set("action", "review");
-    if (token) out.searchParams.set("token", token);
+    const redirectUrl = new URL(`/t/${updated.id}`, base);
+    redirectUrl.searchParams.set("role", role);
+    redirectUrl.searchParams.set("action", "awaiting-buyer-signature");
+    if (token) redirectUrl.searchParams.set("token", token);
 
-    // If explicitly requested (e.g., email link uses ?redirect=1), send 303 redirect
-    const wantsRedirect = inUrl.searchParams.get("redirect") === "1";
-    if (wantsRedirect) {
-      // 303 converts POST to GET so the app page loads correctly
-      return NextResponse.redirect(out, 303);
-    }
-
-    // Default: return JSON so client code can navigate
     return NextResponse.json({
       ok: true,
       tradeId: updated.id,
       status: updated.status,
-      redirectUrl: out.toString(),
+      message: "Awaiting buyer signature",
+      redirectUrl: redirectUrl.toString(),
     });
   } catch (e: any) {
     console.error("[trades/:id/seller/accept] error", e);
