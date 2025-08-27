@@ -7,6 +7,7 @@
  *  - renderSellerOfferEmail
  *  - renderBuyerAcceptedEmail
  *  - renderBuyerCounterEmail
+ *  - renderSellerCounterEmail
  *  - renderBuyerDeclinedEmail
  */
 
@@ -353,6 +354,40 @@ export function renderBuyerCounterEmail(params: {
     intro: sellerName
       ? `${sellerName} countered your offer. Review the terms and respond.`
       : "The seller countered your offer. Review the terms and respond.",
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: offer.priceLabel ?? `$${fmt(offer.pricePerAf)}/AF` },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: [
+      { label: "Make a Counter", href: counterLink, primary: true },
+      { label: "Decline", href: declineLink },
+      { label: "View Details", href: viewLink },
+    ],
+    logoUrl: appUrl("/brand-email.png"),
+  });
+  return { html, preheader: "Counteroffer received—review and respond." };
+}
+
+/** Email to SELLER when buyer counters */
+export function renderSellerCounterEmail(params: {
+  sellerName?: string | null;
+  buyerName?: string | null;
+  offer: OfferSummary;
+  viewLink: string;
+  counterLink: string;
+  declineLink: string;
+}) {
+  const { sellerName, buyerName, offer, viewLink, counterLink, declineLink } = params;
+  const html = renderEmailLayout({
+    title: "Buyer sent a counteroffer",
+    subtitle: sellerName ? `Hi ${sellerName}, you have a counteroffer.` : "You have a counteroffer.",
+    intro: buyerName
+      ? `${buyerName} countered your offer. Review the terms and respond.`
+      : "The buyer countered your offer. Review the terms and respond.",
     keyValues: [
       { label: "Listing", value: offer.listingTitle },
       { label: "District", value: offer.district },
