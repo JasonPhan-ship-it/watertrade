@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
-import { getViewer } from "@/lib/trade";
+import { getViewer, findTradeByAnyId } from "@/lib/trade";
 import { sendEmail, appUrl } from "@/lib/email";
 
 type RenderOut = { html: string; preheader?: string };
@@ -20,7 +20,6 @@ async function renderSellerCounterEmailSafe(args: any): Promise<RenderOut> {
     }
   } catch { /* noop */ }
 
-  // fallback minimal HTML
   const {
     sellerName = "",
     buyerName = "",
@@ -71,14 +70,22 @@ async function readBody(req: NextRequest) {
   };
 }
 
+export async function GET() {
+  return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 });
+}
+export async function HEAD() {
+  return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 });
+}
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    // 1) Load trade (this route assumes a Trade already exists)
-    const trade = await prisma.trade.findUnique({ where: { id: params.id } });
+    // 1) Load trade (accept Trade.id or Transaction.id)
+    const rawId = (params.id || "").trim();
+    const trade = await findTradeByAnyId(rawId);
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // 2) AuthZ: must be buyer on this trade
-    const viewer = await getViewer(req, trade);
+    const viewer = await getViewer(req, trade as any);
     if (viewer.role !== "buyer") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -101,14 +108,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // 4) Guard: price must be >= current offer (use trade.pricePerAf)
-    if (typeof trade.pricePerAf === "number" && pricePerAfNum < trade.pricePerAf) {
+    // 4) Guard for buyer: typically <= current ask (flip or remove per your business rule)
+    if (typeof trade.pricePerAf === "number" && pricePerAfNum > trade.pricePerAf) {
       return NextResponse.json(
-        {
-          error: `Counter price must be at least ${(trade.pricePerAf / 100).toFixed(
-            2
-          )} USD/AF.`,
-        },
+        { error: `Buyer counter should be at most ${(trade.pricePerAf / 100).toFixed(2)} USD/AF.` },
         { status: 400 }
       );
     }
@@ -139,40 +142,50 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           },
         },
       },
+      select: {
+        id: true,
+        status: true,
+        volumeAf: true,
+        pricePerAf: true,
+        windowLabel: true,
+        sellerUserId: true,
+        buyerUserId: true,
+        sellerToken: true,
+      },
     });
 
-    // 6) Notify seller (lookup local users; optionally enrich via Clerk)
-    const [buyerUser, sellerUser] = await Promise.all([
-      prisma.user.findUnique({ where: { id: trade.buyerUserId } }),
-      prisma.user.findUnique({ where: { id: trade.sellerUserId } }),
+    // 6) Notify seller (prefer local email; fallback to Clerk)
+    const [buyerLocal, sellerLocal] = await Promise.all([
+      prisma.user.findUnique({ where: { id: trade.buyerUserId || "" }, select: { email: true, name: true, clerkId: true } }),
+      prisma.user.findUnique({ where: { id: trade.sellerUserId || "" }, select: { email: true, name: true, clerkId: true } }),
     ]);
 
-    let buyerName = buyerUser?.name || "";
-    let sellerName = sellerUser?.name || "";
-    let sellerEmail = sellerUser?.email || "";
+    let buyerName = buyerLocal?.name || "";
+    let sellerName = sellerLocal?.name || "";
+    let sellerEmail = sellerLocal?.email || "";
 
-    if (buyerUser?.clerkId || sellerUser?.clerkId) {
+    if (!sellerEmail && sellerLocal?.clerkId) {
       try {
-        const [buyerClerk, sellerClerk] = await Promise.all([
-          buyerUser?.clerkId ? clerkClient.users.getUser(buyerUser.clerkId) : null,
-          sellerUser?.clerkId ? clerkClient.users.getUser(sellerUser.clerkId) : null,
-        ]);
-        if (buyerClerk) buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || "";
-        if (sellerClerk) {
-          sellerName = sellerName || sellerClerk.firstName || sellerClerk.username || "";
-          const primary = sellerClerk.emailAddresses?.find(
-            (e) => e.id === sellerClerk.primaryEmailAddressId
-          )?.emailAddress;
-          const firstAny = sellerClerk.emailAddresses?.[0]?.emailAddress;
-          sellerEmail = sellerEmail || primary || firstAny || "";
-        }
+        const sellerClerk = await clerkClient.users.getUser(sellerLocal.clerkId);
+        sellerName = sellerName || sellerClerk.firstName || sellerClerk.username || "";
+        sellerEmail =
+          sellerClerk.emailAddresses?.find((e) => e.id === sellerClerk.primaryEmailAddressId)?.emailAddress ??
+          sellerClerk.emailAddresses?.[0]?.emailAddress ??
+          "";
+      } catch { /* non-fatal */ }
+    }
+
+    if (!buyerName && buyerLocal?.clerkId) {
+      try {
+        const buyerClerk = await clerkClient.users.getUser(buyerLocal.clerkId);
+        buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || "";
       } catch { /* non-fatal */ }
     }
 
     if (sellerEmail) {
-      const viewLink = appUrl(`/t/${updated.id}?role=seller&token=${trade.sellerToken ?? ""}`);
-      const counterLink = appUrl(`/t/${updated.id}?role=seller&token=${trade.sellerToken ?? ""}&action=counter`);
-      const declineLink = appUrl(`/t/${updated.id}?role=seller&token=${trade.sellerToken ?? ""}&action=decline`);
+      const viewLink = appUrl(`/t/${updated.id}?role=seller${trade.sellerToken ? `&token=${trade.sellerToken}` : ""}`);
+      const counterLink = `${viewLink}&action=counter`;
+      const declineLink = `${viewLink}&action=decline`;
 
       const { html, preheader } = await renderSellerCounterEmailSafe({
         sellerName,
