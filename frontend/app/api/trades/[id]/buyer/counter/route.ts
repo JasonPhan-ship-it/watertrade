@@ -7,46 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
-import { sendEmail, appUrl } from "@/lib/email";
+import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
 type RenderOut = { html: string; preheader?: string };
-
-// Optional: try to use a proper seller email template if you have one
-async function renderSellerCounterEmailSafe(args: any): Promise<RenderOut> {
-  try {
-    const mod: any = await import("@/lib/email");
-    if (typeof mod.renderSellerCounterEmail === "function") {
-      return mod.renderSellerCounterEmail(args) as RenderOut;
-    }
-  } catch { /* noop */ }
-
-  const {
-    sellerName = "",
-    buyerName = "",
-    offer = {},
-    viewLink = "#",
-    counterLink = "#",
-    declineLink = "#",
-  } = args || {};
-  const price = typeof offer.pricePerAf === "number" ? (offer.pricePerAf / 100).toFixed(2) : "—";
-  const html = `
-    <div>
-      <p>Hi ${sellerName || "Seller"},</p>
-      <p>${buyerName || "The buyer"} sent a counteroffer:</p>
-      <ul>
-        <li>Volume: ${offer.volumeAf ?? "—"} AF</li>
-        <li>Price: $${price}/AF</li>
-        <li>Window: ${offer.windowLabel ?? "—"}</li>
-      </ul>
-      <p>
-        <a href="${viewLink}">View</a> ·
-        <a href="${counterLink}">Counter</a> ·
-        <a href="${declineLink}">Decline</a>
-      </p>
-    </div>
-  `;
-  return { html, preheader: "Buyer sent a counteroffer" };
-}
 
 /** Read either JSON or form-data and normalize fields */
 async function readBody(req: NextRequest) {
@@ -81,13 +44,29 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     // 1) Load trade (accept Trade.id or Transaction.id)
     const rawId = (params.id || "").trim();
+    if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+
     const trade = await findTradeByAnyId(rawId);
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // 2) AuthZ: must be buyer on this trade
     const viewer = await getViewer(req, trade as any);
     if (viewer.role !== "buyer") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const url = new URL(req.url);
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+          details: {
+            viewerRole: viewer.role,
+            via: (viewer as any).via,
+            hasToken: url.searchParams.has("token") || !!req.headers.get("x-trade-token"),
+            sawRoleParam: url.searchParams.get("role") ?? null,
+            tradeBuyerUserId: trade.buyerUserId,
+          },
+          tip: "Log in as the buyer for this trade, or use ?role=buyer&token=<buyerToken>.",
+        },
+        { status: 403 }
+      );
     }
 
     // 3) Parse body
@@ -108,7 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // 4) Guard for buyer: typically <= current ask (flip or remove per your business rule)
+    // 4) Business rule guard: buyer's counter typically <= current ask (adjust or remove if you prefer)
     if (typeof trade.pricePerAf === "number" && pricePerAfNum > trade.pricePerAf) {
       return NextResponse.json(
         { error: `Buyer counter should be at most ${(trade.pricePerAf / 100).toFixed(2)} USD/AF.` },
@@ -148,16 +127,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         volumeAf: true,
         pricePerAf: true,
         windowLabel: true,
+        district: true,
+        waterType: true,
         sellerUserId: true,
         buyerUserId: true,
         sellerToken: true,
       },
     });
 
-    // 6) Notify seller (prefer local email; fallback to Clerk)
+    // 6) Notify seller (prefer local email; fallback to Clerk by clerkId)
     const [buyerLocal, sellerLocal] = await Promise.all([
-      prisma.user.findUnique({ where: { id: trade.buyerUserId || "" }, select: { email: true, name: true, clerkId: true } }),
-      prisma.user.findUnique({ where: { id: trade.sellerUserId || "" }, select: { email: true, name: true, clerkId: true } }),
+      prisma.user.findUnique({
+        where: { id: trade.buyerUserId || "" },
+        select: { email: true, name: true, clerkId: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: trade.sellerUserId || "" },
+        select: { email: true, name: true, clerkId: true },
+      }),
     ]);
 
     let buyerName = buyerLocal?.name || "";
@@ -187,11 +174,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const counterLink = `${viewLink}&action=counter`;
       const declineLink = `${viewLink}&action=decline`;
 
-      const { html, preheader } = await renderSellerCounterEmailSafe({
-        sellerName,
-        buyerName,
+      const { html, preheader } = renderBuyerCounterEmail({
+        buyerName: buyerName || "Buyer",
+        sellerName: sellerName || "Seller",
         offer: {
           listingTitle: updated.windowLabel || "Offer Terms",
+          district: updated.district || "",
+          waterType: updated.waterType ?? undefined,
           volumeAf: updated.volumeAf,
           pricePerAf: updated.pricePerAf,
           priceLabel: `$${(updated.pricePerAf / 100).toLocaleString(undefined, {
