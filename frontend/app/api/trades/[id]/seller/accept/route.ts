@@ -7,14 +7,27 @@ import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus, TransactionStatus } from "@prisma/client";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
 
-// Quick sanity check: verify the route is wired
+/** Pick a "pending buyer signature" transaction status that exists in your enum */
+function pickTxnPendingBuyerSig():
+  (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
+  const TXS: any = TransactionStatus;
+  return (
+    TXS.PENDING_BUYER_SIGNATURE ??
+    TXS.PENDING_SIGNATURE ??
+    TXS.PENDING ??
+    TXS.ACCEPTED ??
+    null
+  );
+}
+
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  // Optional: lightweight route check
   const url = new URL(req.url);
   return NextResponse.json({
     ok: true,
     route: "trades/:id/seller/accept",
     id: params.id,
-    role: url.searchParams.get("role") ?? null,
+    sawRoleParam: url.searchParams.get("role") ?? null,
     tokenPresent: url.searchParams.has("token"),
   });
 }
@@ -24,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const rawId = (params.id || "").trim();
     if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    // Support Trade.id or Transaction.id
+    // Accept Trade.id or Transaction.id
     const trade = await findTradeByAnyId(rawId);
     if (!trade) {
       return NextResponse.json(
@@ -33,23 +46,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // ---- Authorization (must be seller) ----
+    // AuthZ: must be seller
     const viewer = await getViewer(req as any, trade as any);
     if (!viewer || viewer.role !== "seller") {
       const url = new URL(req.url);
       return NextResponse.json(
         {
           error: "Forbidden",
-          details: `viewer-role-is-${viewer?.role ?? "unknown"}`,
-          sawRoleQueryParam: url.searchParams.get("role") ?? null,
-          tokenPresent: url.searchParams.has("token"),
-          tip: "Sign in as the seller or use a valid ?token=...&role=seller magic link.",
+          details: {
+            viewerRole: viewer?.role ?? "unknown",
+            via: (viewer as any)?.via ?? "n/a",
+            hasToken: url.searchParams.has("token") || !!req.headers.get("x-trade-token"),
+            sawRoleParam: url.searchParams.get("role") ?? null,
+          },
+          tip: "Sign in as the seller or include ?role=seller&token=<sellerToken>.",
         },
         { status: 403 }
       );
     }
 
-    // ---- Update Trade (seller accepted) ----
+    // Update Trade
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
@@ -58,26 +74,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         version: { increment: 1 },
         events: {
           create: {
+            id: crypto.randomUUID(),
             actor: "seller",
             kind: "ACCEPT",
-            payload: { previousStatus: trade.status, round: trade.round },
+            payload: {
+              previousStatus: trade.status,
+              round: trade.round,
+            },
           },
         },
       },
       select: { id: true, status: true, transactionId: true },
     });
 
-    // ---- Keep Transaction in sync (best-effort) ----
+    // Best-effort Transaction sync
     if (updated.transactionId) {
       try {
-        const next =
-          (TransactionStatus as any)?.PENDING_BUYER_SIGNATURE ??
-          (TransactionStatus as any)?.PENDING_SIGNATURE ??
-          null;
-        if (next) {
+        const pending = pickTxnPendingBuyerSig();
+        if (pending) {
           await prisma.transaction.update({
             where: { id: updated.transactionId },
-            data: { status: next },
+            data: { status: pending },
           });
         }
       } catch (e) {
@@ -85,27 +102,31 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // --- Content negotiation: JSON for fetch(), redirect for link/form navigations ---
-    const wantsJson =
-      req.headers.get("accept")?.includes("application/json") ||
-      req.headers.get("x-fetch-intent") === "json" ||
-      new URL(req.url).searchParams.get("format") === "json";
-
-    if (wantsJson) {
-      return NextResponse.json({ ok: true, tradeId: updated.id, status: updated.status });
-    }
-
+    // Build a URL the client can navigate to
     const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
     const inUrl = new URL(req.url);
+    const token = inUrl.searchParams.get("token") || undefined;
     const role = inUrl.searchParams.get("role") || "seller";
-    const token = inUrl.searchParams.get("token");
 
     const out = new URL(`/t/${updated.id}`, base);
     out.searchParams.set("role", role);
     out.searchParams.set("action", "review");
     if (token) out.searchParams.set("token", token);
 
-    return NextResponse.redirect(out);
+    // If explicitly requested (e.g., email link uses ?redirect=1), send 303 redirect
+    const wantsRedirect = inUrl.searchParams.get("redirect") === "1";
+    if (wantsRedirect) {
+      // 303 converts POST to GET so the app page loads correctly
+      return NextResponse.redirect(out, 303);
+    }
+
+    // Default: return JSON so client code can navigate
+    return NextResponse.json({
+      ok: true,
+      tradeId: updated.id,
+      status: updated.status,
+      redirectUrl: out.toString(),
+    });
   } catch (e: any) {
     console.error("[trades/:id/seller/accept] error", e);
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
