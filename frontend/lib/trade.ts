@@ -10,11 +10,9 @@ export type Viewer =
 
 /** Accepts both NextRequest and native Request */
 function readUrl(req: NextRequest | Request) {
-  // @ts-expect-error - NextRequest has .url, as does Request
   return new URL(req.url);
 }
 
-/** Tolerates missing tokens/userIds */
 export async function getViewer(
   req: NextRequest | Request,
   trade: {
@@ -26,11 +24,11 @@ export async function getViewer(
 ): Promise<Viewer> {
   const { userId } = auth();
   const url = readUrl(req);
+
+  // Both NextRequest and Request expose Headers with .get()
   const token =
     url.searchParams.get("token") ||
-    // allow programmatic header usage
-    // @ts-ignore
-    (req.headers?.get?.("x-trade-token") as string | null) ||
+    req.headers.get("x-trade-token") ||
     "";
 
   if (userId) {
@@ -54,7 +52,6 @@ export async function getViewer(
   return { role: "unknown", via: "none" };
 }
 
-/** Helpful guard for routes */
 export function assertCanAct(role: "seller" | "buyer", status: string) {
   switch (status) {
     case "OFFERED":
