@@ -5,14 +5,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus, TransactionStatus } from "@prisma/client";
-import { getViewer } from "@/lib/trade";
-
-// If you have a shared helper, you can import it instead of duplicating:
-async function findTradeByAnyId(id: string) {
-  const byTrade = await prisma.trade.findUnique({ where: { id } });
-  if (byTrade) return byTrade;
-  return prisma.trade.findFirst({ where: { transactionId: id } });
-}
+import { getViewer, findTradeByAnyId } from "@/lib/trade";
 
 // Quick sanity check: verify the route is wired
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -29,10 +22,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const rawId = (params.id || "").trim();
-    if (!rawId) {
-      return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    }
+    if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
+    // Support Trade.id or Transaction.id
     const trade = await findTradeByAnyId(rawId);
     if (!trade) {
       return NextResponse.json(
@@ -43,21 +35,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // ---- Authorization (must be seller) ----
     const viewer = await getViewer(req as any, trade as any);
-    // If your getViewer can return a "forbidden" with reason, use it; otherwise show role we saw.
-    // @ts-ignore - in case getViewer doesn't include "reason"
-    const reason: string | undefined = viewer?.reason;
-
     if (!viewer || viewer.role !== "seller") {
       const url = new URL(req.url);
       return NextResponse.json(
         {
           error: "Forbidden",
-          // Provide actionable hints so you can see *why* in the UI:
-          details: reason ?? `viewer-role-is-${viewer?.role ?? "unknown"}`,
+          details: `viewer-role-is-${viewer?.role ?? "unknown"}`,
           sawRoleQueryParam: url.searchParams.get("role") ?? null,
           tokenPresent: url.searchParams.has("token"),
-          tip:
-            "Ensure you are signed in as the seller of this trade, or provide a valid ?token=...&role=seller magic link if using email access.",
+          tip: "Sign in as the seller or use a valid ?token=...&role=seller magic link.",
         },
         { status: 403 }
       );
@@ -72,43 +58,44 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         version: { increment: 1 },
         events: {
           create: {
-            id: crypto.randomUUID(),
             actor: "seller",
             kind: "ACCEPT",
-            payload: {
-              previousStatus: trade.status,
-              round: trade.round,
-            },
+            payload: { previousStatus: trade.status, round: trade.round },
           },
         },
       },
+      select: { id: true, status: true, transactionId: true },
     });
 
-    // ---- Keep Transaction in sync (best-effort, wrapped) ----
+    // ---- Keep Transaction in sync (best-effort) ----
     if (updated.transactionId) {
       try {
-        await prisma.transaction.update({
-          where: { id: updated.transactionId },
-          data: { status: TransactionStatus.PENDING_BUYER_SIGNATURE },
-        });
+        const next =
+          (TransactionStatus as any)?.PENDING_BUYER_SIGNATURE ??
+          (TransactionStatus as any)?.PENDING_SIGNATURE ??
+          null;
+        if (next) {
+          await prisma.transaction.update({
+            where: { id: updated.transactionId },
+            data: { status: next },
+          });
+        }
       } catch (e) {
-        // If your TransactionStatus doesn't include PENDING_BUYER_SIGNATURE,
-        // change it to a valid status or remove this block.
         console.warn("[seller/accept] transaction sync skipped:", (e as any)?.message);
       }
     }
 
-    // ---- (Optional) Email buyer - left commented so accept flow isn't blocked ----
-    // try {
-    //   // ...lookup buyer, build email, send...
-    // } catch (e) {
-    //   console.warn("[seller/accept] email failed:", (e as any)?.message);
-    // }
+    // --- Content negotiation: JSON for fetch(), redirect for link/form navigations ---
+    const wantsJson =
+      req.headers.get("accept")?.includes("application/json") ||
+      req.headers.get("x-fetch-intent") === "json" ||
+      new URL(req.url).searchParams.get("format") === "json";
 
-    // ---- Redirect back to the trade view ----
+    if (wantsJson) {
+      return NextResponse.json({ ok: true, tradeId: updated.id, status: updated.status });
+    }
+
     const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
-
-    // preserve role/token from incoming request if present (useful for magic-link flows)
     const inUrl = new URL(req.url);
     const role = inUrl.searchParams.get("role") || "seller";
     const token = inUrl.searchParams.get("token");
