@@ -7,6 +7,30 @@ import { prisma } from "@/lib/prisma";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
 import { TradeStatus, TransactionStatus, Party } from "@prisma/client";
 
+/** Pick the best available "declined" status from your enum safely */
+function pickDeclinedTradeStatus(): (typeof TradeStatus)[keyof typeof TradeStatus] {
+  const TS: any = TradeStatus;
+  return (
+    TS.DECLINED_BY_SELLER ??
+    TS.SELLER_DECLINED ??
+    TS.DECLINED ??
+    TS.CANCELLED ??
+    TS.REJECTED ??
+    TS.EXPIRED
+  );
+}
+
+/** And a similar helper for Transaction, if you sync it */
+function pickDeclinedTxnStatus(): (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
+  const TXS: any = TransactionStatus;
+  return (
+    TXS.DECLINED ??
+    TXS.CANCELLED ??
+    TXS.REJECTED ??
+    null
+  );
+}
+
 export async function GET() {
   return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 });
 }
@@ -19,7 +43,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const rawId = (params.id || "").trim();
     if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    // Support Trade.id or Transaction.id
+    // Support Trade.id OR Transaction.id
     const trade = await findTradeByAnyId(rawId);
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -29,11 +53,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Transition Trade
+    const DECLINED = pickDeclinedTradeStatus();
+
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
-        status: TradeStatus.DECLINED_BY_SELLER,
+        status: DECLINED,
         lastActor: Party.SELLER,
         version: { increment: 1 },
         events: {
@@ -47,13 +72,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       select: { id: true, status: true, transactionId: true },
     });
 
-    // Best-effort Transaction sync (if linked)
+    // Best-effort Transaction sync
     if (updated.transactionId) {
       try {
-        const txDeclined =
-          (TransactionStatus as any)?.DECLINED ||
-          (TransactionStatus as any)?.CANCELLED ||
-          null;
+        const txDeclined = pickDeclinedTxnStatus();
         if (txDeclined) {
           await prisma.transaction.update({
             where: { id: updated.transactionId },
