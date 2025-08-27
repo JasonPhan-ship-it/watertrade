@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
-import { getViewer } from "@/lib/trade";
+import { getViewer, findTradeByAnyId } from "@/lib/trade";
 import { sendEmail, appUrl } from "@/lib/email";
 
 /** Read either JSON or form-data and normalize fields */
@@ -31,12 +31,12 @@ async function readBody(req: NextRequest) {
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    // 1) Load existing trade (trade-scoped route assumes it exists)
-    const trade = await prisma.trade.findUnique({ where: { id: params.id } });
+    // 1) Support Trade.id or Transaction.id
+    const trade = await findTradeByAnyId((params.id || "").trim());
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // 2) AuthZ: must be seller on this trade
-    const viewer = await getViewer(req, trade);
+    const viewer = await getViewer(req, trade as any);
     if (viewer.role !== "seller") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // 4) Guard: seller counter price must be >= current (trade.pricePerAf)
+    // 4) Optional guard: seller’s counter should not be below current ask
     if (typeof trade.pricePerAf === "number" && pricePerAfNum < trade.pricePerAf) {
       return NextResponse.json(
         { error: `Counter price must be at least ${(trade.pricePerAf / 100).toFixed(2)} USD/AF.` },
@@ -124,9 +124,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     if (buyerEmail) {
-      const viewLink = appUrl(`/t/${updated.id}?role=buyer&token=${trade.buyerToken ?? ""}`);
-      const counterLink = appUrl(`/t/${updated.id}?role=buyer&token=${trade.buyerToken ?? ""}&action=counter`);
-      const declineLink = appUrl(`/t/${updated.id}?role=buyer&token=${trade.buyerToken ?? ""}&action=decline`);
+      const viewLink = appUrl(`/t/${updated.id}?role=buyer${trade.buyerToken ? `&token=${trade.buyerToken}` : ""}`);
+      const counterLink = `${viewLink}&action=counter`;
+      const declineLink = `${viewLink}&action=decline`;
 
       const priceLabel = `$${(updated.pricePerAf / 100).toLocaleString(undefined, {
         minimumFractionDigits: 2,
@@ -158,7 +158,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
     }
 
-    // 7) Return JSON (your CounterButton expects JSON)
     return NextResponse.json({ ok: true, tradeId: updated.id, status: updated.status });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
