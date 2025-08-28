@@ -331,7 +331,7 @@ export function renderBuyerAcceptedEmail(params: {
     title: "Offer accepted 🎉",
     subtitle: buyerName ? `Hi ${buyerName}, your offer was accepted.` : "Your offer was accepted.",
     intro: sellerName
-      ? `${sellerName} accepted your offer. Please review and sign.`
+      ? `Please review and sign.`
       : "The seller accepted your offer. Please review and sign.",
     keyValues: [
       { label: "Listing", value: offer.listingTitle },
