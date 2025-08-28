@@ -5,11 +5,11 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 type Props = {
-  postUrl: string;             // e.g. /api/trades/:id/seller/counter?token=...
+  postUrl: string;             // e.g. /api/trades/:id/{buyer|seller}/counter (qs optional)
   role: "buyer" | "seller";
-  token?: string;              // ⬅ add
-  currentPriceCents: number;
-  currentQty: number;
+  token?: string;
+  currentPriceCents: number;   // current offer price in cents
+  currentQty: number;          // current offer volume in AF
   label?: string;
   className?: string;
 };
@@ -28,19 +28,32 @@ export default function CounterButton({
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
+  // form state shown as dollars + AF
   const [price, setPrice] = React.useState((currentPriceCents / 100).toString());
   const [qty, setQty] = React.useState(currentQty.toString());
+  const [windowLabel, setWindowLabel] = React.useState("");
 
   function close() {
     setOpen(false);
     setErr(null);
   }
 
+  function ensureUrlWithToken(u: string) {
+    if (!token) return u;
+    const hasToken = u.includes("token=");
+    const hasRole = u.includes("role=");
+    if (hasToken && hasRole) return u;
+    const url = new URL(u, typeof window !== "undefined" ? window.location.origin : "http://localhost");
+    if (!hasToken) url.searchParams.set("token", token);
+    if (!hasRole) url.searchParams.set("role", role);
+    return url.toString();
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (busy) return;
 
-    const priceNum = Math.round(Number(price) * 100); // cents
+    const priceNum = Math.round(Number(price) * 100); // -> cents
     const qtyNum = Number(qty);
 
     if (!Number.isFinite(priceNum) || priceNum <= 0) {
@@ -51,8 +64,14 @@ export default function CounterButton({
       setErr("Enter a valid quantity (AF).");
       return;
     }
-    if (priceNum < currentPriceCents) {
+
+    // Business rule: seller must go >= current; buyer must go <= current
+    if (role === "seller" && priceNum < currentPriceCents) {
       setErr("Your counter price cannot be lower than the current offer.");
+      return;
+    }
+    if (role === "buyer" && priceNum > currentPriceCents) {
+      setErr("Your counter price cannot be higher than the current offer.");
       return;
     }
 
@@ -61,39 +80,48 @@ export default function CounterButton({
       setErr(null);
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-        headers["X-Magic-Token"] = token;
-      }
+      if (token) headers["x-trade-token"] = token; // 👈 server reads this
 
-      const res = await fetch(postUrl, {
+      const url = ensureUrlWithToken(postUrl);
+
+      const res = await fetch(url, {
         method: "POST",
         credentials: "include",
         headers,
         body: JSON.stringify({
-          token,             // body token
-          role,              // sometimes used server-side
+          // server supports both JSON and form-data; we send JSON
           pricePerAf: priceNum,
           volumeAf: qtyNum,
+          windowLabel: windowLabel.trim() || undefined,
+          // role in body is optional; auth is based on session/token
+          role,
         }),
       });
 
+      // try to parse JSON either way
+      let data: any = {};
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        try { data = await res.json(); } catch { /* ignore */ }
+      } else {
+        try { data = { raw: await res.text() }; } catch { /* ignore */ }
+      }
+
       if (!res.ok) {
-        let message = "Counter failed.";
-        try {
-          const ct = res.headers.get("content-type") || "";
-          if (ct.includes("application/json")) {
-            const j = await res.json();
-            message = j?.error || message;
-          } else {
-            message = (await res.text()) || message;
-          }
-        } catch { /* ignore */ }
-        throw new Error(message);
+        // Surface helpful 403 diagnostics if present
+        if (res.status === 403 && data?.details) {
+          const d = data.details;
+          const hint =
+            `Not recognized as buyer.\n` +
+            `viewerRole=${d.viewerRole}, via=${d.via}, hasToken=${d.hasToken}, sawRoleParam=${d.sawRoleParam}`;
+          throw new Error(data?.error ? `${data.error}\n${hint}` : hint);
+        }
+        throw new Error(data?.error || "Counter failed.");
       }
 
       close();
-      alert("Counter sent.");
+      // Optional: toast instead of alert in your UI system
+      // e.g., setToast({ kind: "success", text: "Counter sent." })
       router.refresh();
     } catch (e: any) {
       setErr(e?.message || "Something went wrong sending the counter.");
@@ -101,6 +129,11 @@ export default function CounterButton({
       setBusy(false);
     }
   }
+
+  const ruleText =
+    role === "seller"
+      ? "Your counter price must be ≥ current offer."
+      : "Your counter price must be ≤ current offer.";
 
   return (
     <>
@@ -123,9 +156,7 @@ export default function CounterButton({
 
           <div className="relative z-[110] w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
             <h2 className="text-lg font-semibold text-slate-900">Counteroffer</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Your counter price must be <strong>≥ current offer</strong>.
-            </p>
+            <p className="mt-1 text-sm text-slate-600">{ruleText}</p>
 
             <form className="mt-4 space-y-3" onSubmit={onSubmit}>
               <label className="block text-sm">
@@ -152,8 +183,19 @@ export default function CounterButton({
                 />
               </label>
 
+              <label className="block text-sm">
+                <span className="text-slate-700">Window (optional)</span>
+                <input
+                  type="text"
+                  value={windowLabel}
+                  onChange={(e) => setWindowLabel(e.target.value)}
+                  placeholder="e.g. Jan–Mar 2026"
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                />
+              </label>
+
               {err && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 whitespace-pre-wrap">
                   {err}
                 </div>
               )}
