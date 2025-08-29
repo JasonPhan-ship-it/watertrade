@@ -1,7 +1,7 @@
 // app/dashboard/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -78,6 +78,10 @@ type Listing = {
   availabilityEnd: string;
   waterType: string;
   createdAt: string;
+
+  // Optional owner fields (if your API returns them, we can show extra actions)
+  ownerUserId?: string | null;
+  ownerName?: string | null;
 };
 
 type ApiResponse = {
@@ -88,6 +92,7 @@ type ApiResponse = {
 
 type SortBy = "district" | "acreFeet" | "pricePerAf" | "createdAt";
 type SortDir = "asc" | "desc";
+type Scope = "market" | "mine";
 
 /* ---------------- Constants ---------------- */
 const DISTRICTS = [
@@ -110,6 +115,10 @@ const PAGE_SIZES = [5, 10, 20] as const;
 /* ---------------- Page ---------------- */
 export default function DashboardPage() {
   const checking = useOnboardedGate();
+  const { user } = useUser();
+
+  // NEW: tab scope
+  const [scope, setScope] = useState<Scope>("market");
 
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
@@ -122,17 +131,28 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const qs = (() => {
+  const qs = useMemo(() => {
     const u = new URLSearchParams();
+    // filtering
     if (district !== "All Districts") u.set("district", district);
     if (waterType !== "Any Water Type") u.set("waterType", waterType);
+    // sorting & paging
     u.set("sortBy", sortBy);
     u.set("sortDir", sortDir);
     u.set("page", String(page));
     u.set("pageSize", String(pageSize));
     u.set("premium", String(premium));
+    // NEW: scope hint for API
+    // Preferred param:
+    u.set("scope", scope); // "market" | "mine"
+    // Back-compat params your API can also accept (no harm if ignored):
+    if (scope === "mine") {
+      u.set("mine", "1");
+    } else {
+      u.set("excludeMine", "1");
+    }
     return u.toString();
-  })();
+  }, [district, waterType, sortBy, sortDir, page, pageSize, premium, scope]);
 
   useEffect(() => {
     if (checking) return;
@@ -145,6 +165,7 @@ export default function DashboardPage() {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
+      credentials: "include",
     })
       .then(async (r) => {
         if (!r.ok) {
@@ -192,18 +213,44 @@ export default function DashboardPage() {
     setPage(1);
   }
 
+  const pageTitle =
+    scope === "market" ? "Active Water Sales" : "Your Listings";
+
+  const subtitle =
+    scope === "market"
+      ? "Westlands · San Luis · Panoche · Arvin Edison"
+      : `Signed in as ${user?.primaryEmailAddress?.emailAddress ?? user?.username ?? "you"}`;
+
   return (
     <div className="min-h-screen bg-slate-50">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {/* Tabs */}
+        <div className="mb-4 flex items-center gap-2">
+          <TabButton active={scope === "market"} onClick={() => { setScope("market"); setPage(1); }}>
+            Marketplace
+          </TabButton>
+          <TabButton active={scope === "mine"} onClick={() => { setScope("mine"); setPage(1); }}>
+            Your Listings
+          </TabButton>
+        </div>
+
         {/* Filters */}
         <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-2xl font-semibold tracking-tight">Active Water Sales</div>
-              <div className="mt-1 text-sm text-white/80">
-                Westlands · San Luis · Panoche · Arvin Edison
-              </div>
+              <div className="text-2xl font-semibold tracking-tight">{pageTitle}</div>
+              <div className="mt-1 text-sm text-white/80">{subtitle}</div>
             </div>
+            {scope === "mine" && (
+              <div className="mt-3 sm:mt-0">
+                <Link
+                  href="/create-listing"
+                  className="inline-flex h-9 items-center justify-center rounded-xl bg-white/15 px-4 text-sm font-semibold text-white hover:bg-white/25"
+                >
+                  Create Listing
+                </Link>
+              </div>
+            )}
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -241,7 +288,7 @@ export default function DashboardPage() {
 
         {/* KPIs */}
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Stat label="Active Listings" value={String(active)} />
+          <Stat label={scope === "market" ? "Active Listings" : "Your Listings"} value={String(active)} />
           <Stat label="Total Acre-Feet" value={formatInt(totalAf)} />
           <Stat label="Avg $/AF" value={avgPriceRaw ? `$${formatInt(avgPriceRaw)}` : "$0"} />
         </section>
@@ -249,14 +296,16 @@ export default function DashboardPage() {
         {/* Listings */}
         <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
-            <div className="font-medium">Listings</div>
+            <div className="font-medium">{scope === "market" ? "Listings" : "Your Listings"}</div>
             <div className="flex items-center gap-3">
-              <Link
-                href="/create-listing"
-                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
-              >
-                Create Listing
-              </Link>
+              {scope === "market" ? (
+                <Link
+                  href="/create-listing"
+                  className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
+                >
+                  Create Listing
+                </Link>
+              ) : null}
             </div>
           </div>
 
@@ -274,7 +323,7 @@ export default function DashboardPage() {
                       <Th label="Acre-Feet" align="right" active={sortBy === "acreFeet"} dir={sortDir} onClick={() => onSort("acreFeet")} />
                       <Th label="$ / AF" align="right" active={sortBy === "pricePerAf"} dir={sortDir} onClick={() => onSort("pricePerAf")} />
                       <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
-                      <Th label="Action" align="center" active={sortBy === "createdAt"} dir={sortDir} onClick={() => onSort("createdAt")} />
+                      <Th label={scope === "market" ? "Action" : "Manage"} align="center" active={sortBy === "createdAt"} dir={sortDir} onClick={() => onSort("createdAt")} />
                     </tr>
                   </thead>
                   <tbody>
@@ -289,12 +338,29 @@ export default function DashboardPage() {
                           </span>
                         </Td>
                         <Td align="center">
-                          <Link
-                            href={`/listings/${l.id}`}
-                            className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            View Details
-                          </Link>
+                          {scope === "market" ? (
+                            <Link
+                              href={`/listings/${l.id}`}
+                              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              View Details
+                            </Link>
+                          ) : (
+                            <div className="inline-flex gap-2">
+                              <Link
+                                href={`/listings/${l.id}`}
+                                className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                View
+                              </Link>
+                              <Link
+                                href={`/listings/${l.id}/edit`}
+                                className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                Edit
+                              </Link>
+                            </div>
+                          )}
                         </Td>
                       </tr>
                     ))}
@@ -302,7 +368,11 @@ export default function DashboardPage() {
                       <tr>
                         <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
                           <div className="mx-auto max-w-md">
-                            <div className="text-sm">No listings match your filters.</div>
+                            <div className="text-sm">
+                              {scope === "market"
+                                ? "No listings match your filters."
+                                : "You don’t have any listings yet."}
+                            </div>
                             <div className="mt-4">
                               <Link
                                 href="/create-listing"
@@ -324,7 +394,7 @@ export default function DashboardPage() {
                 <div className="text-xs text-slate-500">
                   Page <span className="font-medium text-slate-700">{page}</span> of{" "}
                   <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
-                  {data?.total ?? 0} total listings
+                  {data?.total ?? 0} total {scope === "market" ? "listings" : "your listings"}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -369,6 +439,30 @@ export default function DashboardPage() {
 }
 
 /* ---------------- UI bits ---------------- */
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl px-4 py-2 text-sm font-semibold ${
+        active
+          ? "bg-[#004434] text-white"
+          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -388,7 +482,7 @@ function Th({
   label: string;
   onClick: () => void;
   active: boolean;
-  dir: SortDir;
+  dir: "asc" | "desc";
   align?: "left" | "right" | "center";
 }) {
   return (
