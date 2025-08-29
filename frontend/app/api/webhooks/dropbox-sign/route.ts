@@ -6,21 +6,24 @@ import { TradeStatus } from "@prisma/client";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/* -------- Optional dynamic SDK loader (safe if @dropbox/sign isn't installed) -------- */
+/* ---- Optional dynamic SDK loader (safe if @dropbox/sign isn't installed) ---- */
 let EventCallbackHelper: any;
 let EventCallbackRequest: any;
+let SDK_READY = false;
 
 async function loadDropboxSdk() {
   if (EventCallbackHelper && EventCallbackRequest) return;
   try {
-    const mod = await import("@dropbox/sign");
+    const mod = await import("@dropbox/sign"); // v1.x
     EventCallbackHelper = mod.EventCallbackHelper;
     EventCallbackRequest = mod.EventCallbackRequest;
+    SDK_READY = true;
   } catch {
-    // Build can still succeed; we'll ACK but skip verification & updates
-    console.warn("[dropbox-sign webhook] SDK not installed; skipping signature verification.");
-    EventCallbackHelper = { isValid: () => true };
+    // Build can still succeed; we’ll ACK but skip verification & DB updates
+    console.warn("[dropbox-sign webhook] SDK not installed; will ack but skip processing.");
+    EventCallbackHelper = { isValid: () => false };
     EventCallbackRequest = { init: (d: any) => d };
+    SDK_READY = false;
   }
 }
 
@@ -40,18 +43,22 @@ function pickStatus(names: Array<keyof typeof TradeStatus | string>): TradeStatu
   return null;
 }
 
-/** Parse webhook payload from either form-data ('json' field) or raw JSON */
-async function parseDropboxPayload(req: NextRequest) {
+/** Parse webhook payload AND keep a raw string for signature verification */
+async function parseDropboxPayload(req: NextRequest): Promise<{ raw: string | null; obj: any | null }> {
   const ctype = req.headers.get("content-type") || "";
   try {
     if (ctype.includes("application/json")) {
-      return await req.json();
+      const raw = await req.text(); // keep exact raw json
+      const obj = JSON.parse(raw || "{}");
+      return { raw, obj };
     }
+    // form-data or urlencoded: Dropbox Sign posts a "json" field containing the JSON
     const fd = await req.formData();
-    const raw = String(fd.get("json") || "{}");
-    return JSON.parse(raw);
+    const raw = String(fd.get("json") || "");
+    const obj = raw ? JSON.parse(raw) : null;
+    return { raw: raw || null, obj };
   } catch {
-    return null;
+    return { raw: null, obj: null };
   }
 }
 
@@ -68,13 +75,22 @@ export async function POST(req: NextRequest) {
       return ack(); // still ack so Sign doesn't retry forever
     }
 
-    const data = await parseDropboxPayload(req);
+    const { raw, obj } = await parseDropboxPayload(req);
+    const data = obj;
     if (!data || !data.event) return ack();
 
-    // Load SDK (or fallback) and verify payload signature
+    // Load SDK (or fallback)
     await loadDropboxSdk();
+
+    // If SDK unavailable, we cannot verify. Ack and bail safely.
+    if (!SDK_READY) {
+      return ack();
+    }
+
+    // Verify HMAC signature with SDK helper — prefer raw string if available
     try {
-      const evt = EventCallbackRequest.init(data);
+      const evtInitArg = raw || data; // SDK accepts raw json string or parsed object
+      const evt = EventCallbackRequest.init(evtInitArg);
       if (!EventCallbackHelper.isValid(apiKey, evt)) {
         console.warn("[dropbox-sign webhook] invalid signature");
         // Respond 200 anyway per their retry guidance, but do nothing
@@ -133,10 +149,10 @@ export async function POST(req: NextRequest) {
 
       if (eventType === "signature_request_signed") {
         const buyerSigned = sigReq?.signatures?.some(
-          (s: any) => s.signer_role === "Buyer" && s.status_code === "signed",
+          (s: any) => (s.signer_role || s.role) === "Buyer" && s.status_code === "signed",
         );
         const sellerSigned = sigReq?.signatures?.some(
-          (s: any) => s.signer_role === "Seller" && s.status_code === "signed",
+          (s: any) => (s.signer_role || s.role) === "Seller" && s.status_code === "signed",
         );
 
         let next: TradeStatus | null = null;
