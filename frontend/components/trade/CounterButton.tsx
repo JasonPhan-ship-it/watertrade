@@ -1,17 +1,18 @@
-// components/trade/CounterButton.tsx
 "use client";
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
 type Props = {
-  postUrl: string;             // e.g. /api/trades/:id/{buyer|seller}/counter (qs optional)
+  postUrl: string;
   role: "buyer" | "seller";
   token?: string;
-  currentPriceCents: number;   // current offer price in cents
-  currentQty: number;          // current offer volume in AF
+  currentPriceCents: number;
+  currentQty: number;
   label?: string;
   className?: string;
+  successTitle?: string;
+  successMessage?: string;
 };
 
 export default function CounterButton({
@@ -22,11 +23,14 @@ export default function CounterButton({
   currentQty,
   label = "Counter",
   className,
+  successTitle = "Counter Sent",
+  successMessage = "Your counteroffer has been sent to the other party.",
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = React.useState(false);
 
   // form state shown as dollars + AF
   const [price, setPrice] = React.useState((currentPriceCents / 100).toString());
@@ -53,7 +57,7 @@ export default function CounterButton({
     e.preventDefault();
     if (busy) return;
 
-    const priceNum = Math.round(Number(price) * 100); // -> cents
+    const priceNum = Math.round(Number(price) * 100); // cents
     const qtyNum = Number(qty);
 
     if (!Number.isFinite(priceNum) || priceNum <= 0) {
@@ -80,7 +84,7 @@ export default function CounterButton({
       setErr(null);
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["x-trade-token"] = token; // 👈 server reads this
+      if (token) headers["x-trade-token"] = token;
 
       const url = ensureUrlWithToken(postUrl);
 
@@ -89,30 +93,26 @@ export default function CounterButton({
         credentials: "include",
         headers,
         body: JSON.stringify({
-          // server supports both JSON and form-data; we send JSON
           pricePerAf: priceNum,
           volumeAf: qtyNum,
           windowLabel: windowLabel.trim() || undefined,
-          // role in body is optional; auth is based on session/token
           role,
         }),
       });
 
-      // try to parse JSON either way
       let data: any = {};
       const ct = res.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
-        try { data = await res.json(); } catch { /* ignore */ }
+        try { data = await res.json(); } catch {}
       } else {
-        try { data = { raw: await res.text() }; } catch { /* ignore */ }
+        try { data = { raw: await res.text() }; } catch {}
       }
 
       if (!res.ok) {
-        // Surface helpful 403 diagnostics if present
         if (res.status === 403 && data?.details) {
           const d = data.details;
           const hint =
-            `Not recognized as buyer.\n` +
+            `Not recognized as ${role}.\n` +
             `viewerRole=${d.viewerRole}, via=${d.via}, hasToken=${d.hasToken}, sawRoleParam=${d.sawRoleParam}`;
           throw new Error(data?.error ? `${data.error}\n${hint}` : hint);
         }
@@ -120,9 +120,8 @@ export default function CounterButton({
       }
 
       close();
-      // Optional: toast instead of alert in your UI system
-      // e.g., setToast({ kind: "success", text: "Counter sent." })
-      router.refresh();
+      setShowSuccess(true); // show confirmation modal
+      // NOTE: wait to refresh until user clicks OK in the modal
     } catch (e: any) {
       setErr(e?.message || "Something went wrong sending the counter.");
     } finally {
@@ -153,7 +152,6 @@ export default function CounterButton({
       {open && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" aria-modal="true" role="dialog">
           <div className="absolute inset-0 bg-black/40" onClick={close} />
-
           <div className="relative z-[110] w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
             <h2 className="text-lg font-semibold text-slate-900">Counteroffer</h2>
             <p className="mt-1 text-sm text-slate-600">{ruleText}</p>
@@ -217,6 +215,26 @@ export default function CounterButton({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {showSuccess && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowSuccess(false)} />
+          <div className="relative z-[110] w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl text-center">
+            <h2 className="text-lg font-semibold text-slate-900">{successTitle}</h2>
+            <p className="mt-2 text-sm text-slate-600">{successMessage}</p>
+            <button
+              onClick={() => {
+                setShowSuccess(false);
+                router.refresh();
+              }}
+              className="mt-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              OK
+            </button>
           </div>
         </div>
       )}
