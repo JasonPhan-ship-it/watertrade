@@ -1,4 +1,3 @@
-// components/trade/AcceptButton.tsx
 "use client";
 
 import * as React from "react";
@@ -11,7 +10,9 @@ type Props = {
   className?: string;
   confirm?: boolean;
   confirmMessage?: string;
-  onSuccess?: () => void; // kept for backward-compat
+  onSuccess?: () => void;
+  successTitle?: string;
+  successMessage?: string;
 };
 
 export default function AcceptButton({
@@ -22,11 +23,14 @@ export default function AcceptButton({
   confirm = true,
   confirmMessage = "Accept this offer?",
   onSuccess,
+  successTitle = "Offer Accepted",
+  successMessage = "The offer was accepted. Next steps have been sent to both parties.",
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [ok, setOk] = React.useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = React.useState(false);
 
   async function handleClick() {
     if (busy) return;
@@ -38,7 +42,6 @@ export default function AcceptButton({
     try {
       setBusy(true);
 
-      // Your server checks URL ?token or the 'x-trade-token' header (not 'Authorization', not 'X-Magic-Token')
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["x-trade-token"] = token;
 
@@ -46,17 +49,15 @@ export default function AcceptButton({
         method: "POST",
         credentials: "include",
         headers,
-        // sending token in the body is optional; server doesn't require it, but harmless
         body: JSON.stringify({ token }),
       });
 
-      // try to parse JSON either way (ok or error)
       let data: any = {};
       const ct = res.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
-        try { data = await res.json(); } catch { /* ignore */ }
+        try { data = await res.json(); } catch {}
       } else {
-        try { data = { raw: await res.text() }; } catch { /* ignore */ }
+        try { data = { raw: await res.text() }; } catch {}
       }
 
       if (!res.ok) {
@@ -64,14 +65,10 @@ export default function AcceptButton({
         throw new Error(message);
       }
 
-      // Success: show inline confirmation and refresh to reflect new status
       setOk(data?.message || "Awaiting buyer signature");
+      setShowSuccess(true);
       onSuccess?.();
-
-      // If you prefer to navigate instead of staying, uncomment:
-      // if (data?.redirectUrl) router.push(data.redirectUrl); else router.refresh();
-
-      router.refresh();
+      // NOTE: wait to refresh until user clicks OK in the modal
     } catch (e: any) {
       setErr(e?.message || "Something went wrong while accepting.");
     } finally {
@@ -103,6 +100,27 @@ export default function AcceptButton({
       {err && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {err}
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {showSuccess && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowSuccess(false)} />
+          <div className="relative z-[110] w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl text-center">
+            <h2 className="text-lg font-semibold text-slate-900">{successTitle}</h2>
+            <p className="mt-2 text-sm text-slate-600">{successMessage}</p>
+            <button
+              onClick={() => {
+                setShowSuccess(false);
+                if (onSuccess) onSuccess();
+                else router.refresh();
+              }}
+              className="mt-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              OK
+            </button>
+          </div>
         </div>
       )}
     </div>
