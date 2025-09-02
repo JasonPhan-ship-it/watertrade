@@ -1,37 +1,38 @@
 // components/BuyNow.tsx
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useRouter } from "next/navigation";
 
 type BuyNowProps = {
   listingId: string;
   /** Listing price per AF in **cents** (e.g. 10000 for $100.00). */
   pricePerAFCents: number;
-  /** Optional max AF a user can buy in one go (e.g., listing's available AF). */
-  maxAcreFeet?: number;
+  /** Optional preview AF to display (server still decides actual AF). */
   defaultAcreFeet?: number;
   className?: string;
+  /** kept for backwards-compat; not used anymore */
+  maxAcreFeet?: number;
 };
 
 export default function BuyNow({
   listingId,
   pricePerAFCents,
-  maxAcreFeet,
   defaultAcreFeet = 1,
   className,
 }: BuyNowProps) {
   const router = useRouter();
-  const [acreFeet, setAcreFeet] = useState<number>(defaultAcreFeet);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  // Read-only preview; server determines actual AF
+  const previewAcreFeet = Math.max(1, Math.floor(defaultAcreFeet));
 
   const priceDollars = (pricePerAFCents / 100).toLocaleString(undefined, {
     style: "currency",
     currency: "USD",
   });
-
-  const totalDollars = ((pricePerAFCents * Math.max(1, acreFeet)) / 100).toLocaleString(undefined, {
+  const totalDollars = ((pricePerAFCents * previewAcreFeet) / 100).toLocaleString(undefined, {
     style: "currency",
     currency: "USD",
   });
@@ -40,23 +41,16 @@ export default function BuyNow({
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch("/api/transactions/buy-now", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          listingId,
-          acreFeet, // ← ONLY send quantity; server will read price from Listing
-        }),
-      });
+      // ✅ Only send listingId (via querystring). No quantity from client.
+      const res = await fetch(
+        `/api/transactions/buy-now?listingId=${encodeURIComponent(listingId)}`,
+        { method: "POST", credentials: "include" }
+      );
 
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({} as any));
-        throw new Error(j?.error || `Failed to start Buy Now (${res.status})`);
-      }
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(data?.error || `Failed to start Buy Now (${res.status})`);
 
-      const { id } = await res.json();
-      router.push(`/transactions/${id}?action=review`);
+      router.push(`/transactions/${data.id}?action=review`);
     } catch (e: any) {
       setErr(e?.message || "Failed to start Buy Now");
     } finally {
@@ -70,24 +64,15 @@ export default function BuyNow({
         <div className="text-sm font-medium">Buy Now</div>
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="text-sm text-slate-700">
-            Acre‑Feet
-            <input
-              type="number"
-              min={1}
-              max={maxAcreFeet ?? undefined}
-              step={1}
-              value={acreFeet}
-              onChange={(e) => {
-                const v = Math.max(1, Number(e.target.value));
-                setAcreFeet(maxAcreFeet ? Math.min(v, maxAcreFeet) : v);
-              }}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            />
-            {maxAcreFeet ? (
-              <div className="mt-1 text-xs text-slate-500">Max available: {maxAcreFeet.toLocaleString()} AF</div>
-            ) : null}
-          </label>
+          <div className="text-sm text-slate-700">
+            Quantity (AF)
+            <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              {previewAcreFeet.toLocaleString()}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              Final quantity is determined by the listing.
+            </div>
+          </div>
 
           <div className="text-sm text-slate-700">
             Price / AF
@@ -99,8 +84,9 @@ export default function BuyNow({
         </div>
 
         <div className="mt-3 text-sm">
-          <span className="text-slate-600">Total:</span>{" "}
+          <span className="text-slate-600">Preview Total:</span>{" "}
           <span className="font-medium">{totalDollars}</span>
+          <span className="ml-2 text-xs text-slate-500">(final total computed on server)</span>
         </div>
 
         {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
@@ -110,7 +96,7 @@ export default function BuyNow({
           disabled={loading}
           className="mt-4 rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50"
         >
-          {loading ? "Starting…" : "Start Buy Now"}
+          {loading ? "Starting…" : "Buy Now"}
         </button>
       </div>
     </div>
