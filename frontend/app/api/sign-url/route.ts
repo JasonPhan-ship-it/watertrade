@@ -6,6 +6,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getViewer } from "@/lib/trade";
 
+// ---- Optional: re-declare the Viewer shape if not exported from lib/trade ----
+// type Viewer =
+//   | { role: "seller" | "buyer" | "guest"; userId?: string }
+//   | { role: "forbidden"; reason: string };
+
+// Narrowing helper – avoids `"forbidden"` type complaint
+function isForbidden(v: any): v is { role: "forbidden"; reason: string } {
+  return v?.role === "forbidden";
+}
+
 let SignatureRequestApi: any;
 let EmbeddedApi: any;
 
@@ -15,11 +25,10 @@ async function loadDropbox() {
     const mod = await import("@dropbox/sign");
     SignatureRequestApi = new mod.SignatureRequestApi();
     EmbeddedApi = new mod.EmbeddedApi();
-    // Set API key
+    // Note: Dropbox Sign node SDK uses basic auth with "username" for API key
     SignatureRequestApi.username = process.env.DROPBOX_SIGN_API_KEY || "";
     EmbeddedApi.username = process.env.DROPBOX_SIGN_API_KEY || "";
   } catch (e) {
-    // ok to run without SDK in dev; we'll return a placeholder URL
     console.warn("[sign-url] @dropbox/sign not installed or API key missing.");
   }
 }
@@ -27,9 +36,10 @@ async function loadDropbox() {
 export async function GET(req: NextRequest) {
   try {
     await loadDropbox();
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
-    const role = (searchParams.get("role") || "").toLowerCase();
+    const roleParam = (searchParams.get("role") || "").toLowerCase();
     const token = searchParams.get("token") || "";
 
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -39,28 +49,33 @@ export async function GET(req: NextRequest) {
 
     // ✅ authorization using your existing helper
     const viewer = await getViewer(req as any, trade);
-    if (viewer.role === "forbidden") {
+
+    if (isForbidden(viewer)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    if (role && viewer.role !== role) {
-      // Optional: prevent crossing roles (buyer vs seller)
+
+    // Optional: enforce role from query string if present
+    if (roleParam && viewer.role !== roleParam) {
       return NextResponse.json({ error: "Role mismatch" }, { status: 403 });
     }
 
-    // If SDK/env not configured yet, return a harmless placeholder
+    // If SDK/env not configured yet, return a harmless placeholder so the page renders
     if (!SignatureRequestApi || !process.env.DROPBOX_SIGN_CLIENT_ID) {
       const fake = `https://example.com/fake-dropbox-sign?trade=${encodeURIComponent(id)}`;
       return NextResponse.json({ url: fake });
     }
 
-    // Build signers based on role (example; adapt to your data)
-    const signers = [
-      {
-        email_address: role === "seller" ? trade.sellerEmail : trade.buyerEmail,
-        name: role === "seller" ? trade.sellerName : trade.buyerName,
-        role: role || "signer",
-      },
-    ];
+    // Map the viewer/role to a signer; tweak these fields based on your schema
+    const isSeller = (roleParam || viewer.role) === "seller";
+    const signerEmail =
+      (isSeller ? (trade as any).sellerEmail : (trade as any).buyerEmail) ||
+      (isSeller ? (trade as any).sellerUserEmail : (trade as any).buyerUserEmail);
+    const signerName =
+      (isSeller ? (trade as any).sellerName : (trade as any).buyerName) || "Signer";
+
+    if (!signerEmail) {
+      return NextResponse.json({ error: "Missing signer email on trade" }, { status: 422 });
+    }
 
     // 1) Create embedded signature request
     const reqCreate = {
@@ -68,22 +83,28 @@ export async function GET(req: NextRequest) {
       title: `Water Traders – Trade ${trade.id}`,
       subject: "Sign the Water Traders agreement",
       message: "Please review and sign.",
-      signers,
-      files: [], // or use file_urls / templates
-      // file_urls: ["https://.../agreement.pdf"],
+      signers: [
+        {
+          email_address: signerEmail,
+          name: signerName,
+          role: "signer",
+        },
+      ],
+      // Provide your doc via files[] (Buffer) or file_urls[] or use a template flow
+      // file_urls: ["https://your-cdn.com/water-trade-agreement.pdf"],
       test_mode: process.env.NODE_ENV !== "production" ? 1 : 0,
-    };
+    } as any;
 
-    // NOTE: Depending on your usage, you may use templates:
+    // If you’re using templates, switch to:
     // SignatureRequestApi.signatureRequestCreateEmbeddedWithTemplate(reqWithTemplate)
+    const created = await SignatureRequestApi.signatureRequestCreateEmbedded(reqCreate);
 
-    const created = await SignatureRequestApi.signatureRequestCreateEmbedded(reqCreate as any);
     const signatureId = created?.body?.signature_request?.signatures?.[0]?.signature_id;
     if (!signatureId) {
       return NextResponse.json({ error: "Failed to create signature request" }, { status: 500 });
     }
 
-    // 2) Get the embedded sign URL for the signer
+    // 2) Get embedded sign URL
     const embedded = await EmbeddedApi.embeddedSignUrl(signatureId);
     const signUrl = embedded?.body?.embedded?.sign_url;
     if (!signUrl) {
