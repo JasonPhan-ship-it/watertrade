@@ -1,3 +1,4 @@
+// app/create-listing/[id]/parts/BuyNow.tsx
 import { prisma } from "@/lib/prisma";
 import BuyNowButton from "./BuyNowButton";
 
@@ -55,8 +56,6 @@ export default async function BuyNow({ listingId }: { listingId: string }) {
       <div className="mt-4">
         <BuyNowButton
           listingId={id}
-          acreFeet={acreFeet}         // passed from server
-          pricePerAF={pricePerAF}     // cents (from server)
           label={`Buy ${acreFeet.toLocaleString()} AF @ $${priceDollars}/AF (Total $${totalDollars})`}
         />
       </div>
