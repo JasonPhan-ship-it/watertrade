@@ -7,8 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
-import { sendEmail, appUrl } from "@/lib/email";
-import { renderBuyerCounterEmail } from "@/lib/email";
+import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
 /** Read either JSON or form-data and normalize fields */
 async function readBody(req: NextRequest) {
@@ -32,13 +31,15 @@ async function readBody(req: NextRequest) {
 
 /** Ensure a Trade exists given either a Trade.id or a Transaction.id, and satisfy required fields. */
 async function ensureTradeFromAnyIdOrThrow(id: string) {
+  // If id is already a Trade.id (or we can derive a Trade by tx id), return it.
   const existing = await findTradeByAnyId(id);
   if (existing) return existing;
 
+  // Otherwise, treat id as a Transaction.id and try to create a Trade from it.
   const txn = await prisma.transaction.findUnique({ where: { id } });
   if (!txn) return null;
 
-  // Try to resolve required fields for Trade from Transaction and/or its Listing.
+  // Resolve required fields for Trade from Transaction and/or its Listing.
   const listingIdFromTxn = (txn as any).listingId ?? null;
   const listing = listingIdFromTxn
     ? await prisma.listing.findUnique({ where: { id: listingIdFromTxn } })
@@ -53,32 +54,33 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
   if (!listingId || !district) {
     // Fail fast with a helpful message instead of a Prisma type error
     throw new Error(
-      "Cannot create Trade: missing listingId or district on Transaction/Listing. Please ensure the Transaction has listingId and district (or the related Listing has district)."
+      "Cannot create Trade: missing listingId or district on Transaction/Listing. Ensure the Transaction has listingId and district (or the related Listing has district)."
     );
   }
+
+  // Choose a valid initial status for your enum; NEGOTIATING isn't in your schema.
+  const initialStatus = TradeStatus.OFFERED;
 
   const data: any = {
     transactionId: txn.id,
     listingId,
     district, // required by your Trade model
+
     sellerUserId: (txn as any).sellerUserId ?? null,
     buyerUserId: (txn as any).buyerUserId ?? null,
-    // If you store participant identities/emails on Trade, seed them:
-    sellerEmail:
-      (txn as any).sellerEmail ?? (txn as any).seller_user_email ?? undefined,
-    buyerEmail:
-      (txn as any).buyerEmail ?? (txn as any).buyer_user_email ?? undefined,
-    sellerName:
-      (txn as any).sellerName ?? (txn as any).seller_user_name ?? undefined,
-    buyerName:
-      (txn as any).buyerName ?? (txn as any).buyer_user_name ?? undefined,
+
+    // Seed participant info if you keep these on Trade (optional in your schema)
+    sellerEmail: (txn as any).sellerEmail ?? (txn as any).seller_user_email ?? undefined,
+    buyerEmail:  (txn as any).buyerEmail  ?? (txn as any).buyer_user_email  ?? undefined,
+    sellerName:  (txn as any).sellerName  ?? (txn as any).seller_user_name  ?? undefined,
+    buyerName:   (txn as any).buyerName   ?? (txn as any).buyer_user_name   ?? undefined,
 
     // Seed initial terms if present
-    pricePerAf: (txn as any).pricePerAf ?? undefined,
-    volumeAf: (txn as any).volumeAf ?? undefined,
+    pricePerAf:  (txn as any).pricePerAf  ?? undefined,
+    volumeAf:    (txn as any).volumeAf    ?? undefined,
     windowLabel: (txn as any).windowLabel ?? undefined,
 
-    status: TradeStatus.NEGOTIATING,
+    status: initialStatus,
     round: 0,
   };
 
