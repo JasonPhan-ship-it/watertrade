@@ -5,32 +5,96 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getViewer } from "@/lib/trade";
+import { clerkClient } from "@clerk/nextjs/server";
 
-/** Type guard to narrow a forbidden viewer variant if your getViewer can return it. */
+/** Type guard for forbidden viewers */
 function isForbidden(v: any): v is { role: "forbidden"; reason: string } {
   return v?.role === "forbidden";
 }
 
-/** Lazy-load Dropbox Sign SDK so builds work without the package/env locally. */
+/** Lazy-load Dropbox Sign SDK so builds work even if the package/env aren’t present locally */
 let SignatureRequestApi: any;
 let EmbeddedApi: any;
 
 async function loadDropbox() {
   if (SignatureRequestApi && EmbeddedApi) return;
-
   try {
     const mod = await import("@dropbox/sign");
     SignatureRequestApi = new mod.SignatureRequestApi();
     EmbeddedApi = new mod.EmbeddedApi();
 
-    // Dropbox Sign SDK uses HTTP basic auth via "username"
     const apiKey = process.env.DROPBOX_SIGN_API_KEY || "";
     SignatureRequestApi.username = apiKey;
     EmbeddedApi.username = apiKey;
   } catch {
-    // OK in dev or when env not set; we’ll return a placeholder URL below.
     console.warn("[sign-url] @dropbox/sign not installed or API key missing.");
   }
+}
+
+/** Resolve signer email+name from Trade → User → Clerk → Transaction */
+async function resolveSigner(
+  trade: any,
+  effectiveRole: "seller" | "buyer"
+): Promise<{ email: string | null; name: string }> {
+  const isSeller = effectiveRole === "seller";
+
+  // 1) Trade fields (try several common variants)
+  const tradeEmail =
+    (isSeller ? trade.sellerEmail : trade.buyerEmail) ??
+    (isSeller ? trade.sellerUserEmail : trade.buyerUserEmail) ??
+    (isSeller ? trade.seller_contact_email : trade.buyer_contact_email) ??
+    (isSeller ? trade.seller_user_email : trade.buyer_user_email) ??
+    null;
+
+  const tradeName =
+    (isSeller ? trade.sellerName : trade.buyerName) ??
+    (isSeller ? trade.sellerUserName : trade.buyerUserName) ??
+    (isSeller ? trade.seller_contact_name : trade.buyer_contact_name) ??
+    "";
+
+  if (tradeEmail) return { email: tradeEmail, name: tradeName || "Signer" };
+
+  // 2) Local User table
+  const [sellerUser, buyerUser] = await Promise.all([
+    trade.sellerUserId ? prisma.user.findUnique({ where: { id: trade.sellerUserId } }) : null,
+    trade.buyerUserId ? prisma.user.findUnique({ where: { id: trade.buyerUserId } }) : null,
+  ]);
+  let fallbackUser = (isSeller ? sellerUser : buyerUser) || null;
+  let userEmail = fallbackUser?.email || null;
+  let userName = fallbackUser?.name || tradeName || "";
+
+  // 3) Clerk (if user has clerkId)
+  if ((!userEmail || !userName) && fallbackUser?.clerkId) {
+    try {
+      const cl = await clerkClient.users.getUser(fallbackUser.clerkId);
+      userName = userName || cl.firstName || cl.username || userName;
+      const primary = cl.emailAddresses?.find(e => e.id === cl.primaryEmailAddressId)?.emailAddress;
+      const firstAny = cl.emailAddresses?.[0]?.emailAddress;
+      userEmail = userEmail || primary || firstAny || null;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (userEmail) return { email: userEmail, name: userName || "Signer" };
+
+  // 4) Source Transaction (if trade created from a txn)
+  if (trade.transactionId) {
+    const txn = await prisma.transaction.findUnique({ where: { id: trade.transactionId } });
+    if (txn) {
+      const txnEmail =
+        (isSeller ? (txn as any).sellerEmail : (txn as any).buyerEmail) ??
+        (isSeller ? (txn as any).seller_user_email : (txn as any).buyer_user_email) ??
+        null;
+      const txnName =
+        (isSeller ? (txn as any).sellerName : (txn as any).buyerName) ??
+        (isSeller ? (txn as any).seller_user_name : (txn as any).buyer_user_name) ??
+        userName;
+
+      if (txnEmail) return { email: txnEmail, name: (txnName || "Signer") as string };
+    }
+  }
+
+  return { email: null, name: userName || "Signer" };
 }
 
 export async function GET(req: NextRequest) {
@@ -39,7 +103,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
-    // role/token stay useful for telemetry/UI; not used for auth
+    // query role/token remain for telemetry/UI; not used for auth
     const roleParam = (searchParams.get("role") || "").toLowerCase();
     const token = searchParams.get("token") || "";
 
@@ -52,64 +116,55 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // ✅ Authorization via your helper (source of truth)
+    // Authorization via your helper (source of truth)
     const viewer = await getViewer(req as any, trade);
-
     if (isForbidden(viewer)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-
-    // Allow only seller/buyer; treat anything else (e.g., "unknown"/"guest") as forbidden
     if (viewer.role !== "seller" && viewer.role !== "buyer") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const effectiveRole: "seller" | "buyer" = viewer.role;
 
-    // Resolve signer from your Trade record (covers a few common field names)
-    const isSeller = effectiveRole === "seller";
-
-    const signerEmail =
-      (isSeller ? (trade as any).sellerEmail : (trade as any).buyerEmail) ||
-      (isSeller ? (trade as any).sellerUserEmail : (trade as any).buyerUserEmail) ||
-      (isSeller ? (trade as any).seller_contact_email : (trade as any).buyer_contact_email) ||
-      (isSeller ? (trade as any).seller_user_email : (trade as any).buyer_user_email) ||
-      null;
-
-    const signerName =
-      (isSeller ? (trade as any).sellerName : (trade as any).buyerName) ||
-      (isSeller ? (trade as any).sellerUserName : (trade as any).buyerUserName) ||
-      (isSeller ? (trade as any).seller_contact_name : (trade as any).buyer_contact_name) ||
-      "Signer";
+    // Resolve signer (Trade → User → Clerk → Transaction)
+    const { email: signerEmail, name: signerName } = await resolveSigner(trade, effectiveRole);
 
     if (!signerEmail) {
+      console.error("[sign-url] Missing signer email", {
+        tradeId: trade.id,
+        effectiveRole,
+        tradeSellerUserId: trade.sellerUserId,
+        tradeBuyerUserId: trade.buyerUserId,
+        transactionId: trade.transactionId ?? null,
+        note: "Checked Trade fields, User table, Clerk, and Transaction.",
+      });
       return NextResponse.json(
         { error: "Missing signer email on trade" },
         { status: 422 }
       );
     }
 
-    // If SDK or clientId isn't configured, return a harmless placeholder so the UI renders
+    // Dev-safe fallback when SDK/clientId not configured (so page still renders)
     const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
     if (!SignatureRequestApi || !clientId) {
       const fake = `https://example.com/fake-dropbox-sign?trade=${encodeURIComponent(
         id
-      )}&role=${encodeURIComponent(effectiveRole)}&token=${encodeURIComponent(token)}&roleParam=${encodeURIComponent(
-        roleParam
-      )}`;
+      )}&role=${encodeURIComponent(effectiveRole)}&token=${encodeURIComponent(
+        token
+      )}&roleParam=${encodeURIComponent(roleParam)}`;
       return NextResponse.json({ url: fake });
     }
 
-    // Optional: support template or file URL via env
+    // Use either a template or a raw file URL
     const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID || "";
-    const fileUrl = process.env.DROPBOX_SIGN_FILE_URL || ""; // e.g., your agreement PDF on a CDN
+    const fileUrl = process.env.DROPBOX_SIGN_FILE_URL || "";
     const testMode = process.env.NODE_ENV !== "production" ? 1 : 0;
 
     let signatureId: string | undefined;
 
     if (templateId) {
-      // --- Embedded with Template ---
-      // Ensure the `role` matches your template's signer role name(s).
+      // Embedded with Template — ensure role string matches your template signer role names
       const reqWithTemplate = {
         client_id: clientId,
         template_id: templateId,
@@ -117,7 +172,7 @@ export async function GET(req: NextRequest) {
         message: "Please review and sign.",
         signers: [
           {
-            role: isSeller ? "seller" : "buyer", // change to your template's exact role name
+            role: effectiveRole === "seller" ? "seller" : "buyer", // change if your template uses different role keys
             email_address: signerEmail,
             name: signerName,
           },
@@ -127,14 +182,12 @@ export async function GET(req: NextRequest) {
       } as any;
 
       const created =
-        await SignatureRequestApi.signatureRequestCreateEmbeddedWithTemplate(
-          reqWithTemplate
-        );
+        await SignatureRequestApi.signatureRequestCreateEmbeddedWithTemplate(reqWithTemplate);
 
       signatureId =
         created?.body?.signature_request?.signatures?.[0]?.signature_id;
     } else {
-      // --- Embedded without Template (direct file or file_url) ---
+      // Embedded without Template (direct file or file_url)
       const reqCreate = {
         client_id: clientId,
         title: `Water Traders – Trade ${id}`,
@@ -165,7 +218,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Fetch the embedded signing URL
     const embedded = await EmbeddedApi.embeddedSignUrl(signatureId);
     const signUrl = embedded?.body?.embedded?.sign_url;
 
