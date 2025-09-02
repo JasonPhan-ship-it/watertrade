@@ -30,33 +30,62 @@ async function readBody(req: NextRequest) {
   };
 }
 
-/** Ensure a Trade exists given either a Trade.id or a Transaction.id */
-async function ensureTradeFromAnyId(id: string) {
-  // Try existing trade or first trade for transaction
+/** Ensure a Trade exists given either a Trade.id or a Transaction.id, and satisfy required fields. */
+async function ensureTradeFromAnyIdOrThrow(id: string) {
   const existing = await findTradeByAnyId(id);
   if (existing) return existing;
 
-  // If not found, see if the id is a Transaction.id and create a Trade
   const txn = await prisma.transaction.findUnique({ where: { id } });
   if (!txn) return null;
 
-  // Create a basic trade from transaction fields (populate what your schema supports)
-  // Adjust these field names to your schema if different.
-  const created = await prisma.trade.create({
-    data: {
-      transactionId: txn.id,
-      sellerUserId: (txn as any).sellerUserId ?? null,
-      buyerUserId: (txn as any).buyerUserId ?? null,
-      // Seed with any initial terms if available on Transaction
-      pricePerAf: (txn as any).pricePerAf ?? null,
-      volumeAf: (txn as any).volumeAf ?? null,
-      windowLabel: (txn as any).windowLabel ?? null,
-      status: TradeStatus.NEGOTIATING,
-      round: 0,
-      // lastActor may be nullable in your schema; omit if required to be non-null
-    },
-  });
+  // Try to resolve required fields for Trade from Transaction and/or its Listing.
+  const listingIdFromTxn = (txn as any).listingId ?? null;
+  const listing = listingIdFromTxn
+    ? await prisma.listing.findUnique({ where: { id: listingIdFromTxn } })
+    : null;
 
+  const listingId = listing?.id ?? listingIdFromTxn ?? null;
+  const district =
+    (txn as any).district ??
+    (listing as any)?.district ??
+    null;
+
+  if (!listingId || !district) {
+    // Fail fast with a helpful message instead of a Prisma type error
+    throw new Error(
+      "Cannot create Trade: missing listingId or district on Transaction/Listing. Please ensure the Transaction has listingId and district (or the related Listing has district)."
+    );
+  }
+
+  const data: any = {
+    transactionId: txn.id,
+    listingId,
+    district, // required by your Trade model
+    sellerUserId: (txn as any).sellerUserId ?? null,
+    buyerUserId: (txn as any).buyerUserId ?? null,
+    // If you store participant identities/emails on Trade, seed them:
+    sellerEmail:
+      (txn as any).sellerEmail ?? (txn as any).seller_user_email ?? undefined,
+    buyerEmail:
+      (txn as any).buyerEmail ?? (txn as any).buyer_user_email ?? undefined,
+    sellerName:
+      (txn as any).sellerName ?? (txn as any).seller_user_name ?? undefined,
+    buyerName:
+      (txn as any).buyerName ?? (txn as any).buyer_user_name ?? undefined,
+
+    // Seed initial terms if present
+    pricePerAf: (txn as any).pricePerAf ?? undefined,
+    volumeAf: (txn as any).volumeAf ?? undefined,
+    windowLabel: (txn as any).windowLabel ?? undefined,
+
+    status: TradeStatus.NEGOTIATING,
+    round: 0,
+  };
+
+  // Remove undefined keys so Prisma doesn’t complain about nullability
+  Object.keys(data).forEach((k) => data[k] === undefined && delete data[k]);
+
+  const created = await prisma.trade.create({ data });
   return created;
 }
 
@@ -65,8 +94,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const id = (params.id || "").trim();
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    // 1) Ensure Trade exists (supports Trade.id or Transaction.id)
-    const trade = await ensureTradeFromAnyId(id);
+    // 1) Ensure Trade exists (accepts Trade.id or Transaction.id)
+    let trade;
+    try {
+      trade = await ensureTradeFromAnyIdOrThrow(id);
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || "Unable to create Trade" }, { status: 422 });
+    }
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // 2) AuthZ: must be seller on this trade
@@ -75,7 +109,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // 3) Parse and validate body
+    // 3) Parse & validate body
     const { pricePerAf, volumeAf, windowLabel } = await readBody(req);
     const pricePerAfNum = Number(pricePerAf);
     const volumeAfNum = Number(volumeAf);
@@ -93,8 +127,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // 4) Optional guard: seller’s counter should not be below current ask
-    if (typeof trade.pricePerAf === "number" && pricePerAfNum < (trade as any).pricePerAf) {
+    // 4) Optional guard: do not counter below current ask
+    if (typeof (trade as any).pricePerAf === "number" && pricePerAfNum < (trade as any).pricePerAf) {
       return NextResponse.json(
         { error: `Counter price must be at least ${((trade as any).pricePerAf / 100).toFixed(2)} USD/AF.` },
         { status: 400 }
@@ -129,7 +163,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     });
 
-    // 6) Notify buyer (lookup local users; optionally enrich via Clerk)
+    // 6) Notify buyer
     const [sellerUser, buyerUser] = await Promise.all([
       prisma.user.findUnique({ where: { id: (updated as any).sellerUserId } }),
       prisma.user.findUnique({ where: { id: (updated as any).buyerUserId } }),
@@ -154,12 +188,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           const firstAny = buyerClerk.emailAddresses?.[0]?.emailAddress;
           buyerEmail = buyerEmail || primary || firstAny || "";
         }
-      } catch {
-        /* non-fatal */
-      }
+      } catch { /* non-fatal */ }
     }
 
-    // 7) Email using your branded template (new banner/spacing)
     if (buyerEmail) {
       const viewLink = appUrl(
         `/t/${updated.id}?role=buyer${(updated as any).buyerToken ? `&token=${(updated as any).buyerToken}` : ""}`
