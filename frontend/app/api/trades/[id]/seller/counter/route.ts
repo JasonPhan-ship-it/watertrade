@@ -8,6 +8,7 @@ import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
 import { sendEmail, appUrl } from "@/lib/email";
+import { renderBuyerCounterEmail } from "@/lib/email";
 
 /** Read either JSON or form-data and normalize fields */
 async function readBody(req: NextRequest) {
@@ -29,10 +30,43 @@ async function readBody(req: NextRequest) {
   };
 }
 
+/** Ensure a Trade exists given either a Trade.id or a Transaction.id */
+async function ensureTradeFromAnyId(id: string) {
+  // Try existing trade or first trade for transaction
+  const existing = await findTradeByAnyId(id);
+  if (existing) return existing;
+
+  // If not found, see if the id is a Transaction.id and create a Trade
+  const txn = await prisma.transaction.findUnique({ where: { id } });
+  if (!txn) return null;
+
+  // Create a basic trade from transaction fields (populate what your schema supports)
+  // Adjust these field names to your schema if different.
+  const created = await prisma.trade.create({
+    data: {
+      transactionId: txn.id,
+      sellerUserId: (txn as any).sellerUserId ?? null,
+      buyerUserId: (txn as any).buyerUserId ?? null,
+      // Seed with any initial terms if available on Transaction
+      pricePerAf: (txn as any).pricePerAf ?? null,
+      volumeAf: (txn as any).volumeAf ?? null,
+      windowLabel: (txn as any).windowLabel ?? null,
+      status: TradeStatus.NEGOTIATING,
+      round: 0,
+      // lastActor may be nullable in your schema; omit if required to be non-null
+    },
+  });
+
+  return created;
+}
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    // 1) Support Trade.id or Transaction.id
-    const trade = await findTradeByAnyId((params.id || "").trim());
+    const id = (params.id || "").trim();
+    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+
+    // 1) Ensure Trade exists (supports Trade.id or Transaction.id)
+    const trade = await ensureTradeFromAnyId(id);
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // 2) AuthZ: must be seller on this trade
@@ -41,7 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // 3) Parse body
+    // 3) Parse and validate body
     const { pricePerAf, volumeAf, windowLabel } = await readBody(req);
     const pricePerAfNum = Number(pricePerAf);
     const volumeAfNum = Number(volumeAf);
@@ -60,14 +94,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // 4) Optional guard: seller’s counter should not be below current ask
-    if (typeof trade.pricePerAf === "number" && pricePerAfNum < trade.pricePerAf) {
+    if (typeof trade.pricePerAf === "number" && pricePerAfNum < (trade as any).pricePerAf) {
       return NextResponse.json(
-        { error: `Counter price must be at least ${(trade.pricePerAf / 100).toFixed(2)} USD/AF.` },
+        { error: `Counter price must be at least ${((trade as any).pricePerAf / 100).toFixed(2)} USD/AF.` },
         { status: 400 }
       );
     }
 
-    // 5) Update Trade
+    // 5) Update Trade with seller counter
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
@@ -76,7 +110,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         volumeAf: volumeAfNum,
         windowLabel:
           typeof windowLabel === "string" && windowLabel.trim() ? windowLabel.trim() : null,
-        round: (trade.round ?? 0) + 1,
+        round: (trade as any).round ? (trade as any).round + 1 : 1,
         lastActor: Party.SELLER,
         version: { increment: 1 },
         events: {
@@ -84,11 +118,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             actor: "seller",
             kind: "COUNTER",
             payload: {
-              previousStatus: trade.status,
+              previousStatus: (trade as any).status,
               pricePerAf: pricePerAfNum,
               volumeAf: volumeAfNum,
               windowLabel: typeof windowLabel === "string" ? windowLabel : null,
-              round: (trade.round ?? 0) + 1,
+              round: ((trade as any).round ?? 0) + 1,
             },
           },
         },
@@ -97,8 +131,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // 6) Notify buyer (lookup local users; optionally enrich via Clerk)
     const [sellerUser, buyerUser] = await Promise.all([
-      prisma.user.findUnique({ where: { id: trade.sellerUserId } }),
-      prisma.user.findUnique({ where: { id: trade.buyerUserId } }),
+      prisma.user.findUnique({ where: { id: (updated as any).sellerUserId } }),
+      prisma.user.findUnique({ where: { id: (updated as any).buyerUserId } }),
     ]);
 
     let sellerName = sellerUser?.name || "";
@@ -120,40 +154,40 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           const firstAny = buyerClerk.emailAddresses?.[0]?.emailAddress;
           buyerEmail = buyerEmail || primary || firstAny || "";
         }
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
 
+    // 7) Email using your branded template (new banner/spacing)
     if (buyerEmail) {
-      const viewLink = appUrl(`/t/${updated.id}?role=buyer${trade.buyerToken ? `&token=${trade.buyerToken}` : ""}`);
+      const viewLink = appUrl(
+        `/t/${updated.id}?role=buyer${(updated as any).buyerToken ? `&token=${(updated as any).buyerToken}` : ""}`
+      );
       const counterLink = `${viewLink}&action=counter`;
       const declineLink = `${viewLink}&action=decline`;
 
-      const priceLabel = `$${(updated.pricePerAf / 100).toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}/AF`;
-
-      const html = `
-        <div>
-          <p>Hi ${buyerName || "Buyer"},</p>
-          <p>The seller (${sellerName || "Seller"}) sent a counteroffer:</p>
-          <ul>
-            <li>Volume: ${updated.volumeAf} AF</li>
-            <li>Price: ${priceLabel}</li>
-          </ul>
-          <p>
-            <a href="${viewLink}">View</a> ·
-            <a href="${counterLink}">Counter</a> ·
-            <a href="${declineLink}">Decline</a>
-          </p>
-        </div>
-      `;
+      const { html, preheader } = renderBuyerCounterEmail({
+        buyerName,
+        sellerName,
+        offer: {
+          listingTitle: (updated as any).listingTitle || "Water Trade",
+          district: (updated as any).district || "—",
+          waterType: (updated as any).waterType || null,
+          volumeAf: updated.volumeAf ?? 0,
+          pricePerAf: updated.pricePerAf ?? 0,
+          windowLabel: updated.windowLabel || undefined,
+        },
+        viewLink,
+        counterLink,
+        declineLink,
+      });
 
       await sendEmail({
         to: buyerEmail,
         subject: "Seller sent a counteroffer",
         html,
-        preheader: "Counter offer",
+        preheader,
       });
     }
 
