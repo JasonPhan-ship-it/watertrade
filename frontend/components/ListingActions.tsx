@@ -2,6 +2,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 
 type Kind = "SELL" | "BUY";
 
@@ -22,22 +23,25 @@ export default function ListingActions({
   isAuction = false,
   reservePrice = null,
 }: Props) {
+  const router = useRouter();
+
   const [mode, setMode] = React.useState<Mode>(() => (kind === "SELL" ? "BUY_NOW" : "SELL_NOW"));
+
+  // Inputs ONLY for OFFER / BID (Buy/Sell Now are server-driven, no inputs)
   const [acreFeet, setAcreFeet] = React.useState<number>(1);
   const [price, setPrice] = React.useState<number>(() => {
     const base = isAuction ? (reservePrice ?? pricePerAf) : pricePerAf;
     return round2(base);
   });
+
   const [submitting, setSubmitting] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
 
   const total = React.useMemo(() => round2(acreFeet * price), [acreFeet, price]);
 
   React.useEffect(() => {
-    // Reset suggested price when mode changes
-    if (mode === "BUY_NOW" || mode === "SELL_NOW") setPrice(round2(pricePerAf));
-    if (mode === "BID") setPrice(round2(reservePrice ?? pricePerAf));
     if (mode === "OFFER") setPrice(round2(pricePerAf));
+    if (mode === "BID") setPrice(round2(reservePrice ?? pricePerAf));
   }, [mode, pricePerAf, reservePrice]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -47,51 +51,50 @@ export default function ListingActions({
     setSubmitting(true);
     setMessage(null);
 
-    // Map modes -> API endpoints (adjust to your routes as needed)
-    let url = "/api/transactions";
-    let payload: any = {
-      listingId,
-      acreFeet: Number(acreFeet),
-      pricePerAF: Number(price), // dollars
-    };
-
-    if (mode === "BUY_NOW") {
-      payload.type = "BUY_NOW";
-      payload.intent = "BUY_FROM_SELLER";
-    } else if (mode === "SELL_NOW") {
-      payload.type = "BUY_NOW";
-      payload.intent = "SELL_TO_BUYER";
-    } else if (mode === "OFFER") {
-      payload.type = "OFFER";
-    } else if (mode === "BID") {
-      url = "/api/bids";
-      payload = {
-        listingId,
-        pricePerAF: Number(price),
-        acreFeet: Number(acreFeet),
-      };
-    }
-
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        let msg = "Request failed";
-        try {
-          const j = await res.json();
-          msg = j?.error || msg;
-        } catch {
-          msg = await res.text();
-        }
-        throw new Error(msg);
+      if (mode === "BUY_NOW" || mode === "SELL_NOW") {
+        // ✅ Server-only: no client inputs. Server derives qty/price from DB.
+        const res = await fetch(
+          `/api/transactions/buy-now?listingId=${encodeURIComponent(listingId)}`,
+          { method: "POST", credentials: "include" }
+        );
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) throw new Error(data?.error || "Failed to start Buy Now");
+        router.push(`/transactions/${data.id}?action=review`);
+        return;
       }
 
-      setMessage(successText(mode));
+      // OFFER / BID still accept user inputs
+      if (mode === "OFFER") {
+        const res = await fetch("/api/transactions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            type: "OFFER",
+            listingId,
+            acreFeet: Number(acreFeet),
+            pricePerAF: Number(price), // dollars
+          }),
+        });
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) throw new Error(data?.error || "Offer failed");
+        setMessage("Offer sent!");
+      } else if (mode === "BID") {
+        const res = await fetch("/api/auctions/bid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            listingId,
+            acreFeet: Number(acreFeet),
+            pricePerAF: Number(price), // dollars
+          }),
+        });
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) throw new Error(data?.error || "Bid failed");
+        setMessage("Bid placed");
+      }
     } catch (err: any) {
       setMessage(err?.message || "Something went wrong");
     } finally {
@@ -102,6 +105,9 @@ export default function ListingActions({
   const canBuyNow = kind === "SELL";
   const canSellNow = kind === "BUY";
   const minBid = reservePrice ?? pricePerAf;
+
+  const isFixed = mode === "BUY_NOW" || mode === "SELL_NOW";
+  const showInputs = mode === "OFFER" || mode === "BID";
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -129,38 +135,56 @@ export default function ListingActions({
 
       {/* Form */}
       <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label="Acre-Feet">
-          <input
-            type="number"
-            min={1}
-            step={1}
-            required
-            value={acreFeet}
-            onChange={(e) => setAcreFeet(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </Field>
+        {/* BUY/SELL NOW: read-only info */}
+        {isFixed && (
+          <>
+            <Field label="Price $/AF">
+              <div className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                ${format2(pricePerAf)}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">Final total is computed on the server.</p>
+            </Field>
+            <div className="sm:col-span-2" />
+          </>
+        )}
 
-        <Field label={mode === "BID" ? "Your Bid $/AF" : "Price $/AF"}>
-          <input
-            type="number"
-            min={mode === "BID" ? minBid : 0}
-            step="0.01"
-            required
-            value={price}
-            onChange={(e) => setPrice(Math.max(0, Number(e.target.value) || 0))}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-          {mode === "BID" && (
-            <p className="mt-1 text-xs text-slate-500">Minimum: ${format2(minBid)} / AF</p>
-          )}
-        </Field>
+        {/* OFFER / BID inputs */}
+        {showInputs && (
+          <>
+            <Field label="Acre-Feet">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                required
+                value={acreFeet}
+                onChange={(e) => setAcreFeet(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2"
+              />
+            </Field>
 
-        <Field label="Estimated Total">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium">
-            ${format2(total)}
-          </div>
-        </Field>
+            <Field label={mode === "BID" ? "Your Bid $/AF" : "Price $/AF"}>
+              <input
+                type="number"
+                min={mode === "BID" ? minBid : 0}
+                step="0.01"
+                required
+                value={price}
+                onChange={(e) => setPrice(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2"
+              />
+              {mode === "BID" && (
+                <p className="mt-1 text-xs text-slate-500">Minimum: ${format2(minBid)} / AF</p>
+              )}
+            </Field>
+
+            <Field label="Estimated Total">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium">
+                ${format2(total)}
+              </div>
+            </Field>
+          </>
+        )}
 
         <div className="sm:col-span-3 flex items-center gap-3">
           <button
@@ -231,18 +255,5 @@ function actionText(mode: Mode) {
       return "Send Offer";
     case "BID":
       return "Place Bid";
-  }
-}
-
-function successText(mode: Mode) {
-  switch (mode) {
-    case "BUY_NOW":
-      return "Created transaction — check your dashboard";
-    case "SELL_NOW":
-      return "Submitted sale — buyer will be notified";
-    case "OFFER":
-      return "Offer sent!";
-    case "BID":
-      return "Bid placed";
   }
 }
