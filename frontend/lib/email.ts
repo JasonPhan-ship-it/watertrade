@@ -156,6 +156,7 @@ type Cta = { label: string; href: string; primary?: boolean };
 type KeyValue = { label: string; value: string };
 
 function brandLogoUrl() {
+  // Kept for compatibility; header no longer shows a logo per design spec.
   return process.env.NEXT_PUBLIC_EMAIL_LOGO_URL || appUrl("/brand-email.png");
 }
 
@@ -172,18 +173,21 @@ function renderEmailLayout(params: {
   keyValues?: KeyValue[];
   ctas?: Cta[];
   footerNote?: string;
-  logoUrl?: string;
+  logoUrl?: string; // ignored now; banner is text-only per spec
 }): string {
-  const { title, subtitle, intro, keyValues = [], ctas = [], footerNote, logoUrl } = params;
+  const { title, subtitle, intro, keyValues = [], ctas = [], footerNote } = params;
 
-  const btn = (c: Cta) => {
-    const styles = c.primary
+  // Buttons: add a bit more spacing after the first button (esp. for "Review & Sign").
+  const btn = (c: Cta, addRightMargin = false) => {
+    const baseStyles = c.primary
       ? `background: linear-gradient(90deg, ${BRAND.greenMid}, ${BRAND.greenDark}); color:#fff; border:1px solid ${BRAND.greenDark};`
       : `background:#fff; color:${BRAND.greenDark}; border:1px solid ${BRAND.greenDark};`;
-    return `<a href="${c.href}" target="_blank" style="display:inline-block;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:12px;${styles}">${escapeHtml(
+    const extra = addRightMargin ? "margin-right:12px;" : "";
+    return `<a href="${c.href}" target="_blank" style="display:inline-block;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:12px;${baseStyles}${extra}">${escapeHtml(
       c.label
     )}</a>`;
   };
+
   const kv = (kv: KeyValue) => `
     <tr>
       <td style="padding:8px 12px;border-bottom:1px solid ${BRAND.slate200};color:${BRAND.slate600};font-size:13px;width:40%;">${escapeHtml(
@@ -198,16 +202,19 @@ function renderEmailLayout(params: {
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:${BRAND.slate100};padding:24px 0;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="background:#fff;border-radius:16px;border:1px solid ${BRAND.slate200};overflow:hidden;">
+        <!-- Header banner: text-only, bold white "Water Traders" (no logo) -->
         <tr>
           <td style="padding:18px 20px;background:linear-gradient(90deg, ${BRAND.greenDark}, ${BRAND.greenMid});">
-            <table width="100%"><tr><td align="left">
-              <div style="display:flex;align-items:center;gap:10px;">
-                ${logoUrl ? `<img src="${logoUrl}" alt="${BRAND.name}" width="36" height="36" style="border:none;border-radius:8px;vertical-align:middle;display:inline-block;" />` : ""}
-                <span style="font-family:${BRAND.font};color:#fff;font-size:16px;font-weight:700;letter-spacing:.2px;">${BRAND.name}</span>
-              </div>
-            </td></tr></table>
+            <table width="100%" role="presentation" cellpadding="0" cellspacing="0">
+              <tr>
+                <td align="left">
+                  <span style="font-family:${BRAND.font};color:#fff;font-size:16px;font-weight:700;letter-spacing:.2px;">${BRAND.name}</span>
+                </td>
+              </tr>
+            </table>
           </td>
         </tr>
+
         <tr>
           <td style="padding:24px 28px 8px;">
             <div style="font-family:${BRAND.font};color:${BRAND.slate900};font-size:20px;font-weight:700;">${escapeHtml(
@@ -218,6 +225,7 @@ function renderEmailLayout(params: {
             )}</div>` : ""}
           </td>
         </tr>
+
         <tr>
           <td style="padding:0 28px 8px;">
             <table width="100%" role="presentation" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid ${BRAND.slate200};border-radius:12px;">
@@ -240,8 +248,9 @@ function renderEmailLayout(params: {
               ${
                 ctas.length
                   ? `<tr><td style="padding:16px;text-align:left;">
-                       <div style="display:inline-flex;gap:10px;flex-wrap:wrap;">
-                         ${ctas.map(btn).join("")}
+                       <!-- Slightly larger gap, plus extra right margin on the first button -->
+                       <div style="display:inline-flex;gap:14px;flex-wrap:wrap;">
+                         ${ctas.map((c, i) => btn(c, i === 0)).join("")}
                        </div>
                      </td></tr>`
                   : ""
@@ -249,6 +258,7 @@ function renderEmailLayout(params: {
             </table>
           </td>
         </tr>
+
         <tr>
           <td style="padding:20px 28px 24px;">
             <div style="font-family:${BRAND.font};color:${BRAND.slate500};font-size:12px;line-height:1.5;">
@@ -282,7 +292,7 @@ type OfferSummary = {
 };
 const fmt = (n: number) => new Intl.NumberFormat("en-US").format(n);
 
-const DEFAULT_LOGO = brandLogoUrl();
+const DEFAULT_LOGO = brandLogoUrl(); // no longer shown, kept for compatibility
 
 /** Email to SELLER when a new offer (or buyer counter) arrives */
 export function renderSellerOfferEmail(params: {
