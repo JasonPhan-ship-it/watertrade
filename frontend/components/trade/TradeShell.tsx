@@ -9,7 +9,6 @@ import type { Prisma } from "@prisma/client";
 import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
-import EnsureTradeButton from "@/components/trade/EnsureTradeButton";
 
 // ---------- Types ----------
 type Props = {
@@ -172,7 +171,8 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
   const status = tx.status ?? "—";
 
-  // --- Action endpoints (ONLY use /api/trades when a Trade exists) ---
+  // --- Action endpoints ---
+  // Accept/Decline: only when a Trade exists (unless you add auto-ensure to those routes too)
   const acceptUrlSeller = tradeExists
     ? buildUrl(`/api/trades/${tradeIdLinked}/seller/accept`, { token, role: viewerRole === "seller" ? "seller" : undefined })
     : null;
@@ -181,13 +181,18 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
     ? buildUrl(`/api/trades/${tradeIdLinked}/buyer/decline`, { token, role: viewerRole === "buyer" ? "buyer" : undefined })
     : null;
 
-  const counterUrlSeller = tradeExists
-    ? buildUrl(`/api/trades/${tradeIdLinked}/seller/counter`, { token, role: viewerRole === "seller" ? "seller" : undefined })
-    : null;
+  // Counter: can run with Trade.id **or** Transaction.id (auto-ensures Trade if missing)
+  const idForCounter = tradeIdLinked ?? tx.id;
 
-  const counterUrlBuyer = tradeExists
-    ? buildUrl(`/api/trades/${tradeIdLinked}/buyer/counter`, { token, role: viewerRole === "buyer" ? "buyer" : undefined })
-    : null;
+  const counterUrlSeller = buildUrl(`/api/trades/${idForCounter}/seller/counter`, {
+    token,
+    role: viewerRole === "seller" ? "seller" : undefined,
+  });
+
+  const counterUrlBuyer = buildUrl(`/api/trades/${idForCounter}/buyer/counter`, {
+    token,
+    role: viewerRole === "buyer" ? "buyer" : undefined,
+  });
 
   const showPermsHint = viewerRole === "guest";
 
@@ -223,7 +228,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
                 <td className="px-4 py-2">{waterType}</td>
               </tr>
               <tr>
-                <td className="bg-slate-50 px-4 py-2 text-slate-600">Acre‑Feet</td>
+                <td className="bg-slate-50 px-4 py-2 text-slate-600">Acre-Feet</td>
                 <td className="px-4 py-2">{qty.toLocaleString()}</td>
               </tr>
               <tr>
@@ -243,7 +248,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {!tradeExists && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            A Trade record hasn’t been created for this transaction yet. Create it to enable Accept/Counter/Decline.
+            A Trade record hasn’t been created for this transaction yet. <strong>We’ll create it automatically when you send a counter.</strong>
           </div>
         )}
         {showPermsHint && (
@@ -254,66 +259,55 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
 
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {!tradeExists ? (
-              <EnsureTradeButton transactionId={tx.id} />
-            ) : (
-              <>
-                {acceptUrlSeller && (
-                  <AcceptButton
-                    postUrl={acceptUrlSeller}
-                    label="Accept"
-                    className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
-                    confirm
-                    confirmMessage="Accept this offer?"
-                  />
-                )}
-                {counterUrlSeller && (
-                  <CounterButton
-                    postUrl={counterUrlSeller}
-                    role="seller"
-                    currentPriceCents={priceAf}
-                    currentQty={qty}
-                    label="Counter"
-                  />
-                )}
-                {tradeIdLinked && (
-                  <DeclineButton
-                    transactionId={tradeIdLinked}
-                    className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
-                    label="Decline"
-                  />
-                )}
-              </>
+            {/* Counter is always available (auto-ensures Trade) */}
+            <CounterButton
+              postUrl={counterUrlSeller}
+              role="seller"
+              currentPriceCents={priceAf}
+              currentQty={qty}
+              label="Counter"
+            />
+            {/* Accept requires an existing Trade (unless you later add auto-ensure to accept route) */}
+            {acceptUrlSeller && (
+              <AcceptButton
+                postUrl={acceptUrlSeller}
+                label="Accept"
+                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
+                confirm
+                confirmMessage="Accept this offer?"
+              />
+            )}
+            {/* Decline requires an existing Trade for the legacy DeclineButton */}
+            {tradeIdLinked && (
+              <DeclineButton
+                transactionId={tradeIdLinked}
+                className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
+                label="Decline"
+              />
             )}
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {!tradeExists ? (
-              <EnsureTradeButton transactionId={tx.id} />
-            ) : (
-              <>
-                {counterUrlBuyer && (
-                  <CounterButton
-                    postUrl={counterUrlBuyer}
-                    role="buyer"
-                    currentPriceCents={priceAf}
-                    currentQty={qty}
-                    label="Counter"
-                  />
-                )}
-                {declineUrlBuyer ? (
-                  <form action={declineUrlBuyer} method="post">
-                    {token ? <input type="hidden" name="token" value={token} /> : null}
-                    <button
-                      type="submit"
-                      className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Decline
-                    </button>
-                  </form>
-                ) : null}
-              </>
-            )}
+            {/* Counter is always available (auto-ensures Trade) */}
+            <CounterButton
+              postUrl={counterUrlBuyer}
+              role="buyer"
+              currentPriceCents={priceAf}
+              currentQty={qty}
+              label="Counter"
+            />
+            {/* Decline still gated by existing Trade unless you add auto-ensure in that route as well */}
+            {declineUrlBuyer ? (
+              <form action={declineUrlBuyer} method="post">
+                {token ? <input type="hidden" name="token" value={token} /> : null}
+                <button
+                  type="submit"
+                  className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Decline
+                </button>
+              </form>
+            ) : null}
           </div>
         ) : (
           <div className="text-sm text-slate-600">
