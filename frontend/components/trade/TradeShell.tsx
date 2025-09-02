@@ -9,7 +9,6 @@ import type { Prisma } from "@prisma/client";
 import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
-import EnsureTradeButton from "@/components/trade/EnsureTradeButton";
 
 // ---------- Types ----------
 type Props = {
@@ -223,7 +222,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
                 <td className="px-4 py-2">{waterType}</td>
               </tr>
               <tr>
-                <td className="bg-slate-50 px-4 py-2 text-slate-600">Acre‑Feet</td>
+                <td className="bg-slate-50 px-4 py-2 text-slate-600">Acre-Feet</td>
                 <td className="px-4 py-2">{qty.toLocaleString()}</td>
               </tr>
               <tr>
@@ -255,7 +254,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
             {!tradeExists ? (
-              <EnsureTradeButton transactionId={tx.id} />
+              null
             ) : (
               <>
                 {acceptUrlSeller && (
@@ -289,7 +288,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
             {!tradeExists ? (
-              <EnsureTradeButton transactionId={tx.id} />
+              null
             ) : (
               <>
                 {counterUrlBuyer && (
