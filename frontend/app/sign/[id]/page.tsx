@@ -1,32 +1,78 @@
 // app/sign/[id]/page.tsx
 "use client";
 
-import { useSearchParams, useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 
 export default function SignPage() {
-  const params = useParams();
+  const router = useRouter();
+  const params = useParams<{ id: string }>(); // can be null in types
   const searchParams = useSearchParams();
+
+  // Normalize id to a plain string ('' if unavailable)
+  const id = useMemo(() => {
+    const raw = params?.id as unknown;
+    if (Array.isArray(raw)) return raw[0] ?? "";
+    return (raw as string) ?? "";
+  }, [params]);
+
+  const role = searchParams.get("role") ?? "";
+  const token = searchParams.get("token") ?? "";
+
   const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchSignUrl() {
-      // Call your API to generate or validate the embedded signing URL
-      const res = await fetch(`/api/sign-url?id=${params.id}&role=${searchParams.get("role")}&token=${searchParams.get("token")}`);
-      const data = await res.json();
-      setUrl(data.url);
+    if (!id) {
+      setErr("Missing signing ID in the URL.");
+      return;
     }
-    fetchSignUrl();
-  }, [params.id, searchParams]);
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/sign-url?id=${encodeURIComponent(id)}&role=${encodeURIComponent(role)}&token=${encodeURIComponent(token)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error(`Failed to get sign URL (${res.status})`);
+        const data = await res.json();
+        if (!data?.url) throw new Error("No signing URL returned.");
+        setUrl(data.url);
+      } catch (e: any) {
+        setErr(e?.message || "Failed to start signing session.");
+      }
+    })();
+  }, [id, role, token]);
 
-  if (!url) return <p>Loading signing session…</p>;
+  if (err) {
+    return (
+      <div className="mx-auto max-w-lg p-6 text-center">
+        <h1 className="text-lg font-semibold">Can’t open signing session</h1>
+        <p className="mt-2 text-sm text-slate-600">{err}</p>
+        <button
+          onClick={() => router.back()}
+          className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-white"
+        >
+          Go Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!url) {
+    return (
+      <div className="flex h-[80vh] items-center justify-center">
+        <p className="text-sm text-slate-600">Loading signing session…</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex justify-center items-center h-screen">
+    <div className="h-[100dvh] w-full">
       <iframe
         src={url}
-        className="w-full h-full border-0"
+        className="h-full w-full border-0"
         allow="camera; microphone; autoplay; clipboard-read; clipboard-write"
+        title="Dropbox Sign"
       />
     </div>
   );
