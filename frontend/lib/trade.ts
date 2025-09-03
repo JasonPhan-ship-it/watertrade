@@ -149,22 +149,15 @@ export async function ensureTradeFromAnyIdOrCreate(id: string): Promise<Trade | 
 }
 
 /* =========================================
-   Dropbox Sign helpers
+   Dropbox Sign helpers (REST, no SDK)
    ========================================= */
 
-type DbxErr = { message?: string; status?: number; response?: { status?: number; text?: string; data?: any } };
+// Base URL: US by default; set DROPBOX_SIGN_BASE_URL to EU if needed.
+const DBX_BASE = process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3";
 
-async function lazyDropbox() {
-  return import("@dropbox/sign");
-}
-
-/** central place to build SDK config (avoids Configuration typing issues) */
-function buildDbxCfg(apiKey: string) {
-  return {
-    username: apiKey,
-    // US cluster default; set DROPBOX_SIGN_BASE_URL for EU: https://api.eu.hellosign.com/v3
-    basePath: process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3",
-  } as any;
+// Build Basic auth header: "Basic base64(API_KEY:)"
+function dbxAuthHeader(apiKey: string) {
+  return `Basic ${Buffer.from(`${apiKey}:`, "utf8").toString("base64")}`;
 }
 
 async function getBuyerNameEmail(trade: Trade): Promise<{ name: string; email: string }> {
@@ -185,14 +178,16 @@ async function getBuyerNameEmail(trade: Trade): Promise<{ name: string; email: s
     } catch { /* non-fatal */ }
   }
 
-  if (!email) {
-    // Embedded signing requires an email field even if no email is sent.
-    email = `no-email+${trade.id}@example.com`;
-  }
+  // Embedded flow still requires a signer email field
+  if (!email) email = `no-email+${trade.id}@example.com`;
 
   return { name, email };
 }
 
+/**
+ * Create a buyer embedded sign URL via Dropbox Sign (REST).
+ * If envs are missing, returns your internal /sign page URL so the UI still navigates.
+ */
 export async function createBuyerSignatureLink(tradeId: string, buyerToken?: string | null): Promise<string> {
   const apiKey = process.env.DROPBOX_SIGN_API_KEY;
   const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
@@ -205,62 +200,92 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
   const trade = await prisma.trade.findUnique({ where: { id: tradeId }, include: { listing: true } });
   if (!trade) throw new Error("Trade not found");
 
-  const sdk = await lazyDropbox();
-  const cfg = buildDbxCfg(apiKey);
-  const sigApi = new (sdk as any).SignatureRequestApi(cfg);
-  const embApi = new (sdk as any).EmbeddedApi(cfg);
-
   const { name, email } = await getBuyerNameEmail(trade);
 
-  try {
-    const testMode = (process.env.DROPBOX_SIGN_TEST_MODE ?? "1") === "1";
-    const create = await sigApi.signatureRequestCreateEmbedded({
-      clientId,
-      testMode: testMode ? 1 : 0,
-      title: `Water Traders — Trade ${tradeId}`,
-      subject: "Please review and sign",
-      message: "Review and sign to proceed.",
-      signers: [{ emailAddress: email, name, order: 0 }],
-      fileUrls: [
-        process.env.NEXT_PUBLIC_SAMPLE_PDF_URL ||
-          "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-      ],
-      metadata: { tradeId },
-    } as any);
+  // 1) Create embedded signature request
+  const form = new URLSearchParams();
+  const testMode = (process.env.DROPBOX_SIGN_TEST_MODE ?? "1") === "1";
+  form.set("client_id", clientId);
+  form.set("test_mode", testMode ? "1" : "0");
+  form.set("title", `Water Traders — Trade ${tradeId}`);
+  form.set("subject", "Please review and sign");
+  form.set("message", "Review and sign to proceed.");
+  form.set("signers[0][email_address]", email);
+  form.set("signers[0][name]", name);
+  form.set("signers[0][order]", "0");
+  form.append(
+    "file_url[]",
+    process.env.NEXT_PUBLIC_SAMPLE_PDF_URL ||
+      "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+  );
+  // Optional metadata
+  form.set("metadata[tradeId]", tradeId);
 
-    const signatureId = create.body.signatureRequest?.signatures?.[0]?.signatureId;
-    if (!signatureId) throw new Error("Dropbox Sign did not return a signatureId");
+  const createResp = await fetch(`${DBX_BASE}/signature_request/create_embedded`, {
+    method: "POST",
+    headers: {
+      Authorization: dbxAuthHeader(apiKey),
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      Accept: "application/json",
+    },
+    body: form.toString(),
+  });
 
-    const sign = await embApi.embeddedSignUrl(signatureId);
-    const signUrl = sign.body.embedded?.signUrl;
-    if (!signUrl) throw new Error("Dropbox Sign did not return a sign_url");
+  const createText = await createResp.text();
+  let createBody: any = null;
+  try { createBody = createText ? JSON.parse(createText) : null; } catch {}
 
-    return signUrl;
-  } catch (e: any) {
-    const err = e as DbxErr;
-    console.error("[createBuyerSignatureLink] error", {
-      message: err?.message,
-      status: err?.status || err?.response?.status,
-      body: err?.response?.text || err?.response?.data,
-    });
-    throw new Error(err?.response?.text || err?.message || "Failed to create buyer sign URL");
+  if (!createResp.ok) {
+    const msg =
+      createBody?.error?.error_name ||
+      createBody?.error ||
+      createResp.statusText ||
+      "Dropbox Sign create_embedded failed";
+    throw new Error(msg);
   }
+
+  const signatureId =
+    createBody?.signature_request?.signatures?.[0]?.signature_id ||
+    createBody?.signatureRequest?.signatures?.[0]?.signature_id;
+
+  if (!signatureId) {
+    throw new Error("Dropbox Sign did not return a signature_id");
+  }
+
+  // 2) Get embedded sign URL
+  const signResp = await fetch(`${DBX_BASE}/embedded/sign_url/${encodeURIComponent(signatureId)}`, {
+    method: "GET",
+    headers: {
+      Authorization: dbxAuthHeader(apiKey),
+      Accept: "application/json",
+    },
+  });
+
+  const signText = await signResp.text();
+  let signBody: any = null;
+  try { signBody = signText ? JSON.parse(signText) : null; } catch {}
+
+  if (!signResp.ok) {
+    const msg =
+      signBody?.error?.error_name ||
+      signBody?.error ||
+      signResp.statusText ||
+      "Dropbox Sign embedded/sign_url failed";
+    throw new Error(msg);
+  }
+
+  const signUrl = signBody?.embedded?.sign_url || signBody?.embedded?.signUrl;
+  if (!signUrl) throw new Error("Dropbox Sign did not return a sign_url");
+
+  return signUrl;
 }
 
 export async function createSellerSignatureLink(tradeId: string, sellerToken?: string | null): Promise<string> {
+  // For now we route sellers to the internal page; mirror buyer flow later if needed.
   const apiKey = process.env.DROPBOX_SIGN_API_KEY;
   const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
-
   if (!apiKey || !clientId) {
     return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
   }
-
-  // If/when you enable embedded seller signing, use the same cfg pattern as buyer:
-  // const sdk = await lazyDropbox();
-  // const cfg = buildDbxCfg(apiKey);
-  // const sigApi = new (sdk as any).SignatureRequestApi(cfg);
-  // const embApi = new (sdk as any).EmbeddedApi(cfg);
-  // ...
-
   return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
 }
