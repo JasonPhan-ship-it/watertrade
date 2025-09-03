@@ -277,7 +277,13 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
   const signUrl = signBody?.embedded?.sign_url || signBody?.embedded?.signUrl;
   if (!signUrl) throw new Error("Dropbox Sign did not return a sign_url");
 
-  return signUrl;
+  // 🔑 Ensure the embedded page receives your client_id
+  const cid = process.env.DROPBOX_SIGN_CLIENT_ID || process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID;
+  const urlWithClient = cid
+    ? `${signUrl}${signUrl.includes("?") ? "&" : "?"}client_id=${encodeURIComponent(cid)}`
+    : signUrl;
+
+  return urlWithClient;
 }
 
 export async function createSellerSignatureLink(tradeId: string, sellerToken?: string | null): Promise<string> {
