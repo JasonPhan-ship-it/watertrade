@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 
-/** Lazy-load the SDK so local/dev builds don't choke if the package is missing somewhere */
+/** Lazy-load the SDK so builds don't break if the package is absent in some envs */
 async function lazySdk() {
   const sdk = await import("@dropbox/sign");
   return sdk;
@@ -17,10 +17,9 @@ function mask(s?: string | null, keepLast = 4) {
   return v.length <= keepLast ? "****" : `${"*".repeat(Math.max(0, v.length - keepLast))}${v.slice(-keepLast)}`;
 }
 
-/** Uniform JSON response (adds CORS headers if you want to hit from other tools) */
+/** Uniform JSON response (adds CORS headers for quick local testing) */
 function json(data: any, init?: ResponseInit) {
   const res = NextResponse.json(data, init);
-  // Minimal CORS for debugging; adjust/remove if not needed
   res.headers.set("Access-Control-Allow-Origin", "*");
   res.headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -54,8 +53,10 @@ export async function GET() {
     }
 
     const sdk = await lazySdk();
-    const cfg = new sdk.Configuration({ username: apiKey });
-    const accountApi = new sdk.AccountApi(cfg);
+
+    // ⚠️ Use a plain object for config instead of new sdk.Configuration(...)
+    const cfg = { username: apiKey } as any;
+    const accountApi = new (sdk as any).AccountApi(cfg);
 
     const account = await accountApi.accountGet();
 
@@ -108,11 +109,13 @@ export async function POST(req: NextRequest) {
     }
 
     const sdk = await lazySdk();
-    const cfg = new sdk.Configuration({ username: apiKey });
-    const sigApi = new sdk.SignatureRequestApi(cfg);
-    const embApi = new sdk.EmbeddedApi(cfg);
 
-    // Use a public dummy PDF; replace with your own doc (fileUrls or files streams) when ready.
+    // ⚠️ Use plain-object config here too
+    const cfg = { username: apiKey } as any;
+    const sigApi = new (sdk as any).SignatureRequestApi(cfg);
+    const embApi = new (sdk as any).EmbeddedApi(cfg);
+
+    // Use a public dummy PDF; replace with your own doc when ready.
     const create = await sigApi.signatureRequestCreateEmbedded({
       clientId,
       testMode: testMode ? 1 : 0,
