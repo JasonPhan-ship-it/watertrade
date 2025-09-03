@@ -30,6 +30,15 @@ export async function OPTIONS() {
   return json({ ok: true });
 }
 
+/** Build the SDK client config (avoids Configuration typing) */
+function buildCfg(apiKey: string) {
+  return {
+    username: apiKey,
+    // Default US cluster; override with DROPBOX_SIGN_BASE_URL for EU: https://api.eu.hellosign.com/v3
+    basePath: process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3",
+  } as any;
+}
+
 /**
  * GET /api/debug/dropbox-sign
  * Sanity check: confirms API key works and shows Dropbox Sign account email.
@@ -53,9 +62,7 @@ export async function GET() {
     }
 
     const sdk = await lazySdk();
-
-    // ⚠️ Use a plain object for config instead of new sdk.Configuration(...)
-    const cfg = { username: apiKey } as any;
+    const cfg = buildCfg(apiKey);
     const accountApi = new (sdk as any).AccountApi(cfg);
 
     const account = await accountApi.accountGet();
@@ -67,6 +74,7 @@ export async function GET() {
         DROPBOX_SIGN_CLIENT_ID: mask(clientId),
         NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID: mask(nextPublicClientId),
         DROPBOX_SIGN_TEST_MODE: testMode,
+        DROPBOX_SIGN_BASE_URL: process.env.DROPBOX_SIGN_BASE_URL || null,
       },
       accountEmail: account.body.account?.email_address ?? null,
     });
@@ -109,9 +117,7 @@ export async function POST(req: NextRequest) {
     }
 
     const sdk = await lazySdk();
-
-    // ⚠️ Use plain-object config here too
-    const cfg = { username: apiKey } as any;
+    const cfg = buildCfg(apiKey);
     const sigApi = new (sdk as any).SignatureRequestApi(cfg);
     const embApi = new (sdk as any).EmbeddedApi(cfg);
 
