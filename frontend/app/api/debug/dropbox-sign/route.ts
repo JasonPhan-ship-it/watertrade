@@ -30,13 +30,13 @@ export async function OPTIONS() {
   return json({ ok: true });
 }
 
-/** Build the SDK client config (avoids Configuration typing) */
-function buildCfg(apiKey: string) {
-  return {
+/** Build the SDK Configuration (cast through any to dodge flaky type exports) */
+function buildCfg(apiKey: string, sdk: any) {
+  return new (sdk as any).Configuration({
     username: apiKey,
-    // Default US cluster; override with DROPBOX_SIGN_BASE_URL for EU: https://api.eu.hellosign.com/v3
+    // US by default; set DROPBOX_SIGN_BASE_URL to https://api.eu.hellosign.com/v3 for EU cluster
     basePath: process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3",
-  } as any;
+  });
 }
 
 /**
@@ -62,7 +62,7 @@ export async function GET() {
     }
 
     const sdk = await lazySdk();
-    const cfg = buildCfg(apiKey);
+    const cfg = buildCfg(apiKey, sdk);
     const accountApi = new (sdk as any).AccountApi(cfg);
 
     const account = await accountApi.accountGet();
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
     }
 
     const sdk = await lazySdk();
-    const cfg = buildCfg(apiKey);
+    const cfg = buildCfg(apiKey, sdk);
     const sigApi = new (sdk as any).SignatureRequestApi(cfg);
     const embApi = new (sdk as any).EmbeddedApi(cfg);
 
