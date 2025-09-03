@@ -9,6 +9,7 @@ import type { Prisma } from "@prisma/client";
 import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
+import BuyNowConfirmButton from "@/components/trade/BuyNowConfirmButton"; // ← NEW
 
 // ---------- Types ----------
 type Props = {
@@ -135,7 +136,7 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
     );
   }
 
-  // Find linked Trade (if it exists)
+  // Linked Trade (if present)
   const linkedTrade = await prisma.trade.findFirst({
     where: { transactionId: tx.id },
     select: { id: true, status: true },
@@ -167,9 +168,9 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const total = (tx.totalAmount ?? qty * priceAf) || 0;
   const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
   const status = tx.status ?? "—";
+  const isBuyNow = tx.type === "BUY_NOW";
 
-  // Use Trade ID if present, otherwise fall back to Transaction ID.
-  // NOTE: your API routes must accept EITHER ID and auto-create the Trade when needed.
+  // Prefer Trade ID for action endpoints; fall back to Transaction ID.
   const idForActions = tradeIdLinked || tx.id;
 
   const acceptUrlSeller = buildUrl(`/api/trades/${idForActions}/seller/accept`, {
@@ -244,61 +245,70 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
 
       {/* Actions */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        {showPermsHint && (
-          <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
-            You’re signed in as a guest for this transaction. Actions may return “Forbidden” unless you’re the buyer/seller or provide a valid token.
-          </div>
-        )}
-
-        {viewerRole === "seller" ? (
+        {/* BUY NOW → ONLY this one button; hide hints */}
+        {isBuyNow ? (
           <div className="flex flex-wrap items-center gap-3">
-            <AcceptButton
-              postUrl={acceptUrlSeller}
-              label="Accept"
-              className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
-              confirm
-              confirmMessage="Accept this offer?"
-            />
-            <CounterButton
-              postUrl={counterUrlSeller}
-              role="seller"
-              currentPriceCents={priceAf}
-              currentQty={qty}
-              label="Counter"
-            />
-            <DeclineButton
-              transactionId={idForActions}
-              className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
-              label="Decline"
-            />
-          </div>
-        ) : viewerRole === "buyer" ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <CounterButton
-              postUrl={counterUrlBuyer}
-              role="buyer"
-              currentPriceCents={priceAf}
-              currentQty={qty}
-              label="Counter"
-            />
-            <form action={declineUrlBuyer} method="post">
-              {token ? <input type="hidden" name="token" value={token} /> : null}
-              <button
-                type="submit"
-                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Decline
-              </button>
-            </form>
+            <BuyNowConfirmButton transactionId={tx.id} />
           </div>
         ) : (
-          <div className="text-sm text-slate-600">
-            You’re viewing as a guest.{" "}
-            <Link href="/sign-in" className="text-[#0E6A59] underline">
-              Sign in
-            </Link>{" "}
-            to take action.
-          </div>
+          <>
+            {showPermsHint && (
+              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+                You’re signed in as a guest for this transaction. Actions may return “Forbidden” unless you’re the buyer/seller or provide a valid token.
+              </div>
+            )}
+
+            {viewerRole === "seller" ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <AcceptButton
+                  postUrl={acceptUrlSeller}
+                  label="Accept"
+                  className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
+                  confirm
+                  confirmMessage="Accept this offer?"
+                />
+                <CounterButton
+                  postUrl={counterUrlSeller}
+                  role="seller"
+                  currentPriceCents={priceAf}
+                  currentQty={qty}
+                  label="Counter"
+                />
+                <DeclineButton
+                  transactionId={idForActions}
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
+                  label="Decline"
+                />
+              </div>
+            ) : viewerRole === "buyer" ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <CounterButton
+                  postUrl={counterUrlBuyer}
+                  role="buyer"
+                  currentPriceCents={priceAf}
+                  currentQty={qty}
+                  label="Counter"
+                />
+                <form action={declineUrlBuyer} method="post">
+                  {token ? <input type="hidden" name="token" value={token} /> : null}
+                  <button
+                    type="submit"
+                    className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Decline
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-600">
+                You’re viewing as a guest.{" "}
+                <Link href="/sign-in" className="text-[#0E6A59] underline">
+                  Sign in
+                </Link>{" "}
+                to take action.
+              </div>
+            )}
+          </>
         )}
       </div>
 
