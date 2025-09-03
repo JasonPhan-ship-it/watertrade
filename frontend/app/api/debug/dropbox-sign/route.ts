@@ -18,7 +18,7 @@ function mask(s?: string | null, keepLast = 4) {
 }
 
 /** Uniform JSON response (adds CORS headers if you want to hit from other tools) */
-function json(data: any, init?: number | ResponseInit) {
+function json(data: any, init?: ResponseInit) {
   const res = NextResponse.json(data, init);
   // Minimal CORS for debugging; adjust/remove if not needed
   res.headers.set("Access-Control-Allow-Origin", "*");
@@ -121,7 +121,6 @@ export async function POST(req: NextRequest) {
       message: "This is a test embedded signature request from the debug endpoint.",
       signers: [{ emailAddress: signerEmail, name: signerName, order: 0 }],
       fileUrls: ["https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"],
-      // metadata: { source: "debug-endpoint" },
     } as any);
 
     const signatureId = create.body.signatureRequest?.signatures?.[0]?.signatureId;
