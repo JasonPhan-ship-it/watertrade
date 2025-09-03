@@ -9,15 +9,15 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
 import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
-/** Read either JSON or form-data and normalize fields */
+/** Body parsing that accepts JSON or form-data */
 async function readBody(req: NextRequest) {
-  const ctype = req.headers.get("content-type") || "";
-  if (ctype.includes("application/json")) {
-    const json = (await req.json().catch(() => ({}))) as any;
+  const ct = req.headers.get("content-type") || "";
+  if (ct.includes("application/json")) {
+    const j = (await req.json().catch(() => ({}))) as any;
     return {
-      pricePerAf: json.pricePerAf ?? json.pricePerAF ?? json.price_per_af,
-      volumeAf: json.volumeAf ?? json.acreFeet ?? json.quantity,
-      windowLabel: json.windowLabel ?? json.window_label ?? null,
+      pricePerAf: j.pricePerAf ?? j.pricePerAF ?? j.price_per_af,
+      volumeAf: j.volumeAf ?? j.acreFeet ?? j.quantity,
+      windowLabel: j.windowLabel ?? j.window_label ?? null,
     };
   }
   const fd = await req.formData().catch(() => null);
@@ -29,65 +29,44 @@ async function readBody(req: NextRequest) {
   };
 }
 
-/** Ensure a Trade exists given either a Trade.id or a Transaction.id, and satisfy required fields. */
+/** Create or fetch a Trade given a Trade.id OR a Transaction.id */
 async function ensureTradeFromAnyIdOrThrow(id: string) {
-  // If id is already a Trade.id (or we can derive a Trade by tx id), return it.
   const existing = await findTradeByAnyId(id);
   if (existing) return existing;
 
-  // Otherwise, treat id as a Transaction.id and try to create a Trade from it.
-  const txn = await prisma.transaction.findUnique({ where: { id } });
+  const txn = await prisma.transaction.findUnique({
+    where: { id },
+    include: { listing: { select: { id: true, district: true, title: true, waterType: true } } },
+  });
   if (!txn) return null;
 
-  // Resolve required fields for Trade from Transaction and/or its Listing.
-  const listingIdFromTxn = (txn as any).listingId ?? null;
-  const listing = listingIdFromTxn
-    ? await prisma.listing.findUnique({ where: { id: listingIdFromTxn } })
-    : null;
-
-  const listingId = listing?.id ?? listingIdFromTxn ?? null;
+  const listingId = txn.listing?.id ?? null;
   const district =
-    (txn as any).district ??
-    (listing as any)?.district ??
+    (txn as any).districtSnapshot ??
+    txn.listing?.district ??
     null;
 
   if (!listingId || !district) {
-    // Fail fast with a helpful message instead of a Prisma type error
     throw new Error(
-      "Cannot create Trade: missing listingId or district on Transaction/Listing. Ensure the Transaction has listingId and district (or the related Listing has district)."
+      "Cannot create Trade: missing listingId or district on Transaction/Listing."
     );
   }
 
-  // Choose a valid initial status for your enum; NEGOTIATING isn't in your schema.
-  const initialStatus = TradeStatus.OFFERED;
+  const created = await prisma.trade.create({
+    data: {
+      transactionId: txn.id,
+      listingId,
+      district,
+      sellerUserId: (txn as any).sellerUserId ?? (txn as any).sellerId ?? undefined,
+      buyerUserId:  (txn as any).buyerUserId  ?? (txn as any).buyerId  ?? undefined,
+      pricePerAf:   (txn as any).pricePerAf   ?? (txn as any).pricePerAF ?? undefined,
+      volumeAf:     (txn as any).volumeAf     ?? (txn as any).acreFeet   ?? undefined,
+      windowLabel:  (txn as any).windowLabel  ?? undefined,
+      status: TradeStatus.OFFERED,
+      round: 0,
+    } as any,
+  });
 
-  const data: any = {
-    transactionId: txn.id,
-    listingId,
-    district, // required by your Trade model
-
-    sellerUserId: (txn as any).sellerUserId ?? null,
-    buyerUserId: (txn as any).buyerUserId ?? null,
-
-    // Seed participant info if you keep these on Trade (optional in your schema)
-    sellerEmail: (txn as any).sellerEmail ?? (txn as any).seller_user_email ?? undefined,
-    buyerEmail:  (txn as any).buyerEmail  ?? (txn as any).buyer_user_email  ?? undefined,
-    sellerName:  (txn as any).sellerName  ?? (txn as any).seller_user_name  ?? undefined,
-    buyerName:   (txn as any).buyerName   ?? (txn as any).buyer_user_name   ?? undefined,
-
-    // Seed initial terms if present
-    pricePerAf:  (txn as any).pricePerAf  ?? undefined,
-    volumeAf:    (txn as any).volumeAf    ?? undefined,
-    windowLabel: (txn as any).windowLabel ?? undefined,
-
-    status: initialStatus,
-    round: 0,
-  };
-
-  // Remove undefined keys so Prisma doesn’t complain about nullability
-  Object.keys(data).forEach((k) => data[k] === undefined && delete data[k]);
-
-  const created = await prisma.trade.create({ data });
   return created;
 }
 
@@ -96,7 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const id = (params.id || "").trim();
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    // 1) Ensure Trade exists (accepts Trade.id or Transaction.id)
+    // Ensure Trade exists (Trade.id or Transaction.id accepted)
     let trade;
     try {
       trade = await ensureTradeFromAnyIdOrThrow(id);
@@ -105,13 +84,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // 2) AuthZ: must be seller on this trade
+    // AuthZ: must be seller
     const viewer = await getViewer(req, trade as any);
     if (viewer.role !== "seller") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // 3) Parse & validate body
+    // Parse & validate input
     const { pricePerAf, volumeAf, windowLabel } = await readBody(req);
     const pricePerAfNum = Number(pricePerAf);
     const volumeAfNum = Number(volumeAf);
@@ -129,7 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // 4) Optional guard: do not counter below current ask
+    // Optional guard: don't counter below current ask
     if (typeof (trade as any).pricePerAf === "number" && pricePerAfNum < (trade as any).pricePerAf) {
       return NextResponse.json(
         { error: `Counter price must be at least ${((trade as any).pricePerAf / 100).toFixed(2)} USD/AF.` },
@@ -137,15 +116,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // 5) Update Trade with seller counter
+    // Update Trade
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
         status: TradeStatus.COUNTERED_BY_SELLER,
         pricePerAf: pricePerAfNum,
         volumeAf: volumeAfNum,
-        windowLabel:
-          typeof windowLabel === "string" && windowLabel.trim() ? windowLabel.trim() : null,
+        windowLabel: typeof windowLabel === "string" && windowLabel.trim() ? windowLabel.trim() : null,
         round: (trade as any).round ? (trade as any).round + 1 : 1,
         lastActor: Party.SELLER,
         version: { increment: 1 },
@@ -165,7 +143,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     });
 
-    // 6) Notify buyer
+    // Notify buyer (best-effort)
     const [sellerUser, buyerUser] = await Promise.all([
       prisma.user.findUnique({ where: { id: (updated as any).sellerUserId } }),
       prisma.user.findUnique({ where: { id: (updated as any).buyerUserId } }),
@@ -184,9 +162,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         if (sellerClerk) sellerName = sellerName || sellerClerk.firstName || sellerClerk.username || "";
         if (buyerClerk) {
           buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || "";
-          const primary = buyerClerk.emailAddresses?.find(
-            (e) => e.id === buyerClerk.primaryEmailAddressId
-          )?.emailAddress;
+          const primary = buyerClerk.emailAddresses?.find(e => e.id === buyerClerk.primaryEmailAddressId)?.emailAddress;
           const firstAny = buyerClerk.emailAddresses?.[0]?.emailAddress;
           buyerEmail = buyerEmail || primary || firstAny || "";
         }
@@ -194,9 +170,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     if (buyerEmail) {
-      const viewLink = appUrl(
-        `/t/${updated.id}?role=buyer${(updated as any).buyerToken ? `&token=${(updated as any).buyerToken}` : ""}`
-      );
+      const viewLink = appUrl(`/t/${updated.id}?role=buyer${(updated as any).buyerToken ? `&token=${(updated as any).buyerToken}` : ""}`);
       const counterLink = `${viewLink}&action=counter`;
       const declineLink = `${viewLink}&action=decline`;
 
