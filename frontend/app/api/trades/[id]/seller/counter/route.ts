@@ -9,7 +9,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
 import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
-/** Body parsing that accepts JSON or form-data */
+/** Body parsing that accepts JSON or form-data (no window fields) */
 async function readBody(req: NextRequest) {
   const ct = req.headers.get("content-type") || "";
   if (ct.includes("application/json")) {
@@ -17,7 +17,6 @@ async function readBody(req: NextRequest) {
     return {
       pricePerAf: j.pricePerAf ?? j.pricePerAF ?? j.price_per_af,
       volumeAf: j.volumeAf ?? j.acreFeet ?? j.quantity,
-      windowLabel: j.windowLabel ?? j.window_label ?? null,
     };
   }
   const fd = await req.formData().catch(() => null);
@@ -25,7 +24,6 @@ async function readBody(req: NextRequest) {
   return {
     pricePerAf: fd.get("pricePerAf") ?? fd.get("pricePerAF") ?? fd.get("price_per_af"),
     volumeAf: fd.get("volumeAf") ?? fd.get("acreFeet") ?? fd.get("quantity"),
-    windowLabel: fd.get("windowLabel") ?? fd.get("window_label"),
   };
 }
 
@@ -47,9 +45,7 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
     null;
 
   if (!listingId || !district) {
-    throw new Error(
-      "Cannot create Trade: missing listingId or district on Transaction/Listing."
-    );
+    throw new Error("Cannot create Trade: missing listingId or district on Transaction/Listing.");
   }
 
   const created = await prisma.trade.create({
@@ -61,7 +57,6 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
       buyerUserId:  (txn as any).buyerUserId  ?? (txn as any).buyerId  ?? undefined,
       pricePerAf:   (txn as any).pricePerAf   ?? (txn as any).pricePerAF ?? undefined,
       volumeAf:     (txn as any).volumeAf     ?? (txn as any).acreFeet   ?? undefined,
-      windowLabel:  (txn as any).windowLabel  ?? undefined,
       status: TradeStatus.OFFERED,
       round: 0,
     } as any,
@@ -90,8 +85,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Parse & validate input
-    const { pricePerAf, volumeAf, windowLabel } = await readBody(req);
+    // Parse & validate input (no window fields)
+    const { pricePerAf, volumeAf } = await readBody(req);
     const pricePerAfNum = Number(pricePerAf);
     const volumeAfNum = Number(volumeAf);
 
@@ -116,14 +111,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // Update Trade
+    // Update Trade (no windowLabel)
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
         status: TradeStatus.COUNTERED_BY_SELLER,
         pricePerAf: pricePerAfNum,
         volumeAf: volumeAfNum,
-        windowLabel: typeof windowLabel === "string" && windowLabel.trim() ? windowLabel.trim() : null,
         round: (trade as any).round ? (trade as any).round + 1 : 1,
         lastActor: Party.SELLER,
         version: { increment: 1 },
@@ -135,7 +129,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               previousStatus: (trade as any).status,
               pricePerAf: pricePerAfNum,
               volumeAf: volumeAfNum,
-              windowLabel: typeof windowLabel === "string" ? windowLabel : null,
               round: ((trade as any).round ?? 0) + 1,
             },
           },
@@ -183,7 +176,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           waterType: (updated as any).waterType || null,
           volumeAf: updated.volumeAf ?? 0,
           pricePerAf: updated.pricePerAf ?? 0,
-          windowLabel: updated.windowLabel || undefined,
+          // windowLabel removed
         },
         viewLink,
         counterLink,
