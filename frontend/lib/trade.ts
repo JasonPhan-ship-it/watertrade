@@ -10,16 +10,15 @@ import type { Trade } from "@prisma/client";
    ========================= */
 
 export type Viewer =
-  | { role: "seller" | "buyer"; via: "auth" | "token"; userId?: string } // userId is local User.id when via="auth"
+  | { role: "seller" | "buyer"; via: "auth" | "token"; userId?: string }
   | { role: "unknown"; via: "none" };
 
-/** Accept NextRequest or native Request safely */
 function readUrl(req: NextRequest | Request) {
   const urlStr = (req as any)?.url ?? "";
   try {
     return new URL(urlStr);
   } catch {
-    return new URL(appUrl("/")); // fallback, shouldn't happen in Next API
+    return new URL(appUrl("/"));
   }
 }
 
@@ -29,7 +28,6 @@ function parseBearer(h?: string | null) {
   return m?.[1] ?? "";
 }
 
-/** Resolve both local User.id and Clerk userId (for legacy rows that stored Clerk id) */
 async function resolveSessionIds() {
   const { userId: clerkId } = auth();
   if (!clerkId) return { localId: null as string | null, clerkId: null as string | null };
@@ -42,7 +40,6 @@ async function resolveSessionIds() {
   return { localId: local?.id ?? null, clerkId };
 }
 
-/** Match helper: allow trades that stored either the local id OR the raw Clerk id */
 function matchesAny(target?: string | null, a?: string | null, b?: string | null) {
   if (!target) return false;
   return target === a || target === b;
@@ -59,7 +56,6 @@ export async function getViewer(
 ): Promise<Viewer> {
   const url = readUrl(req);
 
-  // Token can come from query or several header variants
   const tokenFromQuery = url.searchParams.get("token") || "";
   const headers = (req as any).headers;
   const tokenFromHeader =
@@ -69,7 +65,6 @@ export async function getViewer(
     "";
   const token = tokenFromQuery || tokenFromHeader;
 
-  // 1) Auth path — accept *either* local user.id or raw Clerk id
   const { localId, clerkId } = await resolveSessionIds();
   if (localId || clerkId) {
     if (matchesAny(trade.sellerUserId, localId, clerkId)) {
@@ -80,7 +75,6 @@ export async function getViewer(
     }
   }
 
-  // 2) Magic-link / token path — role is determined by which token matches
   if (token) {
     if (trade.sellerToken && token === trade.sellerToken) {
       return { role: "seller", via: "token" };
@@ -93,7 +87,6 @@ export async function getViewer(
   return { role: "unknown", via: "none" };
 }
 
-/** Simple gate (leave as strings so it won't break if your enum changes) */
 export function assertCanAct(role: "seller" | "buyer", status: string) {
   switch (status) {
     case "OFFERED":
@@ -108,22 +101,16 @@ export function assertCanAct(role: "seller" | "buyer", status: string) {
   }
 }
 
-/* =========================================
-   Lookups that accept Trade.id OR Txn.id
-   ========================================= */
+/* ================================
+   Lookups (Trade.id OR Txn.id)
+   ================================ */
 
-/** Returns the Trade if id is a Trade.id, or if it's a Transaction.id linked to a Trade. */
 export async function findTradeByAnyId(id: string) {
   const byTrade = await prisma.trade.findUnique({ where: { id } });
   if (byTrade) return byTrade;
   return prisma.trade.findFirst({ where: { transactionId: id } });
 }
 
-/**
- * Ensure a Trade exists given either a Trade.id or a Transaction.id.
- * If a Transaction exists but no Trade, this will create a minimal Trade row.
- * Throws if a required field is missing on the Transaction/Listing.
- */
 export async function ensureTradeFromAnyIdOrCreate(id: string): Promise<Trade | null> {
   const existing = await findTradeByAnyId(id);
   if (existing) return existing;
@@ -162,17 +149,22 @@ export async function ensureTradeFromAnyIdOrCreate(id: string): Promise<Trade | 
 }
 
 /* =========================================
-   Signature link helpers (Dropbox Sign)
-   - Returns an embedded sign_url if envs are present.
-   - Throws with raw API error details on failure.
-   - Falls back to /sign/:id when envs are missing.
+   Dropbox Sign helpers
    ========================================= */
 
 type DbxErr = { message?: string; status?: number; response?: { status?: number; text?: string; data?: any } };
 
-// Lazy import that we’ll use in namespace form
 async function lazyDropbox() {
   return import("@dropbox/sign");
+}
+
+/** central place to build SDK config (avoids Configuration typing issues) */
+function buildDbxCfg(apiKey: string) {
+  return {
+    username: apiKey,
+    // US cluster default; set DROPBOX_SIGN_BASE_URL for EU: https://api.eu.hellosign.com/v3
+    basePath: process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3",
+  } as any;
 }
 
 async function getBuyerNameEmail(trade: Trade): Promise<{ name: string; email: string }> {
@@ -190,29 +182,22 @@ async function getBuyerNameEmail(trade: Trade): Promise<{ name: string; email: s
       name = name || u.firstName || u.username || "Buyer";
       const primary = u.emailAddresses?.find(e => e.id === u.primaryEmailAddressId)?.emailAddress;
       email = email || primary || u.emailAddresses?.[0]?.emailAddress || "";
-    } catch {
-      /* non-fatal */
-    }
+    } catch { /* non-fatal */ }
   }
 
   if (!email) {
-    // Embedded signing requires an email on the signer object (even if no email is sent in embedded mode).
+    // Embedded signing requires an email field even if no email is sent.
     email = `no-email+${trade.id}@example.com`;
   }
 
   return { name, email };
 }
 
-/**
- * Create a buyer embedded sign URL via Dropbox Sign.
- * If DROPBOX envs are missing, returns your internal /sign page URL so the UI still navigates.
- * On Dropbox failure, throws with details so the caller can surface/log real errors.
- */
 export async function createBuyerSignatureLink(tradeId: string, buyerToken?: string | null): Promise<string> {
   const apiKey = process.env.DROPBOX_SIGN_API_KEY;
   const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
 
-  // Fallback: no Dropbox configured → use your internal signer page
+  // Fallback: not configured → use internal page
   if (!apiKey || !clientId) {
     return appUrl(`/sign/${tradeId}?role=buyer${buyerToken ? `&token=${buyerToken}` : ""}`);
   }
@@ -220,9 +205,8 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
   const trade = await prisma.trade.findUnique({ where: { id: tradeId }, include: { listing: true } });
   if (!trade) throw new Error("Trade not found");
 
-  // --- IMPORTANT: avoid sdk.Configuration typings; pass a plain object instead ---
   const sdk = await lazyDropbox();
-  const cfg = { username: apiKey } as any;
+  const cfg = buildDbxCfg(apiKey);
   const sigApi = new (sdk as any).SignatureRequestApi(cfg);
   const embApi = new (sdk as any).EmbeddedApi(cfg);
 
@@ -237,8 +221,10 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
       subject: "Please review and sign",
       message: "Review and sign to proceed.",
       signers: [{ emailAddress: email, name, order: 0 }],
-      // TODO: replace with your generated doc; fileUrls keeps this example simple.
-      fileUrls: [process.env.NEXT_PUBLIC_SAMPLE_PDF_URL || "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"],
+      fileUrls: [
+        process.env.NEXT_PUBLIC_SAMPLE_PDF_URL ||
+          "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+      ],
       metadata: { tradeId },
     } as any);
 
@@ -262,7 +248,6 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
 }
 
 export async function createSellerSignatureLink(tradeId: string, sellerToken?: string | null): Promise<string> {
-  // Mirror buyer behavior; many flows only need buyer signing first.
   const apiKey = process.env.DROPBOX_SIGN_API_KEY;
   const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
 
@@ -270,9 +255,9 @@ export async function createSellerSignatureLink(tradeId: string, sellerToken?: s
     return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
   }
 
-  // If you later enable embedded seller signing, use the same namespace + plain-object cfg pattern:
+  // If/when you enable embedded seller signing, use the same cfg pattern as buyer:
   // const sdk = await lazyDropbox();
-  // const cfg = { username: apiKey } as any;
+  // const cfg = buildDbxCfg(apiKey);
   // const sigApi = new (sdk as any).SignatureRequestApi(cfg);
   // const embApi = new (sdk as any).EmbeddedApi(cfg);
   // ...
