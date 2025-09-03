@@ -71,11 +71,9 @@ export default function ListingActions({
           throw new Error(msg);
         }
 
-        // Prefer Location header if present
         const location = res.headers.get("Location");
-        if (location) {
-          router.push(location);
-        } else {
+        if (location) router.push(location);
+        else {
           const id = typeof data === "object" ? data?.id : undefined;
           if (!id) throw new Error("Missing transaction id from server.");
           router.push(`/transactions/${id}?action=review`);
@@ -159,19 +157,23 @@ export default function ListingActions({
 
       {/* Form */}
       <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {/* BUY/SELL NOW: read-only info */}
+        {/* BUY/SELL NOW: note on the left, price on the right */}
         {isFixed && (
-          <>
-            <Field label="Price $/AF">
-              <div className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                ${format2(pricePerAf)}
-              </div>
-              <p className="mt-1 text-xs text-slate-500">
+          <div className="sm:col-span-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="text-xs leading-5 text-slate-500">
                 Final total is computed on the server from listing data.
-              </p>
-            </Field>
-            <div className="sm:col-span-2" />
-          </>
+              </div>
+              <div className="min-w-[220px]">
+                <label className="block">
+                  <div className="text-xs text-slate-500">Price $/AF</div>
+                  <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium">
+                    ${format2(pricePerAf)}
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* OFFER / BID inputs */}
