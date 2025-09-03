@@ -4,69 +4,115 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 
+/** Lazy-load the SDK so local/dev builds don't choke if the package is missing somewhere */
 async function lazySdk() {
-  const mod = await import("@dropbox/sign");
-  return mod;
+  const sdk = await import("@dropbox/sign");
+  return sdk;
 }
 
-function red(s?: string, keepLast = 4) {
+/** Mask secrets but keep last few chars for visual verification */
+function mask(s?: string | null, keepLast = 4) {
   if (!s) return "";
-  return s.length <= keepLast ? "****" : `${"*".repeat(Math.max(0, s.length - keepLast))}${s.slice(-keepLast)}`;
+  const v = String(s);
+  return v.length <= keepLast ? "****" : `${"*".repeat(Math.max(0, v.length - keepLast))}${v.slice(-keepLast)}`;
 }
 
+/** Uniform JSON response (adds CORS headers if you want to hit from other tools) */
+function json(data: any, init?: number | ResponseInit) {
+  const res = NextResponse.json(data, init);
+  // Minimal CORS for debugging; adjust/remove if not needed
+  res.headers.set("Access-Control-Allow-Origin", "*");
+  res.headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  return res;
+}
+
+export async function OPTIONS() {
+  return json({ ok: true });
+}
+
+/**
+ * GET /api/debug/dropbox-sign
+ * Sanity check: confirms API key works and shows Dropbox Sign account email.
+ */
 export async function GET() {
   try {
     const apiKey = process.env.DROPBOX_SIGN_API_KEY || "";
     const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
     const nextPublicClientId = process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID || "";
-    const testMode = process.env.DROPBOX_SIGN_TEST_MODE || "1";
+    const testMode = process.env.DROPBOX_SIGN_TEST_MODE ?? "1";
 
-    const { AccountApi, Configuration } = await lazySdk();
-    const cfg = new Configuration({ username: apiKey });
-    const accountApi = new AccountApi(cfg);
+    if (!apiKey) {
+      return json(
+        {
+          ok: false,
+          error: "Missing DROPBOX_SIGN_API_KEY",
+          hint: "Set DROPBOX_SIGN_API_KEY in your environment.",
+        },
+        { status: 500 }
+      );
+    }
 
-    // Minimal call to verify credentials
+    const sdk = await lazySdk();
+    const cfg = new sdk.Configuration({ username: apiKey });
+    const accountApi = new sdk.AccountApi(cfg);
+
     const account = await accountApi.accountGet();
 
-    return NextResponse.json({
+    return json({
       ok: true,
       env: {
-        DROPBOX_SIGN_API_KEY: red(apiKey),
-        DROPBOX_SIGN_CLIENT_ID: red(clientId),
-        NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID: red(nextPublicClientId),
+        DROPBOX_SIGN_API_KEY: mask(apiKey),
+        DROPBOX_SIGN_CLIENT_ID: mask(clientId),
+        NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID: mask(nextPublicClientId),
         DROPBOX_SIGN_TEST_MODE: testMode,
       },
       accountEmail: account.body.account?.email_address ?? null,
     });
   } catch (e: any) {
-    // Show full error payloads from SDK
-    return NextResponse.json(
+    return json(
       {
         ok: false,
         error: e?.message || "Unknown error",
-        details: e?.response?.text || e?.response?.data || null,
         status: e?.status || e?.response?.status || null,
+        details: e?.response?.text || e?.response?.data || null,
       },
       { status: 500 }
     );
   }
 }
 
+/**
+ * POST /api/debug/dropbox-sign
+ * Body (optional): { signerEmail?: string, signerName?: string }
+ * Creates a test embedded signature request and returns a signUrl you can open in a new tab or iFrame.
+ */
 export async function POST(req: NextRequest) {
-  // Creates a test embedded signature request and returns a sign_url you can try
   try {
-    const { signerEmail = "test@example.com", signerName = "Test Signer" } = await req.json().catch(() => ({}));
+    const { signerEmail = "test@example.com", signerName = "Test Signer" } =
+      (await req.json().catch(() => ({}))) as { signerEmail?: string; signerName?: string };
 
     const apiKey = process.env.DROPBOX_SIGN_API_KEY || "";
     const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
     const testMode = (process.env.DROPBOX_SIGN_TEST_MODE ?? "1") === "1";
 
-    const { SignatureRequestApi, EmbeddedApi, Configuration } = await lazySdk();
-    const cfg = new Configuration({ username: apiKey });
-    const sigApi = new SignatureRequestApi(cfg);
-    const embApi = new EmbeddedApi(cfg);
+    if (!apiKey || !clientId) {
+      return json(
+        {
+          ok: false,
+          error: "Missing Dropbox Sign envs",
+          hint: "Ensure DROPBOX_SIGN_API_KEY and DROPBOX_SIGN_CLIENT_ID are set.",
+        },
+        { status: 500 }
+      );
+    }
 
-    // Create a tiny test request using a public PDF; test_mode ensures no real emails are sent.
+    const sdk = await lazySdk();
+    const cfg = new sdk.Configuration({ username: apiKey });
+    const sigApi = new sdk.SignatureRequestApi(cfg);
+    const embApi = new sdk.EmbeddedApi(cfg);
+
+    // Use a public dummy PDF; replace with your own doc (fileUrls or files streams) when ready.
     const create = await sigApi.signatureRequestCreateEmbedded({
       clientId,
       testMode: testMode ? 1 : 0,
@@ -75,26 +121,43 @@ export async function POST(req: NextRequest) {
       message: "This is a test embedded signature request from the debug endpoint.",
       signers: [{ emailAddress: signerEmail, name: signerName, order: 0 }],
       fileUrls: ["https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"],
-      // Optional callback if you want to test webhooks later
-      // metadata: { env: process.env.VERCEL_ENV ?? "local" },
+      // metadata: { source: "debug-endpoint" },
     } as any);
 
     const signatureId = create.body.signatureRequest?.signatures?.[0]?.signatureId;
-    if (!signatureId) throw new Error("No signatureId returned in signatureRequest");
+    if (!signatureId) {
+      return json(
+        {
+          ok: false,
+          error: "No signatureId returned by Dropbox Sign",
+          dump: create.body,
+        },
+        { status: 502 }
+      );
+    }
 
     const sign = await embApi.embeddedSignUrl(signatureId);
     const signUrl = sign.body.embedded?.signUrl;
 
-    if (!signUrl) throw new Error("No sign_url returned via embeddedSignUrl");
+    if (!signUrl) {
+      return json(
+        {
+          ok: false,
+          error: "No sign_url returned by Dropbox Sign",
+          dump: sign.body,
+        },
+        { status: 502 }
+      );
+    }
 
-    return NextResponse.json({ ok: true, signUrl, signatureId });
+    return json({ ok: true, signUrl, signatureId });
   } catch (e: any) {
-    return NextResponse.json(
+    return json(
       {
         ok: false,
         error: e?.message || "Unknown error",
-        details: e?.response?.text || e?.response?.data || null,
         status: e?.status || e?.response?.status || null,
+        details: e?.response?.text || e?.response?.data || null,
       },
       { status: 500 }
     );
