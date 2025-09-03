@@ -5,16 +5,15 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 type Kind = "SELL" | "BUY";
+type Mode = "BUY_NOW" | "SELL_NOW" | "OFFER" | "BID";
 
 type Props = {
   listingId: string;
-  kind: Kind;                 // SELL = you're buying from seller; BUY = you're selling to buyer
-  pricePerAf: number;         // dollars (already converted from cents)
+  kind: Kind;                  // SELL = you're buying from seller; BUY = you're selling to buyer
+  pricePerAf: number;          // dollars (already converted from cents)
   isAuction?: boolean;
   reservePrice?: number | null; // dollars, if applicable
 };
-
-type Mode = "BUY_NOW" | "SELL_NOW" | "OFFER" | "BID";
 
 export default function ListingActions({
   listingId,
@@ -25,6 +24,7 @@ export default function ListingActions({
 }: Props) {
   const router = useRouter();
 
+  // Default tab: BUY_NOW for SELL listings, SELL_NOW for BUY listings
   const [mode, setMode] = React.useState<Mode>(() => (kind === "SELL" ? "BUY_NOW" : "SELL_NOW"));
 
   // Inputs ONLY for OFFER / BID (Buy/Sell Now are server-driven, no inputs)
@@ -40,6 +40,7 @@ export default function ListingActions({
   const total = React.useMemo(() => round2(acreFeet * price), [acreFeet, price]);
 
   React.useEffect(() => {
+    // Reset suggested price when switching tabs that use inputs
     if (mode === "OFFER") setPrice(round2(pricePerAf));
     if (mode === "BID") setPrice(round2(reservePrice ?? pricePerAf));
   }, [mode, pricePerAf, reservePrice]);
@@ -53,18 +54,36 @@ export default function ListingActions({
 
     try {
       if (mode === "BUY_NOW" || mode === "SELL_NOW") {
-        // ✅ Server-only: no client inputs. Server derives qty/price from DB.
+        // Server-only: no client quantity/price. Server reads DB.
         const res = await fetch(
           `/api/transactions/buy-now?listingId=${encodeURIComponent(listingId)}`,
           { method: "POST", credentials: "include" }
         );
-        const data = await res.json().catch(() => ({} as any));
-        if (!res.ok) throw new Error(data?.error || "Failed to start Buy Now");
-        router.push(`/transactions/${data.id}?action=review`);
+
+        // Try JSON, fallback to text for better errors
+        let data: any = null;
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("application/json")) data = await res.json().catch(() => ({} as any));
+        else data = await res.text().catch(() => "");
+
+        if (!res.ok) {
+          const msg = (typeof data === "string" ? data : data?.error) || "Failed to start Buy Now";
+          throw new Error(msg);
+        }
+
+        // Prefer Location header if present
+        const location = res.headers.get("Location");
+        if (location) {
+          router.push(location);
+        } else {
+          const id = typeof data === "object" ? data?.id : undefined;
+          if (!id) throw new Error("Missing transaction id from server.");
+          router.push(`/transactions/${id}?action=review`);
+        }
         return;
       }
 
-      // OFFER / BID still accept user inputs
+      // OFFER: user inputs
       if (mode === "OFFER") {
         const res = await fetch("/api/transactions", {
           method: "POST",
@@ -73,14 +92,18 @@ export default function ListingActions({
           body: JSON.stringify({
             type: "OFFER",
             listingId,
-            acreFeet: Number(acreFeet),
-            pricePerAF: Number(price), // dollars
+            acreFeet: Number(acreFeet),   // integer AF
+            pricePerAF: Number(price),    // dollars (server converts to cents)
           }),
         });
-        const data = await res.json().catch(() => ({} as any));
+        const data = await safeJson(res);
         if (!res.ok) throw new Error(data?.error || "Offer failed");
         setMessage("Offer sent!");
-      } else if (mode === "BID") {
+        return;
+      }
+
+      // BID: user inputs
+      if (mode === "BID") {
         const res = await fetch("/api/auctions/bid", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -91,9 +114,10 @@ export default function ListingActions({
             pricePerAF: Number(price), // dollars
           }),
         });
-        const data = await res.json().catch(() => ({} as any));
+        const data = await safeJson(res);
         if (!res.ok) throw new Error(data?.error || "Bid failed");
         setMessage("Bid placed");
+        return;
       }
     } catch (err: any) {
       setMessage(err?.message || "Something went wrong");
@@ -106,8 +130,8 @@ export default function ListingActions({
   const canSellNow = kind === "BUY";
   const minBid = reservePrice ?? pricePerAf;
 
-  const isFixed = mode === "BUY_NOW" || mode === "SELL_NOW";
-  const showInputs = mode === "OFFER" || mode === "BID";
+  const isFixed = mode === "BUY_NOW" || mode === "SELL_NOW";  // no inputs
+  const showInputs = mode === "OFFER" || mode === "BID";      // show inputs
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -142,7 +166,9 @@ export default function ListingActions({
               <div className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                 ${format2(pricePerAf)}
               </div>
-              <p className="mt-1 text-xs text-slate-500">Final total is computed on the server.</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Final total is computed on the server from listing data.
+              </p>
             </Field>
             <div className="sm:col-span-2" />
           </>
@@ -203,6 +229,16 @@ export default function ListingActions({
 
 /* ----------------- helpers & bits ----------------- */
 
+async function safeJson(res: Response) {
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 function Tab({
   selected,
   onClick,
@@ -218,9 +254,7 @@ function Tab({
       onClick={onClick}
       className={
         "h-9 rounded-full px-4 text-sm " +
-        (selected
-          ? "bg-[#0A6B58] text-white"
-          : "bg-slate-100 text-slate-700 hover:bg-slate-200")
+        (selected ? "bg-[#0A6B58] text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200")
       }
     >
       {children}
