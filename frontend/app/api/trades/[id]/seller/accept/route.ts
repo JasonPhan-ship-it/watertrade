@@ -1,3 +1,4 @@
+// frontend/app/api/trades/[id]/seller/accept/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -5,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus, TransactionStatus } from "@prisma/client";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
-import { clerkClient } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmail, appUrl, renderBuyerAcceptedEmail } from "@/lib/email";
 import { createBuyerSignatureLink } from "@/lib/trade";
 
@@ -66,20 +67,32 @@ function pickAcceptedPendingTradeStatus():
   const TS: any = TradeStatus;
   return (
     TS.ACCEPTED_PENDING_BUYER_SIGNATURE ??
-    TS.ACCEPTED ??                 // safer fallback than OFFERED
-    TS.PENDING ??                  // last resort, if your enum has it
+    TS.ACCEPTED ??
+    TS.PENDING ??
     TS.OFFERED
   );
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const url = new URL(req.url);
+  const rawId = (params.id || "").trim();
+  const trade = rawId ? await findTradeByAnyId(rawId) : null;
+  const viewer = trade ? await getViewer(req as any, trade as any) : { role: "unknown", via: "none" as const };
+
+  const { userId: clerkId } = auth();
+  const admin = clerkId
+    ? await prisma.user.findUnique({ where: { clerkId }, select: { role: true, id: true, email: true, name: true } })
+    : null;
+
   return NextResponse.json({
     ok: true,
     route: "trades/:id/seller/accept",
     id: params.id,
+    viewer,
+    adminByAuth: admin ? { isAdmin: admin.role === "ADMIN", userId: admin.id, email: admin.email, name: admin.name } : null,
     sawRoleParam: url.searchParams.get("role") ?? null,
     tokenPresent: url.searchParams.has("token"),
+    tip: "Include ?role=seller&token=<sellerToken> to act via magic link, or sign in as seller/admin.",
   });
 }
 
@@ -102,9 +115,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // AuthZ: must be seller
+    // AuthZ: seller OR ADMIN can proceed
     const viewer = await getViewer(req as any, trade as any);
-    if (!viewer || viewer.role !== "seller") {
+    let allow = viewer.role === "seller";
+    let actedByAdmin: { adminUserId: string; adminEmail?: string | null } | null = null;
+
+    if (!allow) {
+      const { userId: clerkId } = auth();
+      if (clerkId) {
+        const admin = await prisma.user.findUnique({
+          where: { clerkId },
+          select: { id: true, role: true, email: true },
+        });
+        if (admin?.role === "ADMIN") {
+          allow = true;
+          actedByAdmin = { adminUserId: admin.id, adminEmail: admin.email };
+        }
+      }
+    }
+
+    if (!allow) {
       const url = new URL(req.url);
       return NextResponse.json(
         {
@@ -115,7 +145,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             hasToken: url.searchParams.has("token") || !!req.headers.get("x-trade-token"),
             sawRoleParam: url.searchParams.get("role") ?? null,
           },
-          tip: "Sign in as the seller or include ?role=seller&token=<sellerToken>.",
+          tip: "Sign in as the seller or include ?role=seller&token=<sellerToken>. Admins signed in may also proceed.",
         },
         { status: 403 }
       );
@@ -134,7 +164,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             id: crypto.randomUUID(),
             actor: "seller",
             kind: "ACCEPT",
-            payload: { previousStatus: (trade as any).status, round: (trade as any).round },
+            payload: {
+              previousStatus: (trade as any).status,
+              round: (trade as any).round,
+              ...(actedByAdmin ? { actedByAdmin } : {}),
+            },
           },
         },
       },
@@ -148,7 +182,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         pricePerAf: true,
         buyerUserId: true,
         sellerUserId: true,
-        // Keep for email subject/title if you still use it
         windowLabel: true,
       },
     });
@@ -168,7 +201,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Notify buyer (best-effort)
+    // ---- Create embedded sign URL for buyer ----
+    let signLink: string | null = null;
+    try {
+      signLink = await createBuyerSignatureLink(updated.id, (trade as any).buyerToken);
+    } catch (e: any) {
+      // Return a helpful error so the UI can show actionable info
+      return NextResponse.json(
+        {
+          error: "Failed to create buyer sign URL",
+          details: e?.message || "Unknown error",
+          hint: "Check DROPBOX_SIGN_API_KEY / DROPBOX_SIGN_CLIENT_ID and sample file URL.",
+        },
+        { status: 502 }
+      );
+    }
+
+    // ---- Notify buyer (best-effort) ----
     const [buyerLocal, sellerLocal] = await Promise.all([
       prisma.user.findUnique({
         where: { id: updated.buyerUserId || "" },
@@ -200,9 +249,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       } catch { /* non-fatal */ }
     }
 
-    const signLink = await createBuyerSignatureLink(trade.id, (trade as any).buyerToken);
     const viewLinkForBuyer = appUrl(
-      `/t/${trade.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=review`
+      `/t/${updated.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=review`
     );
 
     if (buyerEmail) {
@@ -217,7 +265,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           pricePerAf: updated.pricePerAf,
           windowLabel: updated.windowLabel ?? undefined,
         },
-        signLink,
+        signLink: signLink!, // already checked
         viewLink: viewLinkForBuyer,
       });
 
@@ -241,17 +289,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const token = inUrl.searchParams.get("token") || undefined;
     const role = inUrl.searchParams.get("role") || "seller";
 
-    const redirectUrl = new URL(`/t/${trade.id}`, base);
+    const redirectUrl = new URL(`/t/${updated.id}`, base);
     redirectUrl.searchParams.set("role", role);
     redirectUrl.searchParams.set("action", "awaiting-buyer-signature");
     if (token) redirectUrl.searchParams.set("token", token);
 
     return NextResponse.json({
       ok: true,
-      tradeId: trade.id,
+      tradeId: updated.id,
       status: updated.status,
       message: "Awaiting buyer signature",
       redirectUrl: redirectUrl.toString(),
+      // Handy for client to open modal immediately (optional)
+      signLink,
     });
   } catch (e: any) {
     console.error("[trades/:id/seller/accept] error", e);
