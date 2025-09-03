@@ -106,12 +106,10 @@ function toneForStatus(status?: string): "slate" | "green" | "amber" | "red" {
 }
 
 function buildUrl(base: string, opts: { token?: string; role?: "buyer" | "seller" } = {}) {
-  const url = new URL(base, "http://dummy"); // base for searchParams manipulation
+  const url = new URL(base, "http://dummy");
   if (opts.token) url.searchParams.set("token", opts.token);
   if (opts.role) url.searchParams.set("role", opts.role);
-  // strip dummy origin
-  const path = url.pathname + (url.search ? url.search : "");
-  return path;
+  return url.pathname + (url.search ? url.search : "");
 }
 
 // ---------- Component ----------
@@ -137,13 +135,12 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
     );
   }
 
-  // Link back to Trade (if it exists) for action endpoints
+  // Find linked Trade (if it exists)
   const linkedTrade = await prisma.trade.findFirst({
     where: { transactionId: tx.id },
     select: { id: true, status: true },
   });
   const tradeIdLinked = linkedTrade?.id ?? null;
-  const tradeExists = Boolean(tradeIdLinked);
 
   // Resolve viewer role
   let viewerRole: "buyer" | "seller" | "guest" =
@@ -171,22 +168,29 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
   const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
   const status = tx.status ?? "—";
 
-  // --- Action endpoints (ONLY use /api/trades when a Trade exists) ---
-  const acceptUrlSeller = tradeExists
-    ? buildUrl(`/api/trades/${tradeIdLinked}/seller/accept`, { token, role: viewerRole === "seller" ? "seller" : undefined })
-    : null;
+  // Use Trade ID if present, otherwise fall back to Transaction ID.
+  // NOTE: your API routes must accept EITHER ID and auto-create the Trade when needed.
+  const idForActions = tradeIdLinked || tx.id;
 
-  const declineUrlBuyer = tradeExists
-    ? buildUrl(`/api/trades/${tradeIdLinked}/buyer/decline`, { token, role: viewerRole === "buyer" ? "buyer" : undefined })
-    : null;
+  const acceptUrlSeller = buildUrl(`/api/trades/${idForActions}/seller/accept`, {
+    token,
+    role: viewerRole === "seller" ? "seller" : undefined,
+  });
 
-  const counterUrlSeller = tradeExists
-    ? buildUrl(`/api/trades/${tradeIdLinked}/seller/counter`, { token, role: viewerRole === "seller" ? "seller" : undefined })
-    : null;
+  const declineUrlBuyer = buildUrl(`/api/trades/${idForActions}/buyer/decline`, {
+    token,
+    role: viewerRole === "buyer" ? "buyer" : undefined,
+  });
 
-  const counterUrlBuyer = tradeExists
-    ? buildUrl(`/api/trades/${tradeIdLinked}/buyer/counter`, { token, role: viewerRole === "buyer" ? "buyer" : undefined })
-    : null;
+  const counterUrlSeller = buildUrl(`/api/trades/${idForActions}/seller/counter`, {
+    token,
+    role: viewerRole === "seller" ? "seller" : undefined,
+  });
+
+  const counterUrlBuyer = buildUrl(`/api/trades/${idForActions}/buyer/counter`, {
+    token,
+    role: viewerRole === "buyer" ? "buyer" : undefined,
+  });
 
   const showPermsHint = viewerRole === "guest";
 
@@ -240,11 +244,6 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
 
       {/* Actions */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        {!tradeExists && (
-          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            A Trade record hasn’t been created for this transaction yet. Create it to enable Accept/Counter/Decline.
-          </div>
-        )}
         {showPermsHint && (
           <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
             You’re signed in as a guest for this transaction. Actions may return “Forbidden” unless you’re the buyer/seller or provide a valid token.
@@ -253,66 +252,44 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
 
         {viewerRole === "seller" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {!tradeExists ? (
-              null
-            ) : (
-              <>
-                {acceptUrlSeller && (
-                  <AcceptButton
-                    postUrl={acceptUrlSeller}
-                    label="Accept"
-                    className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
-                    confirm
-                    confirmMessage="Accept this offer?"
-                  />
-                )}
-                {counterUrlSeller && (
-                  <CounterButton
-                    postUrl={counterUrlSeller}
-                    role="seller"
-                    currentPriceCents={priceAf}
-                    currentQty={qty}
-                    label="Counter"
-                  />
-                )}
-                {tradeIdLinked && (
-                  <DeclineButton
-                    transactionId={tradeIdLinked}
-                    className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
-                    label="Decline"
-                  />
-                )}
-              </>
-            )}
+            <AcceptButton
+              postUrl={acceptUrlSeller}
+              label="Accept"
+              className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
+              confirm
+              confirmMessage="Accept this offer?"
+            />
+            <CounterButton
+              postUrl={counterUrlSeller}
+              role="seller"
+              currentPriceCents={priceAf}
+              currentQty={qty}
+              label="Counter"
+            />
+            <DeclineButton
+              transactionId={idForActions}
+              className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
+              label="Decline"
+            />
           </div>
         ) : viewerRole === "buyer" ? (
           <div className="flex flex-wrap items-center gap-3">
-            {!tradeExists ? (
-              null
-            ) : (
-              <>
-                {counterUrlBuyer && (
-                  <CounterButton
-                    postUrl={counterUrlBuyer}
-                    role="buyer"
-                    currentPriceCents={priceAf}
-                    currentQty={qty}
-                    label="Counter"
-                  />
-                )}
-                {declineUrlBuyer ? (
-                  <form action={declineUrlBuyer} method="post">
-                    {token ? <input type="hidden" name="token" value={token} /> : null}
-                    <button
-                      type="submit"
-                      className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Decline
-                    </button>
-                  </form>
-                ) : null}
-              </>
-            )}
+            <CounterButton
+              postUrl={counterUrlBuyer}
+              role="buyer"
+              currentPriceCents={priceAf}
+              currentQty={qty}
+              label="Counter"
+            />
+            <form action={declineUrlBuyer} method="post">
+              {token ? <input type="hidden" name="token" value={token} /> : null}
+              <button
+                type="submit"
+                className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Decline
+              </button>
+            </form>
           </div>
         ) : (
           <div className="text-sm text-slate-600">
