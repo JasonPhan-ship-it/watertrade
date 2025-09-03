@@ -7,107 +7,115 @@ import { TransactionType, TransactionStatus } from "@prisma/client";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   try {
-    // Auth
+    // --- Auth ---
     const { userId: clerkId } = auth();
-    if (!clerkId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!clerkId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    // listingId from JSON body OR querystring
-    let listingId = "";
-    if (req.headers.get("content-type")?.includes("application/json")) {
-      const body = (await req.json().catch(() => ({}))) as { listingId?: string };
-      listingId = (body?.listingId || "").trim();
+    // --- listingId from URL (?listingId=...) OR JSON fallback ---
+    const url = new URL(req.url);
+    let listingId = (url.searchParams.get("listingId") || "").trim();
+
+    if (!listingId && req.headers.get("content-type")?.includes("application/json")) {
+      const body = (await req.json().catch(() => ({}))) as any;
+      listingId = String(body?.listingId || "").trim();
     }
-    if (!listingId) {
-      const url = new URL(req.url);
-      listingId = (url.searchParams.get("listingId") || "").trim();
-    }
+
     if (!listingId) {
       return NextResponse.json({ error: "listingId is required" }, { status: 400 });
     }
 
-    // Resolve buyer (app user) from Clerk
+    // --- Buyer (from Clerk) ---
     const buyer = await prisma.user.findUnique({
       where: { clerkId },
       select: { id: true },
     });
-    if (!buyer) return NextResponse.json({ error: "User not found" }, { status: 404 });
+    if (!buyer) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
 
-    // Pull listing from DB (authoritative source of price & default qty)
-    const listingSelect = {
-      id: true,
-      title: true,
-      sellerId: true,
-      pricePerAF: true,        // cents
-      // Optional fields (only used if present in your schema)
-      district: true,
-      waterType: true,
-      defaultOrderAF: true,
-      acreFeet: true,
-      volumeAf: true,
-      availableAF: true,
-      minOrderAF: true,
-    } as const;
-
+    // --- Listing (server = source of truth) ---
     const listing = await prisma.listing.findUnique({
       where: { id: listingId },
-      select: listingSelect,
+      select: {
+        id: true,
+        title: true,
+        sellerId: true,
+        pricePerAF: true,   // cents
+        // Optional fields if present in your schema; used for qty inference/snapshots:
+        acreFeet: true,
+        defaultOrderAF: true,
+        availableAF: true,
+        minOrderAF: true,
+        volumeAf: true,
+        // district: true,
+        // waterType: true,
+      },
     });
 
-    if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+    if (!listing) {
+      return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+    }
     if (!listing.sellerId) {
-      return NextResponse.json({ error: "Listing is missing sellerId" }, { status: 400 });
+      return NextResponse.json({ error: "Listing is missing sellerId" }, { status: 422 });
     }
 
-    // Price from DB
-    const pricePerAF = Number(listing.pricePerAF || 0);
+    const pricePerAF = Number(listing.pricePerAF ?? 0);
     if (!Number.isFinite(pricePerAF) || pricePerAF <= 0) {
-      return NextResponse.json({ error: "Listing has invalid price" }, { status: 400 });
+      return NextResponse.json({ error: "Listing has invalid pricePerAF (must be > 0 cents)" }, { status: 422 });
     }
 
-    // Quantity from DB (ignore client input)
+    // --- Quantity decided on the server ---
+    // Policy: prefer explicit defaults if present, else full lot, else 1 AF.
     const qtyCandidates = [
       (listing as any).defaultOrderAF,
       (listing as any).acreFeet,
-      (listing as any).volumeAf,
       (listing as any).minOrderAF,
       (listing as any).availableAF,
+      (listing as any).volumeAf,
     ]
       .map((n) => Number(n))
       .filter((n) => Number.isFinite(n) && n > 0);
 
-    const acreFeet = Math.floor(qtyCandidates[0] ?? 1);
+    const acreFeet = Math.max(1, Math.floor(qtyCandidates[0] ?? 1));
+    // If you want to ALWAYS default to 1 AF, replace the line above with:
+    // const acreFeet = 1;
+
     const totalAmount = pricePerAF * acreFeet; // cents
 
-    // Create transaction
+    // --- Create transaction ---
     const tx = await prisma.transaction.create({
       data: {
         type: TransactionType.BUY_NOW,
-        status: TransactionStatus.INITIATED, // (or rely on DB default)
+        status: TransactionStatus.INITIATED, // or omit if DB default exists
         listingId: listing.id,
         buyerId: buyer.id,
         sellerId: listing.sellerId,
 
-        // Snapshots (include only if your schema has these)
+        // Snapshots (uncomment if your schema has these columns)
         listingTitleSnapshot: listing.title ?? null,
         // districtSnapshot: listing.district ?? null,
         // waterTypeSnapshot: listing.waterType ?? null,
 
-        pricePerAF,  // cents
-        acreFeet,    // integer AF
-        totalAmount, // cents
+        pricePerAF,      // cents
+        acreFeet,        // integer AF
+        totalAmount,     // cents
       },
       select: { id: true },
     });
 
-    const res = NextResponse.json(
-      { id: tx.id, acreFeet, pricePerAF, totalAmount },
-      { status: 201 }
-    );
+    const res = NextResponse.json({ id: tx.id }, { status: 201 });
     res.headers.set("Location", `/transactions/${tx.id}?action=review`);
     return res;
-  } catch (e: any) {
-    console.error("[buy-now] error", e);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err: any) {
+    console.error("[/api/transactions/buy-now] error", {
+      message: err?.message,
+      stack: err?.stack,
+      tookMs: Date.now() - startedAt,
+    });
+    return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });
   }
 }
