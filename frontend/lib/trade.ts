@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { appUrl } from "@/lib/email";
-import type { Trade, Transaction } from "@prisma/client";
+import type { Trade } from "@prisma/client";
 
 /* =========================
    Viewer / Auth helpers
@@ -170,6 +170,7 @@ export async function ensureTradeFromAnyIdOrCreate(id: string): Promise<Trade | 
 
 type DbxErr = { message?: string; status?: number; response?: { status?: number; text?: string; data?: any } };
 
+// Lazy import that we’ll use in namespace form
 async function lazyDropbox() {
   return import("@dropbox/sign");
 }
@@ -195,8 +196,7 @@ async function getBuyerNameEmail(trade: Trade): Promise<{ name: string; email: s
   }
 
   if (!email) {
-    // Embedded signing technically doesn't email, but Dropbox Sign still requires an email on the signer object.
-    // Use a placeholder if you truly have none.
+    // Embedded signing requires an email on the signer object (even if no email is sent in embedded mode).
     email = `no-email+${trade.id}@example.com`;
   }
 
@@ -220,10 +220,11 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
   const trade = await prisma.trade.findUnique({ where: { id: tradeId }, include: { listing: true } });
   if (!trade) throw new Error("Trade not found");
 
-  const { SignatureRequestApi, EmbeddedApi, Configuration } = await lazyDropbox();
-  const cfg = new Configuration({ username: apiKey });
-  const sigApi = new SignatureRequestApi(cfg);
-  const embApi = new EmbeddedApi(cfg);
+  // --- IMPORTANT: avoid sdk.Configuration typings; pass a plain object instead ---
+  const sdk = await lazyDropbox();
+  const cfg = { username: apiKey } as any;
+  const sigApi = new (sdk as any).SignatureRequestApi(cfg);
+  const embApi = new (sdk as any).EmbeddedApi(cfg);
 
   const { name, email } = await getBuyerNameEmail(trade);
 
@@ -236,7 +237,7 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
       subject: "Please review and sign",
       message: "Review and sign to proceed.",
       signers: [{ emailAddress: email, name, order: 0 }],
-      // TODO: swap to your generated doc; fileUrls keeps this example simple.
+      // TODO: replace with your generated doc; fileUrls keeps this example simple.
       fileUrls: [process.env.NEXT_PUBLIC_SAMPLE_PDF_URL || "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"],
       metadata: { tradeId },
     } as any);
@@ -250,7 +251,6 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
 
     return signUrl;
   } catch (e: any) {
-    // Bubble the *real* error to the caller (your route can log this and return a helpful message)
     const err = e as DbxErr;
     console.error("[createBuyerSignatureLink] error", {
       message: err?.message,
@@ -270,7 +270,12 @@ export async function createSellerSignatureLink(tradeId: string, sellerToken?: s
     return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
   }
 
-  // Implement seller signer generation here if you need two-party signing.
-  // For now, route seller to internal page (or replicate buyer logic with seller as signer).
+  // If you later enable embedded seller signing, use the same namespace + plain-object cfg pattern:
+  // const sdk = await lazyDropbox();
+  // const cfg = { username: apiKey } as any;
+  // const sigApi = new (sdk as any).SignatureRequestApi(cfg);
+  // const embApi = new (sdk as any).EmbeddedApi(cfg);
+  // ...
+
   return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
 }
