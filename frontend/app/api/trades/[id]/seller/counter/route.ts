@@ -1,4 +1,3 @@
-// app/api/trades/[id]/seller/counter/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -9,7 +8,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
 import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
-/** Body parsing that accepts JSON or form-data (no window fields) */
+/** Body parsing that accepts JSON or form-data (NO window fields) */
 async function readBody(req: NextRequest) {
   const ct = req.headers.get("content-type") || "";
   if (ct.includes("application/json")) {
@@ -34,7 +33,9 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
 
   const txn = await prisma.transaction.findUnique({
     where: { id },
-    include: { listing: { select: { id: true, district: true, title: true, waterType: true } } },
+    include: {
+      listing: { select: { id: true, district: true, title: true, waterType: true } },
+    },
   });
   if (!txn) return null;
 
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Parse & validate input (no window fields)
+    // Parse & validate input (ignore window fields entirely)
     const { pricePerAf, volumeAf } = await readBody(req);
     const pricePerAfNum = Number(pricePerAf);
     const volumeAfNum = Number(volumeAf);
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     if (pricePerAfNum <= 0 || volumeAfNum <= 0) {
       return NextResponse.json(
-        { error: "pricePerAf and volumeAf must be greater than 0" },
+        { error: "pricePerAf and volumeAf must be > 0" },
         { status: 400 }
       );
     }
@@ -111,7 +112,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // Update Trade (no windowLabel)
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           waterType: (updated as any).waterType || null,
           volumeAf: updated.volumeAf ?? 0,
           pricePerAf: updated.pricePerAf ?? 0,
-          // windowLabel removed
+          // windowLabel intentionally omitted
         },
         viewLink,
         counterLink,
