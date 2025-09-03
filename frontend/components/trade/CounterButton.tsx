@@ -35,7 +35,6 @@ export default function CounterButton({
   // form state shown as dollars + AF
   const [price, setPrice] = React.useState((currentPriceCents / 100).toString());
   const [qty, setQty] = React.useState(currentQty.toString());
-  const [windowLabel, setWindowLabel] = React.useState("");
 
   function close() {
     setOpen(false);
@@ -95,7 +94,6 @@ export default function CounterButton({
         body: JSON.stringify({
           pricePerAf: priceNum,
           volumeAf: qtyNum,
-          windowLabel: windowLabel.trim() || undefined,
           role,
         }),
       });
