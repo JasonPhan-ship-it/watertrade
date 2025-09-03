@@ -4,20 +4,20 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 
-/** Lazy-load the SDK so builds don't break if the package is absent in some envs */
-async function lazySdk() {
-  const sdk = await import("@dropbox/sign");
-  return sdk;
-}
+/** Config */
+const BASE_URL =
+  process.env.DROPBOX_SIGN_BASE_URL ||
+  "https://api.hellosign.com/v3"; // set to https://api.eu.hellosign.com/v3 if you're on EU
 
-/** Mask secrets but keep last few chars for visual verification */
+/** Utils */
+function btoa(str: string) {
+  return Buffer.from(str, "utf8").toString("base64");
+}
 function mask(s?: string | null, keepLast = 4) {
   if (!s) return "";
   const v = String(s);
   return v.length <= keepLast ? "****" : `${"*".repeat(Math.max(0, v.length - keepLast))}${v.slice(-keepLast)}`;
 }
-
-/** Uniform JSON response (adds CORS headers for quick local testing) */
 function json(data: any, init?: ResponseInit) {
   const res = NextResponse.json(data, init);
   res.headers.set("Access-Control-Allow-Origin", "*");
@@ -25,18 +25,13 @@ function json(data: any, init?: ResponseInit) {
   res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   return res;
 }
-
 export async function OPTIONS() {
   return json({ ok: true });
 }
 
-/** Build the SDK Configuration (cast through any to dodge flaky type exports) */
-function buildCfg(apiKey: string, sdk: any) {
-  return new (sdk as any).Configuration({
-    username: apiKey,
-    // US by default; set DROPBOX_SIGN_BASE_URL to https://api.eu.hellosign.com/v3 for EU cluster
-    basePath: process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3",
-  });
+/** Build Basic auth header: "Basic base64(API_KEY:)" */
+function authHeader(apiKey: string) {
+  return `Basic ${btoa(`${apiKey}:`)}`;
 }
 
 /**
@@ -61,11 +56,33 @@ export async function GET() {
       );
     }
 
-    const sdk = await lazySdk();
-    const cfg = buildCfg(apiKey, sdk);
-    const accountApi = new (sdk as any).AccountApi(cfg);
+    const resp = await fetch(`${BASE_URL}/account`, {
+      method: "GET",
+      headers: {
+        Authorization: authHeader(apiKey),
+        Accept: "application/json",
+      },
+    });
 
-    const account = await accountApi.accountGet();
+    const bodyText = await resp.text();
+    let body: any = null;
+    try {
+      body = bodyText ? JSON.parse(bodyText) : null;
+    } catch {
+      /* leave as text if non-JSON */
+    }
+
+    if (!resp.ok) {
+      return json(
+        {
+          ok: false,
+          error: body?.error?.error_name || body?.error || resp.statusText || "Request failed",
+          status: resp.status,
+          details: body || bodyText || null,
+        },
+        { status: 500 }
+      );
+    }
 
     return json({
       ok: true,
@@ -74,17 +91,17 @@ export async function GET() {
         DROPBOX_SIGN_CLIENT_ID: mask(clientId),
         NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID: mask(nextPublicClientId),
         DROPBOX_SIGN_TEST_MODE: testMode,
-        DROPBOX_SIGN_BASE_URL: process.env.DROPBOX_SIGN_BASE_URL || null,
+        DROPBOX_SIGN_BASE_URL: BASE_URL,
       },
-      accountEmail: account.body.account?.email_address ?? null,
+      accountEmail: body?.account?.email_address ?? null,
     });
   } catch (e: any) {
     return json(
       {
         ok: false,
         error: e?.message || "Unknown error",
-        status: e?.status || e?.response?.status || null,
-        details: e?.response?.text || e?.response?.data || null,
+        status: null,
+        details: null,
       },
       { status: 500 }
     );
@@ -95,6 +112,8 @@ export async function GET() {
  * POST /api/debug/dropbox-sign
  * Body (optional): { signerEmail?: string, signerName?: string }
  * Creates a test embedded signature request and returns a signUrl you can open in a new tab or iFrame.
+ *
+ * NOTE: The REST API expects form-encoded fields (not JSON) for this endpoint.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -116,43 +135,105 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const sdk = await lazySdk();
-    const cfg = buildCfg(apiKey, sdk);
-    const sigApi = new (sdk as any).SignatureRequestApi(cfg);
-    const embApi = new (sdk as any).EmbeddedApi(cfg);
+    // Build x-www-form-urlencoded body per Dropbox Sign v3 REST
+    const form = new URLSearchParams();
+    form.set("client_id", clientId);
+    form.set("test_mode", testMode ? "1" : "0");
+    form.set("title", "Water Traders — Test Embedded Sign");
+    form.set("subject", "Please sign this test document");
+    form.set("message", "This is a test embedded signature request from the debug endpoint.");
+    // signers[0][email_address], signers[0][name], signers[0][order]
+    form.set("signers[0][email_address]", signerEmail);
+    form.set("signers[0][name]", signerName);
+    form.set("signers[0][order]", "0");
+    // file_url[] (array)
+    form.append(
+      "file_url[]",
+      process.env.NEXT_PUBLIC_SAMPLE_PDF_URL || "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+    );
 
-    // Use a public dummy PDF; replace with your own doc when ready.
-    const create = await sigApi.signatureRequestCreateEmbedded({
-      clientId,
-      testMode: testMode ? 1 : 0,
-      title: "Water Traders — Test Embedded Sign",
-      subject: "Please sign this test document",
-      message: "This is a test embedded signature request from the debug endpoint.",
-      signers: [{ emailAddress: signerEmail, name: signerName, order: 0 }],
-      fileUrls: ["https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"],
-    } as any);
+    // 1) Create embedded signature request
+    const createResp = await fetch(`${BASE_URL}/signature_request/create_embedded`, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(apiKey),
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body: form.toString(),
+    });
 
-    const signatureId = create.body.signatureRequest?.signatures?.[0]?.signatureId;
-    if (!signatureId) {
+    const createText = await createResp.text();
+    let createBody: any = null;
+    try {
+      createBody = createText ? JSON.parse(createText) : null;
+    } catch {
+      /* keep raw text */
+    }
+
+    if (!createResp.ok) {
       return json(
         {
           ok: false,
-          error: "No signatureId returned by Dropbox Sign",
-          dump: create.body,
+          error: createBody?.error?.error_name || createBody?.error || createResp.statusText || "Create request failed",
+          status: createResp.status,
+          details: createBody || createText || null,
         },
         { status: 502 }
       );
     }
 
-    const sign = await embApi.embeddedSignUrl(signatureId);
-    const signUrl = sign.body.embedded?.signUrl;
+    const signatureId =
+      createBody?.signature_request?.signatures?.[0]?.signature_id ||
+      createBody?.signatureRequest?.signatures?.[0]?.signature_id;
 
+    if (!signatureId) {
+      return json(
+        {
+          ok: false,
+          error: "No signature_id returned by Dropbox Sign",
+          dump: createBody || createText || null,
+        },
+        { status: 502 }
+      );
+    }
+
+    // 2) Get embedded sign URL
+    const signResp = await fetch(`${BASE_URL}/embedded/sign_url/${encodeURIComponent(signatureId)}`, {
+      method: "GET",
+      headers: {
+        Authorization: authHeader(apiKey),
+        Accept: "application/json",
+      },
+    });
+
+    const signText = await signResp.text();
+    let signBody: any = null;
+    try {
+      signBody = signText ? JSON.parse(signText) : null;
+    } catch {
+      /* keep raw text */
+    }
+
+    if (!signResp.ok) {
+      return json(
+        {
+          ok: false,
+          error: signBody?.error?.error_name || signBody?.error || signResp.statusText || "Sign URL request failed",
+          status: signResp.status,
+          details: signBody || signText || null,
+        },
+        { status: 502 }
+      );
+    }
+
+    const signUrl = signBody?.embedded?.sign_url || signBody?.embedded?.signUrl;
     if (!signUrl) {
       return json(
         {
           ok: false,
           error: "No sign_url returned by Dropbox Sign",
-          dump: sign.body,
+          dump: signBody || signText || null,
         },
         { status: 502 }
       );
@@ -164,8 +245,8 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error: e?.message || "Unknown error",
-        status: e?.status || e?.response?.status || null,
-        details: e?.response?.text || e?.response?.data || null,
+        status: null,
+        details: null,
       },
       { status: 500 }
     );
