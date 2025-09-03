@@ -101,6 +101,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const rawId = (params.id || "").trim();
     if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
+    // Read optional token from request body as well (some clients don't pass query/header)
+    let bodyToken: string | undefined;
+    let bodyRole: string | undefined;
+    try {
+      const body = (await req.json()) as any;
+      bodyToken = body?.token || body?.tradeToken || undefined;
+      bodyRole = body?.role || undefined;
+    } catch {
+      // non-JSON or empty body is fine
+    }
+
     // Accept Trade.id or Transaction.id; create Trade if needed
     let trade;
     try {
@@ -115,9 +126,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // AuthZ: seller OR ADMIN can proceed
+    // Primary authZ: seller via getViewer (query/header tokens handled inside getViewer)
     const viewer = await getViewer(req as any, trade as any);
-    let allow = viewer.role === "seller";
+
+    // Body token fallback: if client posted {token:"..."} and it matches sellerToken, allow.
+    let tokenMatchViaBody = false;
+    if (viewer.role !== "seller" && bodyToken && (trade as any).sellerToken && bodyRole === "seller") {
+      tokenMatchViaBody = bodyToken === (trade as any).sellerToken;
+    }
+
+    // ADMIN bypass (signed-in admin may act)
+    let allow = viewer.role === "seller" || tokenMatchViaBody;
     let actedByAdmin: { adminUserId: string; adminEmail?: string | null } | null = null;
 
     if (!allow) {
@@ -136,16 +155,35 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (!allow) {
       const url = new URL(req.url);
+      const headerToken =
+        req.headers.get("x-trade-token") ||
+        req.headers.get("x-magic-token") ||
+        (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "") ||
+        "";
       return NextResponse.json(
         {
           error: "Forbidden",
           details: {
             viewerRole: viewer?.role ?? "unknown",
             via: (viewer as any)?.via ?? "n/a",
-            hasToken: url.searchParams.has("token") || !!req.headers.get("x-trade-token"),
-            sawRoleParam: url.searchParams.get("role") ?? null,
+            // visibility to debug why token wasn't seen
+            query: {
+              role: url.searchParams.get("role") ?? null,
+              tokenPresent: url.searchParams.has("token"),
+            },
+            headers: {
+              xTradeTokenPresent: !!req.headers.get("x-trade-token"),
+              xMagicTokenPresent: !!req.headers.get("x-magic-token"),
+              authBearerPresent: !!req.headers.get("authorization"),
+              headerTokenPreview: headerToken ? headerToken.slice(0, 4) + "…" : null,
+            },
+            body: {
+              role: bodyRole ?? null,
+              tokenProvided: !!bodyToken,
+              tokenPreview: bodyToken ? bodyToken.slice(0, 4) + "…" : null,
+            },
           },
-          tip: "Sign in as the seller or include ?role=seller&token=<sellerToken>. Admins signed in may also proceed.",
+          tip: "Pass the seller token via query (?role=seller&token=...), header (x-trade-token), or JSON body {role:'seller', token:'...'}; or sign in as ADMIN.",
         },
         { status: 403 }
       );
@@ -206,7 +244,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     try {
       signLink = await createBuyerSignatureLink(updated.id, (trade as any).buyerToken);
     } catch (e: any) {
-      // Return a helpful error so the UI can show actionable info
       return NextResponse.json(
         {
           error: "Failed to create buyer sign URL",
@@ -265,7 +302,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           pricePerAf: updated.pricePerAf,
           windowLabel: updated.windowLabel ?? undefined,
         },
-        signLink: signLink!, // already checked
+        signLink: signLink!,
         viewLink: viewLinkForBuyer,
       });
 
@@ -279,15 +316,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       } catch (e) {
         console.warn("[seller/accept] sendEmail failed:", (e as any)?.message);
       }
-    } else {
-      console.warn("[seller/accept] No buyer email available; skipped email.");
     }
 
-    // Friendly redirect target for your UI success modal
+    // Friendly redirect target
     const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
     const inUrl = new URL(req.url);
     const token = inUrl.searchParams.get("token") || undefined;
-    const role = inUrl.searchParams.get("role") || "seller";
+    const role = inUrl.searchParams.get("role") || (tokenMatchViaBody ? "seller" : "seller");
 
     const redirectUrl = new URL(`/t/${updated.id}`, base);
     redirectUrl.searchParams.set("role", role);
@@ -300,7 +335,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       status: updated.status,
       message: "Awaiting buyer signature",
       redirectUrl: redirectUrl.toString(),
-      // Handy for client to open modal immediately (optional)
       signLink,
     });
   } catch (e: any) {
