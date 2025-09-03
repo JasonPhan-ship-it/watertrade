@@ -1,4 +1,3 @@
-// app/api/trades/[id]/seller/accept/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -10,7 +9,45 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { sendEmail, appUrl, renderBuyerAcceptedEmail } from "@/lib/email";
 import { createBuyerSignatureLink } from "@/lib/trade";
 
-/** Pick a "pending buyer signature" Transaction status (whatever exists in your enum) */
+/** Accept Trade.id OR Transaction.id and create a Trade if missing */
+async function ensureTradeFromAnyIdOrThrow(id: string) {
+  const existing = await findTradeByAnyId(id);
+  if (existing) return existing;
+
+  const txn = await prisma.transaction.findUnique({
+    where: { id },
+    include: { listing: { select: { id: true, district: true, title: true, waterType: true } } },
+  });
+  if (!txn) return null;
+
+  const listingId = txn.listing?.id ?? null;
+  const district =
+    (txn as any).districtSnapshot ??
+    txn.listing?.district ??
+    null;
+
+  if (!listingId || !district) {
+    throw new Error("Cannot create Trade: missing listingId or district on Transaction/Listing.");
+  }
+
+  const created = await prisma.trade.create({
+    data: {
+      transactionId: txn.id,
+      listingId,
+      district,
+      sellerUserId: (txn as any).sellerUserId ?? (txn as any).sellerId ?? undefined,
+      buyerUserId:  (txn as any).buyerUserId  ?? (txn as any).buyerId  ?? undefined,
+      pricePerAf:   (txn as any).pricePerAf   ?? (txn as any).pricePerAF ?? undefined,
+      volumeAf:     (txn as any).volumeAf     ?? (txn as any).acreFeet   ?? undefined,
+      status: TradeStatus.OFFERED,
+      round: 0,
+    } as any,
+  });
+
+  return created;
+}
+
+/** Choose a reasonable "pending buyer signature" Transaction status */
 function pickTxnPendingBuyerSig():
   (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
   const TXS: any = TransactionStatus;
@@ -23,14 +60,14 @@ function pickTxnPendingBuyerSig():
   );
 }
 
-/** Pick a valid Trade status for "accepted, pending buyer signature" */
+/** Choose a valid Trade status for accepted/pending buyer signature */
 function pickAcceptedPendingTradeStatus():
   (typeof TradeStatus)[keyof typeof TradeStatus] {
   const TS: any = TradeStatus;
-  // Only use values that actually exist in your schema:
   return (
     TS.ACCEPTED_PENDING_BUYER_SIGNATURE ??
-    // ultra-conservative fallback if your schema ever changes:
+    TS.ACCEPTED ??                 // safer fallback than OFFERED
+    TS.PENDING ??                  // last resort, if your enum has it
     TS.OFFERED
   );
 }
@@ -51,11 +88,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const rawId = (params.id || "").trim();
     if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    // Accept Trade.id or Transaction.id
-    const trade = await findTradeByAnyId(rawId);
+    // Accept Trade.id or Transaction.id; create Trade if needed
+    let trade;
+    try {
+      trade = await ensureTradeFromAnyIdOrThrow(rawId);
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || "Unable to create Trade" }, { status: 422 });
+    }
     if (!trade) {
       return NextResponse.json(
-        { error: "Not found", hint: "No Trade with this id or transactionId" },
+        { error: "Not found", hint: "No Trade or Transaction with this id" },
         { status: 404 }
       );
     }
@@ -79,7 +121,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // Move Trade to "accepted / pending buyer signature"
+    // Transition Trade -> accepted/pending buyer signature
     const TRADE_ACCEPTED = pickAcceptedPendingTradeStatus();
     const updated = await prisma.trade.update({
       where: { id: trade.id },
@@ -92,7 +134,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             id: crypto.randomUUID(),
             actor: "seller",
             kind: "ACCEPT",
-            payload: { previousStatus: trade.status, round: trade.round },
+            payload: { previousStatus: (trade as any).status, round: (trade as any).round },
           },
         },
       },
@@ -100,18 +142,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         id: true,
         status: true,
         transactionId: true,
-        // fields used for email summary
-        windowLabel: true,
         district: true,
         waterType: true,
         volumeAf: true,
         pricePerAf: true,
         buyerUserId: true,
         sellerUserId: true,
+        // Keep for email subject/title if you still use it
+        windowLabel: true,
       },
     });
 
-    // Best-effort Transaction sync
+    // Sync Transaction status (best-effort)
     if (updated.transactionId) {
       try {
         const pending = pickTxnPendingBuyerSig();
@@ -126,7 +168,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // ---- Notify buyer to sign ----
+    // Notify buyer (best-effort)
     const [buyerLocal, sellerLocal] = await Promise.all([
       prisma.user.findUnique({
         where: { id: updated.buyerUserId || "" },
@@ -158,10 +200,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       } catch { /* non-fatal */ }
     }
 
-    // Links for buyer
-    const signLink = await createBuyerSignatureLink(updated.id, (trade as any).buyerToken);
+    const signLink = await createBuyerSignatureLink(trade.id, (trade as any).buyerToken);
     const viewLinkForBuyer = appUrl(
-      `/t/${updated.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=review`
+      `/t/${trade.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=review`
     );
 
     if (buyerEmail) {
@@ -194,20 +235,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       console.warn("[seller/accept] No buyer email available; skipped email.");
     }
 
-    // Response payload (client can navigate using redirectUrl if desired)
+    // Friendly redirect target for your UI success modal
     const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
     const inUrl = new URL(req.url);
     const token = inUrl.searchParams.get("token") || undefined;
     const role = inUrl.searchParams.get("role") || "seller";
 
-    const redirectUrl = new URL(`/t/${updated.id}`, base);
+    const redirectUrl = new URL(`/t/${trade.id}`, base);
     redirectUrl.searchParams.set("role", role);
     redirectUrl.searchParams.set("action", "awaiting-buyer-signature");
     if (token) redirectUrl.searchParams.set("token", token);
 
     return NextResponse.json({
       ok: true,
-      tradeId: updated.id,
+      tradeId: trade.id,
       status: updated.status,
       message: "Awaiting buyer signature",
       redirectUrl: redirectUrl.toString(),
