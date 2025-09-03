@@ -8,7 +8,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Water Trading Platform",
+  title: "Water Traders",
   description: "A platform for farmers to buy and sell water and water credits",
 };
 
