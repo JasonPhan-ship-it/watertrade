@@ -69,7 +69,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <Detail label="Water Type" value={row.waterType} />
           <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
           <Detail label="Price / AF" value={`$${format2(pricePerAfDollars)}`} />
-          <Detail label="Availability" value={formatWindow(startIso, endIso)} />
           <Detail label="Status" value={row.status} />
           <Detail label="Created" value={new Date(row.createdAt).toLocaleString()} />
           <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
@@ -137,13 +136,4 @@ function formatInt(n: number) {
 }
 function format2(n: number) {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function formatWindow(startIso: string, endIso: string) {
-  const s = new Date(startIso);
-  const e = new Date(endIso);
-  const sameYear = s.getFullYear() === e.getFullYear();
-  const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-  return sameYear
-    ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
-    : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
 }
