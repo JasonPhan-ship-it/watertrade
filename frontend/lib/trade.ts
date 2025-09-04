@@ -359,3 +359,23 @@ export async function createSellerSignatureLink(tradeId: string, sellerToken?: s
   }
   return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
 }
+
+export async function getViewer(
+  req: NextRequest | Request,
+  arg:
+    | string
+    | {
+        sellerUserId: string | null;
+        buyerUserId: string | null;
+        sellerToken?: string | null;
+        buyerToken?: string | null;
+      },
+  opts?: { createIfMissing?: boolean }
+): Promise<Viewer> {
+  if (typeof arg === "string") {
+    const { viewer } = await getViewerById(req, arg, opts ?? { createIfMissing: true });
+    return viewer;
+  }
+  // arg is a Trade-like object
+  return getViewerForTrade(req, arg);
+}
