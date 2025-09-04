@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
-import { getViewer, findTradeByAnyId } from "@/lib/trade";
+import { getViewerById } from "@/lib/trade"; // ⬅️ use the id-aware helper
 import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
 type RenderOut = { html: string; preheader?: string };
@@ -42,15 +42,14 @@ export async function HEAD() {
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    // 1) Load trade (accept Trade.id or Transaction.id)
+    // 1) Resolve viewer + trade from either Trade.id OR Transaction.id (auto-creates Trade if needed)
     const rawId = (params.id || "").trim();
     if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    const trade = await findTradeByAnyId(rawId);
+    const { viewer, trade } = await getViewerById(req, rawId, { createIfMissing: true });
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // 2) AuthZ: must be buyer on this trade
-    const viewer = await getViewer(req, trade as any);
     if (viewer.role !== "buyer") {
       const url = new URL(req.url);
       return NextResponse.json(
@@ -87,7 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // 4) Business rule guard: buyer's counter typically <= current ask (adjust or remove if you prefer)
+    // 4) Business rule guard: buyer's counter typically <= current ask (adjust/remove if you prefer)
     if (typeof trade.pricePerAf === "number" && pricePerAfNum > trade.pricePerAf) {
       return NextResponse.json(
         { error: `Buyer counter should be at most ${(trade.pricePerAf / 100).toFixed(2)} USD/AF.` },
@@ -192,7 +191,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         viewLink,
         counterLink,
         declineLink,
-      });
+      } as RenderOut as any); // keep your existing types flexible
 
       await sendEmail({
         to: sellerEmail,
