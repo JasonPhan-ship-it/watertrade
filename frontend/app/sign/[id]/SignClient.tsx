@@ -21,7 +21,7 @@ export default function SignClient({ signUrl, isTestMode }: { signUrl: string; i
     const host = window.location.hostname;
     const skip = !!isTestMode && !isAllowedProdHost(host);
 
-    // Per docs: instantiate with no args, pass clientId to open()
+    // Per SDK: instantiate with no args; pass clientId in open(...)
     const client = new HelloSign();
 
     client.on?.("error", (e: any) => console.error("[sign/error]", e));
@@ -30,16 +30,15 @@ export default function SignClient({ signUrl, isTestMode }: { signUrl: string; i
 
     client.open(signUrl, {
       clientId,
-      skipDomainVerification: skip, // honored only when request was created with test_mode=1
+      skipDomainVerification: skip, // true on previews when testMode=1
       allowCancel: true,
       debug: true,
       timeout: 30000
-      // container: someElement // optional if you want inline instead of modal
     });
 
     openedRef.current = true;
 
-    const mask = (s:string)=> s && s.length>8 ? `${s.slice(0,6)}…${s.slice(-6)}` : s;
+    const mask = (s: string) => (s && s.length > 8 ? `${s.slice(0, 6)}…${s.slice(-6)}` : s);
     console.info("[sign/open]", { host, isTestMode, skipDomainVerification: skip, clientId: mask(clientId) });
   }, [signUrl, isTestMode]);
 
