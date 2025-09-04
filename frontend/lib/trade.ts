@@ -11,7 +11,7 @@ import type { Trade } from "@prisma/client";
 
 export type Viewer =
   | { role: "seller" | "buyer"; via: "auth" | "token"; userId?: string }
-  | { role: "unknown"; via: "none" };
+  | { role: "unknown" | "forbidden"; via: "none"; reason?: string };
 
 function readUrl(req: NextRequest | Request) {
   const urlStr = (req as any)?.url ?? "";
@@ -28,24 +28,49 @@ function parseBearer(h?: string | null) {
   return m?.[1] ?? "";
 }
 
+function tokenFromRequest(req: NextRequest | Request): string {
+  const url = readUrl(req);
+  const q = url.searchParams.get("token") || "";
+  const headers = (req as any).headers;
+  const hToken =
+    headers?.get?.("x-trade-token") ||
+    headers?.get?.("x-magic-token") ||
+    parseBearer(headers?.get?.("authorization")) ||
+    "";
+  return q || hToken || "";
+}
+
+/**
+ * Resolve both the Clerk userId and your local User.id (if mapped).
+ * Safe if auth() throws in non-node runtimes; returns null IDs.
+ */
 async function resolveSessionIds() {
-  const { userId: clerkId } = auth();
-  if (!clerkId) return { localId: null as string | null, clerkId: null as string | null };
+  try {
+    const { userId: clerkId } = auth();
+    if (!clerkId) return { localId: null as string | null, clerkId: null as string | null };
 
-  const local = await prisma.user.findUnique({
-    where: { clerkId },
-    select: { id: true, clerkId: true },
-  });
+    const local = await prisma.user.findUnique({
+      where: { clerkId },
+      select: { id: true, clerkId: true },
+    });
 
-  return { localId: local?.id ?? null, clerkId };
+    return { localId: local?.id ?? null, clerkId };
+  } catch {
+    return { localId: null, clerkId: null };
+  }
 }
 
 function matchesAny(target?: string | null, a?: string | null, b?: string | null) {
   if (!target) return false;
-  return target === a || target === b;
+  return !!(target === a || target === b);
 }
 
-export async function getViewer(
+/**
+ * Core role resolver given a concrete Trade row.
+ * - Prefers authenticated session mapping (localId or clerkId)
+ * - Falls back to magic tokens (sellerToken / buyerToken) if provided
+ */
+export async function getViewerForTrade(
   req: NextRequest | Request,
   trade: {
     sellerUserId: string | null;
@@ -54,17 +79,9 @@ export async function getViewer(
     buyerToken?: string | null;
   }
 ): Promise<Viewer> {
-  const url = readUrl(req);
+  const token = tokenFromRequest(req);
 
-  const tokenFromQuery = url.searchParams.get("token") || "";
-  const headers = (req as any).headers;
-  const tokenFromHeader =
-    headers?.get?.("x-trade-token") ||
-    headers?.get?.("x-magic-token") ||
-    parseBearer(headers?.get?.("authorization")) ||
-    "";
-  const token = tokenFromQuery || tokenFromHeader;
-
+  // 1) Check auth session first
   const { localId, clerkId } = await resolveSessionIds();
   if (localId || clerkId) {
     if (matchesAny(trade.sellerUserId, localId, clerkId)) {
@@ -73,8 +90,11 @@ export async function getViewer(
     if (matchesAny(trade.buyerUserId, localId, clerkId)) {
       return { role: "buyer", via: "auth", userId: localId ?? undefined };
     }
+    // Authenticated but not tied to this trade
+    return { role: "forbidden", via: "none", reason: "Signed in, but not the buyer or seller on this trade." };
   }
 
+  // 2) Optional magic token
   if (token) {
     if (trade.sellerToken && token === trade.sellerToken) {
       return { role: "seller", via: "token" };
@@ -82,12 +102,17 @@ export async function getViewer(
     if (trade.buyerToken && token === trade.buyerToken) {
       return { role: "buyer", via: "token" };
     }
+    return { role: "forbidden", via: "none", reason: "Token provided, but it did not match seller or buyer token." };
   }
 
-  return { role: "unknown", via: "none" };
+  // 3) No auth and no valid token
+  return { role: "unknown", via: "none", reason: "Not signed in and no token provided." };
 }
 
-export function assertCanAct(role: "seller" | "buyer", status: string) {
+/**
+ * Convenience: given a Trade status, gate which party can act.
+ */
+export function assertCanAct(role: "seller" | "buyer", status: Trade["status"]) {
   switch (status) {
     case "OFFERED":
     case "COUNTERED_BY_BUYER":
@@ -105,12 +130,19 @@ export function assertCanAct(role: "seller" | "buyer", status: string) {
    Lookups (Trade.id OR Txn.id)
    ================================ */
 
+/**
+ * Try to resolve by Trade.id first; then by Transaction.id (via trade.transactionId).
+ */
 export async function findTradeByAnyId(id: string) {
   const byTrade = await prisma.trade.findUnique({ where: { id } });
   if (byTrade) return byTrade;
   return prisma.trade.findFirst({ where: { transactionId: id } });
 }
 
+/**
+ * If no Trade exists for a Transaction.id, optionally create one
+ * using fields mirrored off Transaction/Listing.
+ */
 export async function ensureTradeFromAnyIdOrCreate(id: string): Promise<Trade | null> {
   const existing = await findTradeByAnyId(id);
   if (existing) return existing;
@@ -146,6 +178,38 @@ export async function ensureTradeFromAnyIdOrCreate(id: string): Promise<Trade | 
   });
 
   return created;
+}
+
+/**
+ * 🔑 High-level entry point you should use in pages & API routes.
+ * Accepts either a Trade.id or a Transaction.id. If a Trade does not exist
+ * for a Transaction, it can auto-create one (configurable).
+ */
+export async function getViewerById(
+  req: NextRequest | Request,
+  id: string,
+  opts: { createIfMissing?: boolean } = { createIfMissing: true }
+): Promise<{ viewer: Viewer; trade: Trade | null }> {
+  // Resolve trade (Trade.id OR Transaction.id). Optionally create.
+  const trade = opts.createIfMissing
+    ? await ensureTradeFromAnyIdOrCreate(id)
+    : await findTradeByAnyId(id);
+
+  if (!trade) {
+    return {
+      viewer: { role: "forbidden", via: "none", reason: "Trade not found for id (may be a Transaction.id without an associated Trade yet)." },
+      trade: null,
+    };
+  }
+
+  const viewer = await getViewerForTrade(req, {
+    sellerUserId: trade.sellerUserId,
+    buyerUserId: trade.buyerUserId,
+    sellerToken: (trade as any).sellerToken ?? null,
+    buyerToken: (trade as any).buyerToken ?? null,
+  });
+
+  return { viewer, trade };
 }
 
 /* =========================================
