@@ -9,42 +9,80 @@ type SignState =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "ready"; url: string; testMode: boolean }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; details?: unknown };
+
+function isProdHost(host: string) {
+  return host === "watertraders.com" || host.endsWith(".watertraders.com");
+}
 
 export default function SignPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
 
+  // Route/query params
   const id = useMemo(() => {
     const raw = params?.id as unknown;
     return Array.isArray(raw) ? (raw[0] ?? "") : ((raw as string) ?? "");
   }, [params]);
 
-  const role  = (searchParams?.get("role")  ?? "").trim();
+  const role = (searchParams?.get("role") ?? "").trim();
   const token = (searchParams?.get("token") ?? "").trim();
 
   const [state, setState] = useState<SignState>({ kind: "idle" });
 
+  // Fetch the provider sign URL from our API (no direct iframe!)
   const start = useCallback(async () => {
-    if (!id) return setState({ kind: "error", message: "Missing signing ID in the URL." });
+    if (!id) {
+      setState({ kind: "error", message: "Missing signing ID in the URL." });
+      return;
+    }
     setState({ kind: "loading" });
 
+    const ac = new AbortController();
     try {
       const qs = new URLSearchParams({ id });
-      if (role)  qs.set("role", role);
+      if (role) qs.set("role", role);
       if (token) qs.set("token", token);
 
-      const res = await fetch(`/api/sign-url?${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/sign-url?${qs.toString()}`, {
+        cache: "no-store",
+        signal: ac.signal,
+      });
       const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.url) throw new Error(data?.error || `Failed to get sign URL (${res.status})`);
+
+      if (!res.ok || !data?.url) {
+        throw new Error(data?.error || `Failed to get sign URL (${res.status})`);
+      }
+
       setState({ kind: "ready", url: data.url, testMode: !!data.testMode });
     } catch (e: any) {
-      setState({ kind: "error", message: e?.message || "Failed to start signing session." });
+      if (e?.name === "AbortError") return;
+      setState({ kind: "error", message: e?.message || "Failed to start signing session.", details: e });
     }
+    return () => ac.abort();
   }, [id, role, token]);
 
-  useEffect(() => { start(); }, [start]);
+  useEffect(() => {
+    start();
+  }, [start]);
+
+  // Soft guard: warn if this page somehow loads inside a non-WT iframe
+  useEffect(() => {
+    try {
+      if (window.self !== window.top) {
+        const parent = document.referrer ? new URL(document.referrer).hostname : "";
+        if (parent && !isProdHost(parent)) {
+          // eslint-disable-next-line no-console
+          console.warn("[sign] Page is running inside an iframe from:", parent);
+        }
+      }
+    } catch {
+      // cross-origin access may throw; ignore
+    }
+  }, []);
+
+  // ---------- UI ----------
 
   if (state.kind === "error") {
     return (
@@ -53,10 +91,23 @@ export default function SignPage() {
           <h1 className="text-lg font-semibold text-slate-900">Can’t open signing session</h1>
           <p className="mt-2 text-sm text-slate-600">{state.message}</p>
           <div className="mt-6 flex items-center justify-center gap-3">
-            <button onClick={start} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">Retry</button>
-            <button onClick={() => router.back()} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Go Back</button>
+            <button
+              onClick={start}
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => router.back()}
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Go Back
+            </button>
           </div>
-          <p className="mt-4 text-xs text-slate-500">Trade ID <span className="font-mono">{id || "?"}</span></p>
+          <p className="mt-4 text-xs text-slate-500">
+            Trade ID <span className="font-mono">{id || "?"}</span>
+            {role && <> · Role <span className="font-mono">{role}</span></>}
+          </p>
         </div>
       </div>
     );
@@ -68,23 +119,40 @@ export default function SignPage() {
         <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
           <h2 className="mt-4 text-base font-semibold text-slate-900">Preparing your signing session…</h2>
-          <p className="mt-2 text-sm text-slate-600">Verifying access and creating the embedded request.</p>
+          <p className="mt-2 text-sm text-slate-600">
+            Verifying access and creating the embedded request.
+          </p>
         </div>
       </div>
     );
   }
 
-  // No iframe here — the embed opens via SignClient (modal)
+  // Ready: DO NOT render an <iframe src={state.url}>.
+  // SignClient will open the HelloSign modal and append the proper parent_url.
   return (
     <div className="flex min-h-[100dvh] flex-col">
       <div className="flex items-center justify-between border-b border-slate-200 bg-white/70 px-4 py-3 backdrop-blur">
         <div className="flex min-w-0 items-center gap-2">
           <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
-          <h1 className="truncate text-sm font-medium text-slate-800">Water Traders — Embedded Signing</h1>
+          <h1 className="truncate text-sm font-medium text-slate-800">
+            Water Traders — Embedded Signing
+          </h1>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => history.back()} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Back</button>
-          <button onClick={start} className="rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">Reload</button>
+          <button
+            onClick={() => router.back()}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            aria-label="Go back"
+          >
+            Back
+          </button>
+          <button
+            onClick={start}
+            className="rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+            aria-label="Reload signing session"
+          >
+            Reload
+          </button>
         </div>
       </div>
 
@@ -92,6 +160,7 @@ export default function SignPage() {
         Opening signer…
       </div>
 
+      {/* Mounting this opens the modal; key ensures a clean re-open on Reload */}
       <SignClient key={state.url} signUrl={state.url} isTestMode={state.testMode} />
     </div>
   );
