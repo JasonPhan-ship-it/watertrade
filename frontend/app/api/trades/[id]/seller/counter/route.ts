@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
-import { clerkClient } from "@clerk/nextjs/server";
+import { clerkClient, auth } from "@clerk/nextjs/server";
 import { getViewer, findTradeByAnyId } from "@/lib/trade";
 import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
@@ -16,6 +16,8 @@ async function readBody(req: NextRequest) {
     return {
       pricePerAf: j.pricePerAf ?? j.pricePerAF ?? j.price_per_af,
       volumeAf: j.volumeAf ?? j.acreFeet ?? j.quantity,
+      token: j.token ?? j.tradeToken ?? undefined,
+      role: j.role ?? undefined,
     };
   }
   const fd = await req.formData().catch(() => null);
@@ -23,6 +25,8 @@ async function readBody(req: NextRequest) {
   return {
     pricePerAf: fd.get("pricePerAf") ?? fd.get("pricePerAF") ?? fd.get("price_per_af"),
     volumeAf: fd.get("volumeAf") ?? fd.get("acreFeet") ?? fd.get("quantity"),
+    token: (fd.get("token") as string) || (fd.get("tradeToken") as string) || undefined,
+    role: (fd.get("role") as string) || undefined,
   };
 }
 
@@ -33,9 +37,7 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
 
   const txn = await prisma.transaction.findUnique({
     where: { id },
-    include: {
-      listing: { select: { id: true, district: true, title: true, waterType: true } },
-    },
+    include: { listing: { select: { id: true, district: true, title: true, waterType: true } } },
   });
   if (!txn) return null;
 
@@ -66,6 +68,53 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
   return created;
 }
 
+/** Pull role/token from query, headers, body, and referer */
+async function extractRoleToken(req: NextRequest) {
+  const url = new URL(req.url);
+  let role = url.searchParams.get("role") || undefined;
+  let token = url.searchParams.get("token") || undefined;
+
+  // headers
+  const h = req.headers;
+  if (!token) token = h.get("x-trade-token") || h.get("x-magic-token") || undefined;
+  if (!token && h.get("authorization")) {
+    const m = /^Bearer\s+(.+)$/i.exec(h.get("authorization") || "");
+    if (m) token = m[1];
+  }
+  if (!role) role = h.get("x-role") || undefined;
+
+  // body (best-effort)
+  if (!token || !role) {
+    try {
+      const clone = req.clone();
+      const body: any = await clone.json();
+      token = token || body?.token || body?.tradeToken || undefined;
+      role = role || body?.role || undefined;
+    } catch { /* ignore — bodyless or not JSON */ }
+  }
+
+  // referer
+  if (!token || !role) {
+    const ref = req.headers.get("referer");
+    if (ref) {
+      try {
+        const r = new URL(ref);
+        if (!token) token = r.searchParams.get("token") || undefined;
+        if (!role) role = r.searchParams.get("role") || undefined;
+      } catch { /* ignore */ }
+    }
+  }
+
+  return {
+    role: role?.toLowerCase(),
+    token,
+    saw: {
+      queryRole: url.searchParams.get("role"),
+      queryTokenPresent: url.searchParams.has("token"),
+    },
+  };
+}
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const id = (params.id || "").trim();
@@ -80,17 +129,68 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // AuthZ: must be seller
-    const viewer = await getViewer(req, trade as any);
-    if (viewer.role !== "seller") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    // Parse & validate input (ignore window fields entirely)
+    // Parse input
     const { pricePerAf, volumeAf } = await readBody(req);
     const pricePerAfNum = Number(pricePerAf);
     const volumeAfNum = Number(volumeAf);
 
+    // AuthZ
+    const viewer = await getViewer(req, trade as any);
+    const { role: extraRole, token: extraToken, saw } = await extractRoleToken(req);
+
+    // Allow if:
+    //  - viewer is seller, OR
+    //  - extracted token matches sellerToken (role optional -> assume seller), OR
+    //  - current auth user is ADMIN
+    let allow = viewer.role === "seller";
+    let tokenMatchedSeller = false;
+
+    if (!allow && extraToken && (trade as any).sellerToken) {
+      tokenMatchedSeller = extraToken === (trade as any).sellerToken && (!extraRole || extraRole === "seller");
+      allow = tokenMatchedSeller;
+    }
+
+    if (!allow) {
+      const { userId: clerkId } = auth();
+      if (clerkId) {
+        const me = await prisma.user.findUnique({ where: { clerkId }, select: { role: true } });
+        if (me?.role === "ADMIN") allow = true;
+      }
+    }
+
+    if (!allow) {
+      const hdrTok =
+        req.headers.get("x-trade-token") ||
+        req.headers.get("x-magic-token") ||
+        (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "") ||
+        "";
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+          details: {
+            viewer,
+            saw,
+            headers: {
+              xTradeTokenPresent: !!req.headers.get("x-trade-token"),
+              xMagicTokenPresent: !!req.headers.get("x-magic-token"),
+              authBearerPresent: !!req.headers.get("authorization"),
+              headerTokenPreview: hdrTok ? hdrTok.slice(0, 4) + "…" : null,
+            },
+            referer: req.headers.get("referer") || null,
+            extraExtracted: {
+              role: extraRole || null,
+              tokenProvided: !!extraToken,
+              tokenPreview: extraToken ? extraToken.slice(0, 4) + "…" : null,
+            },
+            tradeHasSellerToken: !!(trade as any).sellerToken,
+          },
+          tip: "Include ?role=seller&token=<sellerToken> in the request URL or send JSON { token: '<sellerToken>' }. Signing in as ADMIN also works.",
+        },
+        { status: 403 }
+      );
+    }
+
+    // Validate numbers AFTER auth (same as before)
     if (!Number.isFinite(pricePerAfNum) || !Number.isFinite(volumeAfNum)) {
       return NextResponse.json(
         { error: "pricePerAf (cents) and volumeAf (AF) must be numeric" },
@@ -130,6 +230,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               pricePerAf: pricePerAfNum,
               volumeAf: volumeAfNum,
               round: ((trade as any).round ?? 0) + 1,
+              ...(tokenMatchedSeller ? { usedSellerToken: true } : {}),
             },
           },
         },
