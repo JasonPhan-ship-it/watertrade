@@ -128,17 +128,24 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
   return { email: email ?? null, name: name || "Signer" };
 }
 
-/** Template signer roles (supports camelCase & snake_case) */
-async function getTemplateSignerRoles(templateId: string): Promise<string[] | null> {
+/** Template meta (signer roles, CC roles, merge fields) */
+async function getTemplateMeta(templateId: string): Promise<{
+  signerRoles: string[]; ccRoles: string[]; mergeFieldNames: string[];
+} | null> {
   if (!TemplateApi || !dropboxApiKey || !templateId) return null;
   try {
     const res = await TemplateApi.templateGet(templateId);
     const tpl: any = res?.body?.template ?? null;
-    const roles =
+    const signerRoles =
       tpl?.signerRoles?.map((r: any) => r?.name).filter(Boolean) ??
-      tpl?.signer_roles?.map((r: any) => r?.name).filter(Boolean) ??
-      [];
-    return roles.length ? roles : null;
+      tpl?.signer_roles?.map((r: any) => r?.name).filter(Boolean) ?? [];
+    const ccRoles =
+      tpl?.ccRoles?.map((r: any) => r?.role).filter(Boolean) ??
+      tpl?.cc_roles?.map((r: any) => r?.role).filter(Boolean) ?? [];
+    const mergeFieldNames =
+      tpl?.mergeFields?.map((f: any) => f?.name).filter(Boolean) ??
+      tpl?.merge_fields?.map((f: any) => f?.name).filter(Boolean) ?? [];
+    return { signerRoles, ccRoles, mergeFieldNames };
   } catch {
     return null;
   }
@@ -163,7 +170,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // AuthZ (viewer derived from auth or token in query/header)
+    // AuthZ
     const viewer = await getViewer(req as any, trade as any);
     if (isForbidden(viewer)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (viewer.role !== "seller" && viewer.role !== "buyer") {
@@ -171,7 +178,7 @@ export async function GET(req: NextRequest) {
     }
     const effectiveRole: "seller" | "buyer" = viewer.role;
 
-    // Resolve BOTH signers (templates require all roles)
+    // Resolve BOTH signers; templates require all signer roles
     const sellerResolved = await resolveSigner(trade, "seller");
     const buyerResolved  = await resolveSigner(trade, "buyer");
     const fallbackEmail = `no-email+${trade.id}@example.com`;
@@ -182,6 +189,7 @@ export async function GET(req: NextRequest) {
     const clientId   = process.env.DROPBOX_SIGN_CLIENT_ID || "";
     const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID || "";
     const fileUrl    = process.env.DROPBOX_SIGN_FILE_URL || "";
+
     const ENV_SELLER = process.env.DROPBOX_SIGN_ROLE_SELLER || "seller";
     const ENV_BUYER  = process.env.DROPBOX_SIGN_ROLE_BUYER  || "buyer";
 
@@ -189,27 +197,58 @@ export async function GET(req: NextRequest) {
       process.env.DROPBOX_SIGN_TEST_MODE === "1" ? 1 :
       (process.env.NODE_ENV !== "production" ? 1 : 0);
 
-    // Map seller/buyer to template's exact role names (when available)
-    const rolesFromTpl = templateId ? await getTemplateSignerRoles(templateId) : null;
-    const pickRole = (want: "seller" | "buyer") => {
+    // Template meta
+    const meta = templateId ? await getTemplateMeta(templateId) : null;
+    const tplRoles = meta?.signerRoles ?? null;
+
+    // Map to template’s exact role names
+    const mapRole = (want: "seller" | "buyer") => {
       const desired = want === "seller" ? ENV_SELLER : ENV_BUYER;
-      if (!rolesFromTpl?.length) return desired;
-      const exact = rolesFromTpl.find(r => r === desired);
-      if (exact) return exact;
-      const ci = rolesFromTpl.find(r => r.toLowerCase() === want);
-      if (ci) return ci;
-      const sub = rolesFromTpl.find(r => r.toLowerCase().includes(want));
-      return sub || desired;
+      if (!tplRoles?.length) return desired;
+      return (
+        tplRoles.find(r => r === desired) ||
+        tplRoles.find(r => r.toLowerCase() === want) ||
+        tplRoles.find(r => r.toLowerCase().includes(want)) ||
+        desired
+      );
     };
-    const sellerRoleName = pickRole("seller");
-    const buyerRoleName  = pickRole("buyer");
+    const sellerRoleName = mapRole("seller");
+    const buyerRoleName  = mapRole("buyer");
     const targetRole     = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
-    // Two-signer payload for template requests
+    // Two-signer payload
     const signersPayload = [
       { role: sellerRoleName, email_address: seller.email, name: seller.name },
       { role: buyerRoleName,  email_address: buyer.email,  name: buyer.name  },
     ];
+
+    // CC roles (if any) → pull emails from env
+    //   e.g. DROPBOX_SIGN_CC_<ROLE>=email@example.com or fallback DROPBOX_SIGN_CC_DEFAULT
+    const ccRoles = meta?.ccRoles ?? [];
+    const ccEmailsByRole = Object.fromEntries(
+      ccRoles.map((role) => {
+        const key = `DROPBOX_SIGN_CC_${role.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}`;
+        const email =
+          process.env[key] ||
+          process.env.DROPBOX_SIGN_CC_DEFAULT ||
+          "";
+        return [role, email];
+      })
+    );
+    const missingCc = Object.entries(ccEmailsByRole).filter(([, email]) => !email).map(([r]) => r);
+    const ccsPayload = Object.entries(ccEmailsByRole)
+      .filter(([, email]) => !!email)
+      .map(([role, email]) => ({ role, email_address: email as string }));
+
+    if (!debug && missingCc.length && testMode !== 1) {
+      return NextResponse.json(
+        {
+          error: "Missing CC emails for template roles",
+          details: { missingCc, hint: `Set DROPBOX_SIGN_CC_${missingCc[0].toUpperCase()} or DROPBOX_SIGN_CC_DEFAULT` }
+        },
+        { status: 422 }
+      );
+    }
 
     if (debug) {
       return NextResponse.json({
@@ -221,12 +260,12 @@ export async function GET(req: NextRequest) {
           clientIdPresent: Boolean(clientId),
           templateId,
           fileUrlPresent: Boolean(fileUrl),
-          effectiveRole,
+          templateRoles: tplRoles,
+          ccRoles,
           targetRole,
-          templateRoles: rolesFromTpl ?? null,
-          // helpful to confirm we're sending BOTH signers:
           signersPayload,
-          signer: targetRole === sellerRoleName ? { email: seller.email, name: seller.name } : { email: buyer.email, name: buyer.name },
+          ccsPayload,
+          signerForViewer: targetRole === sellerRoleName ? { email: seller.email, name: seller.name } : { email: buyer.email, name: buyer.name },
           testMode,
           tradeId: trade.id,
           tradeStatus: trade.status,
@@ -251,14 +290,13 @@ export async function GET(req: NextRequest) {
 
     let signatureId: string | undefined;
 
-    // Prefer template if provided
     if (templateId) {
       // If we know template roles and targetRole isn't included, fail early
-      if (rolesFromTpl && !rolesFromTpl.includes(targetRole)) {
+      if (tplRoles && !tplRoles.includes(targetRole)) {
         return NextResponse.json(
           {
             error: "Template role mismatch",
-            details: `Template expects roles: ${rolesFromTpl.join(", ")}, you passed "${targetRole}".`,
+            details: `Template expects roles: ${tplRoles.join(", ")}, you passed "${targetRole}".`,
             hint: "Set DROPBOX_SIGN_ROLE_SELLER / DROPBOX_SIGN_ROLE_BUYER to match, or rename roles in the template.",
           },
           { status: 422 }
@@ -271,8 +309,8 @@ export async function GET(req: NextRequest) {
           template_id: templateId,
           subject: "Sign the Water Traders agreement",
           message: "Please review and sign.",
-          // ⬇️ IMPORTANT: send BOTH signers for multi-role templates
-          signers: signersPayload,
+          signers: signersPayload,             // ⬅️ BOTH signers
+          ...(ccsPayload.length ? { ccs: ccsPayload } : {}),
           test_mode: testMode,
         } as any);
 
@@ -283,38 +321,10 @@ export async function GET(req: NextRequest) {
       } catch (e: any) {
         const info = parseDropboxError(e);
         console.error("[sign-url] create-with-template failed", info);
-
-        // Optional fallback to non-template if configured
-        if (fileUrl) {
-          try {
-            const created = await SignatureRequestApi.signatureRequestCreateEmbedded({
-              client_id: clientId,
-              title: `Water Traders – Trade ${trade.id}`,
-              subject: "Sign the Water Traders agreement",
-              message: "Please review and sign.",
-              signers: [{
-                email_address: effectiveRole === "seller" ? seller.email : buyer.email,
-                name:        effectiveRole === "seller" ? seller.name  : buyer.name,
-                role: "signer",
-              }],
-              file_urls: [fileUrl],
-              test_mode: testMode,
-            } as any);
-            signatureId = created?.body?.signature_request?.signatures?.[0]?.signature_id;
-          } catch (e2: any) {
-            const info2 = parseDropboxError(e2);
-            console.error("[sign-url] create-embedded fallback failed", info2);
-            return NextResponse.json(
-              { error: info2.message, provider: "dropbox_sign", code: info2.name, status: info2.status, raw: info2.raw ?? null },
-              { status: info2.status || 502 }
-            );
-          }
-        } else {
-          return NextResponse.json(
-            { error: info.message, provider: "dropbox_sign", code: info.name, status: info.status, raw: info.raw ?? null },
-            { status: info.status || 502 }
-          );
-        }
+        return NextResponse.json(
+          { error: info.message, provider: "dropbox_sign", code: info.name, status: info.status, raw: info.raw ?? null },
+          { status: info.status || 502 }
+        );
       }
     } else if (fileUrl) {
       // No template configured — simple embedded with file_url
@@ -356,7 +366,6 @@ export async function GET(req: NextRequest) {
       const embedded = await EmbeddedApi.embeddedSignUrl(signatureId);
       const signUrl = embedded?.body?.embedded?.sign_url;
       if (!signUrl) return NextResponse.json({ error: "Failed to get embedded URL" }, { status: 500 });
-      // Include testMode so client can decide skipDomainVerification
       return NextResponse.json({ url: signUrl, testMode });
     } catch (e: any) {
       const info = parseDropboxError(e);
