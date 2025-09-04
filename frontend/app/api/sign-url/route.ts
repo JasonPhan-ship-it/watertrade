@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getViewer } from "@/lib/trade";
+import { getViewerById } from "@/lib/trade"; // ⬅️ use the id-aware helper
 import { clerkClient } from "@clerk/nextjs/server";
 
 /** Type guard for forbidden viewers */
@@ -44,7 +44,6 @@ function parseDropboxError(e: any) {
     e?.statusCode ??
     500;
 
-  // SDK usually supplies response.text or response.body
   const text =
     typeof e?.response?.text === "string" ? e.response.text :
     typeof e?.text === "string" ? e.text :
@@ -148,15 +147,14 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
     const debug = searchParams.get("debug") === "1";
-    const token = searchParams.get("token") || "";
 
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    const trade = await prisma.trade.findUnique({ where: { id } });
+    // ✅ Resolve viewer + trade from either Trade.id OR Transaction.id (auto-creates Trade if needed)
+    const { viewer, trade } = await getViewerById(req, id, { createIfMissing: true });
     if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // Authorization
-    const viewer = await getViewer(req as any, trade);
     if (isForbidden(viewer)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (viewer.role !== "seller" && viewer.role !== "buyer") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -262,7 +260,7 @@ export async function GET(req: NextRequest) {
           try {
             const created = await SignatureRequestApi.signatureRequestCreateEmbedded({
               client_id: clientId,
-              title: `Water Traders – Trade ${id}`,
+              title: `Water Traders – Trade ${trade.id}`,
               subject: "Sign the Water Traders agreement",
               message: "Please review and sign.",
               signers: [{ email_address: signerEmail, name: signerName, role: "signer" }],
@@ -289,7 +287,7 @@ export async function GET(req: NextRequest) {
       try {
         const created = await SignatureRequestApi.signatureRequestCreateEmbedded({
           client_id: clientId,
-          title: `Water Traders – Trade ${id}`,
+          title: `Water Traders – Trade ${trade.id}`,
           subject: "Sign the Water Traders agreement",
           message: "Please review and sign.",
           signers: [{ email_address: signerEmail, name: signerName, role: "signer" }],
