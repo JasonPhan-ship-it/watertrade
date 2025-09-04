@@ -35,7 +35,7 @@ async function loadDropbox() {
   }
 }
 
-/** Better Dropbox error parsing */
+/** Better Dropbox error parsing (try many shapes the SDK may return) */
 function parseDropboxError(e: any) {
   const status =
     e?.status ??
@@ -44,14 +44,20 @@ function parseDropboxError(e: any) {
     e?.statusCode ??
     500;
 
-  const text =
-    typeof e?.response?.text === "string" ? e.response.text :
-    typeof e?.text === "string" ? e.text :
-    typeof e?.message === "string" ? e.message : "";
+  const texts = [
+    e?.response?.text,
+    e?.response?.res?.text,
+    e?.response?.error?.text,
+    e?.text,
+    e?.message,
+  ].filter((x) => typeof x === "string" && x);
 
   let body = e?.response?.body ?? null;
-  if (!body && text) {
-    try { body = JSON.parse(text); } catch { /* ignore */ }
+  // Try to parse any text as JSON
+  for (const t of texts) {
+    if (!body) {
+      try { body = JSON.parse(t as string); } catch {}
+    }
   }
 
   const err = body?.error || body?.errors?.[0] || body || {};
@@ -62,10 +68,10 @@ function parseDropboxError(e: any) {
   const message =
     err?.error_msg ||
     err?.message ||
-    text ||
+    texts.find(Boolean) ||
     "HTTP request failed";
 
-  return { status, name, message, raw: body || text || e?.message || e };
+  return { status, name, message, raw: body || texts[0] || e?.message || e };
 }
 
 /** Resolve signer email+name from Trade → User → Clerk → Transaction */
@@ -130,7 +136,7 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
 
 /** Template meta (signer roles, CC roles, merge fields) */
 async function getTemplateMeta(templateId: string): Promise<{
-  signerRoles: string[]; ccRoles: string[]; mergeFieldNames: string[];
+  signerRoles: string[]; ccRoles: string[]; mergeFields: Array<{ name: string; required?: boolean }>;
 } | null> {
   if (!TemplateApi || !dropboxApiKey || !templateId) return null;
   try {
@@ -142,13 +148,48 @@ async function getTemplateMeta(templateId: string): Promise<{
     const ccRoles =
       tpl?.ccRoles?.map((r: any) => r?.role).filter(Boolean) ??
       tpl?.cc_roles?.map((r: any) => r?.role).filter(Boolean) ?? [];
-    const mergeFieldNames =
-      tpl?.mergeFields?.map((f: any) => f?.name).filter(Boolean) ??
-      tpl?.merge_fields?.map((f: any) => f?.name).filter(Boolean) ?? [];
-    return { signerRoles, ccRoles, mergeFieldNames };
+    const mergeFields =
+      tpl?.mergeFields?.map((f: any) => ({ name: f?.name, required: f?.required }))?.filter((f:any)=>!!f.name) ??
+      tpl?.merge_fields?.map((f: any) => ({ name: f?.name, required: f?.required }))?.filter((f:any)=>!!f.name) ?? [];
+    return { signerRoles, ccRoles, mergeFields };
   } catch {
     return null;
   }
+}
+
+/** Ensure distinct emails by adding a +tag alias (Gmail style) if needed */
+function plusAlias(email: string, tag: string) {
+  const parts = email.split("@");
+  if (parts.length !== 2) return email;
+  const [local, domain] = parts;
+  const base = local.split("+")[0];
+  return `${base}+${tag}@${domain}`;
+}
+
+/** Build custom_fields array for any merge fields present */
+function buildCustomFields(mergeFields: Array<{name:string; required?:boolean}>|null|undefined, trade: any, seller: {email:string; name:string}, buyer: {email:string; name:string}) {
+  if (!mergeFields?.length) return [];
+  const valFor = (name: string) => {
+    const n = name.toLowerCase();
+    // map common names; fall back to blanks for unknowns
+    if (n === "trade_id" || n === "tradeid") return trade.id || "";
+    if (n === "transaction_id" || n === "transactionid") return trade.transactionId || "";
+    if (n === "listing_id" || n === "listingid") return trade.listingId || "";
+    if (n === "district") return trade.district || "";
+    if (n === "water_type" || n === "watertype") return trade.waterType || "";
+    if (n === "price_per_af" || n === "price" || n === "price_usd_af") {
+      return typeof trade.pricePerAf === "number" ? (trade.pricePerAf / 100).toFixed(2) : "";
+    }
+    if (n === "volume_af" || n === "volume" || n === "acre_feet") {
+      return typeof trade.volumeAf === "number" ? String(trade.volumeAf) : "";
+    }
+    if (n === "seller_name") return seller.name || "";
+    if (n === "seller_email") return seller.email || "";
+    if (n === "buyer_name") return buyer.name || "";
+    if (n === "buyer_email") return buyer.email || "";
+    return ""; // unknown field: leave blank string
+  };
+  return mergeFields.map(({name}) => ({ name, value: String(valFor(name) || "") || "-" }));
 }
 
 export async function GET(req: NextRequest) {
@@ -170,7 +211,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // AuthZ
+    // AuthZ (viewer derived from auth or token in query/header)
     const viewer = await getViewer(req as any, trade as any);
     if (isForbidden(viewer)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (viewer.role !== "seller" && viewer.role !== "buyer") {
@@ -178,12 +219,17 @@ export async function GET(req: NextRequest) {
     }
     const effectiveRole: "seller" | "buyer" = viewer.role;
 
-    // Resolve BOTH signers; templates require all signer roles
+    // Resolve BOTH signers (templates require all roles)
     const sellerResolved = await resolveSigner(trade, "seller");
     const buyerResolved  = await resolveSigner(trade, "buyer");
     const fallbackEmail = `no-email+${trade.id}@example.com`;
     const seller = { email: sellerResolved.email || fallbackEmail, name: sellerResolved.name || "Seller" };
     const buyer  = { email: buyerResolved.email  || fallbackEmail, name: buyerResolved.name  || "Buyer"  };
+
+    // Ensure distinct emails for multi-signer templates
+    if (seller.email.toLowerCase() === buyer.email.toLowerCase()) {
+      buyer.email = plusAlias(buyer.email, `buyer.${trade.id.slice(-6)}`);
+    }
 
     // Config
     const clientId   = process.env.DROPBOX_SIGN_CLIENT_ID || "";
@@ -202,18 +248,18 @@ export async function GET(req: NextRequest) {
     const tplRoles = meta?.signerRoles ?? null;
 
     // Map to template’s exact role names
-    const mapRole = (want: "seller" | "buyer") => {
+    const pickRole = (want: "seller" | "buyer") => {
       const desired = want === "seller" ? ENV_SELLER : ENV_BUYER;
       if (!tplRoles?.length) return desired;
-      return (
-        tplRoles.find(r => r === desired) ||
-        tplRoles.find(r => r.toLowerCase() === want) ||
-        tplRoles.find(r => r.toLowerCase().includes(want)) ||
-        desired
-      );
+      const exact = tplRoles.find(r => r === desired);
+      if (exact) return exact;
+      const ci = tplRoles.find(r => r.toLowerCase() === want);
+      if (ci) return ci;
+      const sub = tplRoles.find(r => r.toLowerCase().includes(want));
+      return sub || desired;
     };
-    const sellerRoleName = mapRole("seller");
-    const buyerRoleName  = mapRole("buyer");
+    const sellerRoleName = pickRole("seller");
+    const buyerRoleName  = pickRole("buyer");
     const targetRole     = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
     // Two-signer payload
@@ -222,33 +268,21 @@ export async function GET(req: NextRequest) {
       { role: buyerRoleName,  email_address: buyer.email,  name: buyer.name  },
     ];
 
-    // CC roles (if any) → pull emails from env
-    //   e.g. DROPBOX_SIGN_CC_<ROLE>=email@example.com or fallback DROPBOX_SIGN_CC_DEFAULT
+    // CC roles (if any) → env
     const ccRoles = meta?.ccRoles ?? [];
     const ccEmailsByRole = Object.fromEntries(
       ccRoles.map((role) => {
         const key = `DROPBOX_SIGN_CC_${role.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}`;
-        const email =
-          process.env[key] ||
-          process.env.DROPBOX_SIGN_CC_DEFAULT ||
-          "";
+        const email = process.env[key] || process.env.DROPBOX_SIGN_CC_DEFAULT || "";
         return [role, email];
       })
     );
-    const missingCc = Object.entries(ccEmailsByRole).filter(([, email]) => !email).map(([r]) => r);
     const ccsPayload = Object.entries(ccEmailsByRole)
       .filter(([, email]) => !!email)
       .map(([role, email]) => ({ role, email_address: email as string }));
 
-    if (!debug && missingCc.length && testMode !== 1) {
-      return NextResponse.json(
-        {
-          error: "Missing CC emails for template roles",
-          details: { missingCc, hint: `Set DROPBOX_SIGN_CC_${missingCc[0].toUpperCase()} or DROPBOX_SIGN_CC_DEFAULT` }
-        },
-        { status: 422 }
-      );
-    }
+    // Custom fields (auto-populate whatever the template declares)
+    const customFields = buildCustomFields(meta?.mergeFields, trade, seller, buyer);
 
     if (debug) {
       return NextResponse.json({
@@ -260,11 +294,14 @@ export async function GET(req: NextRequest) {
           clientIdPresent: Boolean(clientId),
           templateId,
           fileUrlPresent: Boolean(fileUrl),
-          templateRoles: tplRoles,
+          templateRoles: tplRoles ?? null,
           ccRoles,
+          mergeFields: meta?.mergeFields ?? [],
           targetRole,
           signersPayload,
+          emailsDistinct: seller.email.toLowerCase() !== buyer.email.toLowerCase(),
           ccsPayload,
+          customFields,
           signerForViewer: targetRole === sellerRoleName ? { email: seller.email, name: seller.name } : { email: buyer.email, name: buyer.name },
           testMode,
           tradeId: trade.id,
@@ -309,8 +346,9 @@ export async function GET(req: NextRequest) {
           template_id: templateId,
           subject: "Sign the Water Traders agreement",
           message: "Please review and sign.",
-          signers: signersPayload,             // ⬅️ BOTH signers
+          signers: signersPayload,                 // BOTH signers
           ...(ccsPayload.length ? { ccs: ccsPayload } : {}),
+          ...(customFields.length ? { custom_fields: customFields } : {}),
           test_mode: testMode,
         } as any);
 
