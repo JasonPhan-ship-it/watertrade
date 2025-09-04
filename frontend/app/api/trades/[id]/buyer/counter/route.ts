@@ -6,10 +6,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Party, TradeStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
-import { getViewerById } from "@/lib/trade"; // ⬅️ use the id-aware helper
+import { getViewerById } from "@/lib/trade";
 import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
 type RenderOut = { html: string; preheader?: string };
+
+// ✅ Define the actual props your email renderer expects
+type BuyerCounterEmailProps = {
+  buyerName: string;
+  sellerName: string;
+  offer: {
+    listingTitle: string;
+    district?: string;
+    waterType?: string;
+    volumeAf: number;
+    pricePerAf: number;
+    priceLabel: string;
+    windowLabel?: string;
+  };
+  viewLink: string;
+  counterLink: string;
+  declineLink: string;
+};
+
+// ✅ Create a typed wrapper for the email function (don’t change lib/email right now)
+const renderBuyerCounterEmailSafe =
+  renderBuyerCounterEmail as unknown as (p: BuyerCounterEmailProps) => RenderOut;
 
 /** Read either JSON or form-data and normalize fields */
 async function readBody(req: NextRequest) {
@@ -173,7 +195,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const counterLink = `${viewLink}&action=counter`;
       const declineLink = `${viewLink}&action=decline`;
 
-      const { html, preheader } = renderBuyerCounterEmail({
+      // ⬇️ Use the typed wrapper so the call site type-checks
+      const { html, preheader } = renderBuyerCounterEmailSafe({
         buyerName: buyerName || "Buyer",
         sellerName: sellerName || "Seller",
         offer: {
@@ -191,7 +214,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         viewLink,
         counterLink,
         declineLink,
-      } as RenderOut as any); // keep your existing types flexible
+      });
 
       await sendEmail({
         to: sellerEmail,
