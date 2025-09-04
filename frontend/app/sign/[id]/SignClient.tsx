@@ -2,62 +2,45 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { HelloSign } from "@dropbox/sign-embedded";
+import HelloSign from "hellosign-embedded";
 
 function isAllowedProdHost(host: string) {
   return host === "watertraders.com" || host.endsWith(".watertraders.com");
 }
 
-export default function SignClient({
-  signUrl,
-  isTestMode,
-}: {
-  signUrl: string;
-  isTestMode: boolean;
-}) {
+export default function SignClient({ signUrl, isTestMode }: { signUrl: string; isTestMode: boolean }) {
   const openedRef = useRef(false);
 
   useEffect(() => {
     if (openedRef.current) return;
-    if (!signUrl) {
-      console.error("[sign] Missing signUrl");
-      return;
-    }
+    if (!signUrl) return console.error("[sign] Missing signUrl");
 
     const clientId = process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID;
-    if (!clientId) {
-      console.error("[sign] NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID is not set");
-      return;
-    }
+    if (!clientId) return console.error("[sign] NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID is not set");
 
     const host = window.location.hostname;
     const skip = !!isTestMode && !isAllowedProdHost(host);
 
-    // Official pattern: pass clientId in the constructor
-    const client = new HelloSign({ clientId });
+    // Per docs: instantiate with no args, pass clientId to open()
+    const client = new HelloSign();
 
     client.on?.("error", (e: any) => console.error("[sign/error]", e));
-    client.on?.("open", (e: any) => console.info("[sign/event] open", e));
+    client.on?.("open",  (e: any) => console.info("[sign/event] open", e));
     client.on?.("close", () => console.info("[sign/event] close"));
 
     client.open(signUrl, {
+      clientId,
+      skipDomainVerification: skip, // honored only when request was created with test_mode=1
       allowCancel: true,
-      skipDomainVerification: skip, // true on previews/local with testMode=1
-      // container: undefined, // (optional) provide a DOM node to embed inline
-      // uxVersion: 2,
       debug: true,
-      timeout: 30000,
+      timeout: 30000
+      // container: someElement // optional if you want inline instead of modal
     });
 
     openedRef.current = true;
 
-    const mask = (s: string) => (s && s.length > 8 ? `${s.slice(0, 6)}…${s.slice(-6)}` : s);
-    console.info("[sign/open]", {
-      host,
-      isTestMode,
-      skipDomainVerification: skip,
-      clientId: mask(clientId),
-    });
+    const mask = (s:string)=> s && s.length>8 ? `${s.slice(0,6)}…${s.slice(-6)}` : s;
+    console.info("[sign/open]", { host, isTestMode, skipDomainVerification: skip, clientId: mask(clientId) });
   }, [signUrl, isTestMode]);
 
   return null;
