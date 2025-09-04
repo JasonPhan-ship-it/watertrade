@@ -1,228 +1,212 @@
-"use client";
+// app/api/trades/[id]/seller/counter/route.ts
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-import * as React from "react";
-import { useRouter } from "next/navigation";
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { Party, TradeStatus } from "@prisma/client";
+import { clerkClient } from "@clerk/nextjs/server";
+import { getViewer, findTradeByAnyId } from "@/lib/trade";
+import { sendEmail, appUrl, renderBuyerCounterEmail } from "@/lib/email";
 
-type Props = {
-  postUrl: string;
-  role: "buyer" | "seller";
-  token?: string;
-  currentPriceCents: number;
-  currentQty: number;
-  label?: string;
-  className?: string;
-  successTitle?: string;
-  successMessage?: string;
-};
+/** Body parsing that accepts JSON or form-data (NO window fields) */
+async function readBody(req: NextRequest) {
+  const ct = req.headers.get("content-type") || "";
+  if (ct.includes("application/json")) {
+    const j = (await req.json().catch(() => ({}))) as any;
+    return {
+      pricePerAf: j.pricePerAf ?? j.pricePerAF ?? j.price_per_af,
+      volumeAf: j.volumeAf ?? j.acreFeet ?? j.quantity,
+    };
+  }
+  const fd = await req.formData().catch(() => null);
+  if (!fd) return {};
+  return {
+    pricePerAf: fd.get("pricePerAf") ?? fd.get("pricePerAF") ?? fd.get("price_per_af"),
+    volumeAf: fd.get("volumeAf") ?? fd.get("acreFeet") ?? fd.get("quantity"),
+  };
+}
 
-export default function CounterButton({
-  postUrl,
-  role,
-  token,
-  currentPriceCents,
-  currentQty,
-  label = "Counter",
-  className,
-  successTitle = "Counter Sent",
-  successMessage = "Your counteroffer has been sent to the other party.",
-}: Props) {
-  const router = useRouter();
-  const [open, setOpen] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  const [showSuccess, setShowSuccess] = React.useState(false);
+/** Create or fetch a Trade given a Trade.id OR a Transaction.id */
+async function ensureTradeFromAnyIdOrThrow(id: string) {
+  const existing = await findTradeByAnyId(id);
+  if (existing) return existing;
 
-  // form state shown as dollars + AF
-  const [price, setPrice] = React.useState((currentPriceCents / 100).toString());
-  const [qty, setQty] = React.useState(currentQty.toString());
+  const txn = await prisma.transaction.findUnique({
+    where: { id },
+    include: {
+      listing: { select: { id: true, district: true, title: true, waterType: true } },
+    },
+  });
+  if (!txn) return null;
 
-  function close() {
-    setOpen(false);
-    setErr(null);
+  const listingId = txn.listing?.id ?? null;
+  const district =
+    (txn as any).districtSnapshot ??
+    txn.listing?.district ??
+    null;
+
+  if (!listingId || !district) {
+    throw new Error("Cannot create Trade: missing listingId or district on Transaction/Listing.");
   }
 
-  function ensureUrlWithToken(u: string) {
-    if (!token) return u;
-    const hasToken = u.includes("token=");
-    const hasRole = u.includes("role=");
-    if (hasToken && hasRole) return u;
-    const url = new URL(u, typeof window !== "undefined" ? window.location.origin : "http://localhost");
-    if (!hasToken) url.searchParams.set("token", token);
-    if (!hasRole) url.searchParams.set("role", role);
-    return url.toString();
-  }
+  const created = await prisma.trade.create({
+    data: {
+      transactionId: txn.id,
+      listingId,
+      district,
+      sellerUserId: (txn as any).sellerUserId ?? (txn as any).sellerId ?? undefined,
+      buyerUserId:  (txn as any).buyerUserId  ?? (txn as any).buyerId  ?? undefined,
+      pricePerAf:   (txn as any).pricePerAf   ?? (txn as any).pricePerAF ?? undefined,
+      volumeAf:     (txn as any).volumeAf     ?? (txn as any).acreFeet   ?? undefined,
+      status: TradeStatus.OFFERED,
+      round: 0,
+    } as any,
+  });
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (busy) return;
+  return created;
+}
 
-    const priceNum = Math.round(Number(price) * 100); // cents
-    const qtyNum = Number(qty);
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const id = (params.id || "").trim();
+    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    if (!Number.isFinite(priceNum) || priceNum <= 0) {
-      setErr("Enter a valid price (USD/AF).");
-      return;
-    }
-    if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
-      setErr("Enter a valid quantity (AF).");
-      return;
-    }
-
-    // Business rule: seller must go ≥ current; buyer must go ≤ current
-    if (role === "seller" && priceNum < currentPriceCents) {
-      setErr("Your counter price cannot be lower than the current offer.");
-      return;
-    }
-    if (role === "buyer" && priceNum > currentPriceCents) {
-      setErr("Your counter price cannot be higher than the current offer.");
-      return;
-    }
-
+    // Ensure Trade exists (Trade.id or Transaction.id accepted)
+    let trade;
     try {
-      setBusy(true);
-      setErr(null);
+      trade = await ensureTradeFromAnyIdOrThrow(id);
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || "Unable to create Trade" }, { status: 422 });
+    }
+    if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["x-trade-token"] = token;
+    // AuthZ: must be seller
+    const viewer = await getViewer(req, trade as any);
+    if (viewer.role !== "seller") {
+      const url = new URL(req.url);
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+          details: {
+            viewerRole: viewer?.role ?? "unknown",
+            via: (viewer as any)?.via ?? "n/a",
+            hasToken: url.searchParams.has("token") || !!req.headers.get("x-trade-token"),
+            sawRoleParam: url.searchParams.get("role") ?? null,
+          },
+          tip: "Sign in as the seller or include ?role=seller&token=<sellerToken>.",
+        },
+        { status: 403 }
+      );
+    }
 
-      const url = ensureUrlWithToken(postUrl);
+    // Parse & validate input (ignore window fields entirely)
+    const { pricePerAf, volumeAf } = await readBody(req);
+    const pricePerAfNum = Number(pricePerAf);
+    const volumeAfNum = Number(volumeAf);
 
-      const res = await fetch(url, {
-        method: "POST",
-        credentials: "include",
-        headers,
-        body: JSON.stringify({
-          pricePerAf: priceNum,
-          volumeAf: qtyNum,
-          role,
-        }),
+    if (!Number.isFinite(pricePerAfNum) || !Number.isFinite(volumeAfNum)) {
+      return NextResponse.json(
+        { error: "pricePerAf (cents) and volumeAf (AF) must be numeric" },
+        { status: 400 }
+      );
+    }
+    if (pricePerAfNum <= 0 || volumeAfNum <= 0) {
+      return NextResponse.json(
+        { error: "pricePerAf and volumeAf must be > 0" },
+        { status: 400 }
+      );
+    }
+
+    // Optional guard: don't counter below current ask
+    if (typeof (trade as any).pricePerAf === "number" && pricePerAfNum < (trade as any).pricePerAf) {
+      return NextResponse.json(
+        { error: `Counter price must be at least ${((trade as any).pricePerAf / 100).toFixed(2)} USD/AF.` },
+        { status: 400 }
+      );
+    }
+
+    const updated = await prisma.trade.update({
+      where: { id: trade.id },
+      data: {
+        status: TradeStatus.COUNTERED_BY_SELLER,
+        pricePerAf: pricePerAfNum,
+        volumeAf: volumeAfNum,
+        round: (trade as any).round ? (trade as any).round + 1 : 1,
+        lastActor: Party.SELLER,
+        version: { increment: 1 },
+        events: {
+          create: {
+            actor: "seller",
+            kind: "COUNTER",
+            payload: {
+              previousStatus: (trade as any).status,
+              pricePerAf: pricePerAfNum,
+              volumeAf: volumeAfNum,
+              round: ((trade as any).round ?? 0) + 1,
+            },
+          },
+        },
+      },
+    });
+
+    // Notify buyer (best-effort)
+    const [sellerUser, buyerUser] = await Promise.all([
+      prisma.user.findUnique({ where: { id: (updated as any).sellerUserId } }),
+      prisma.user.findUnique({ where: { id: (updated as any).buyerUserId } }),
+    ]);
+
+    let sellerName = sellerUser?.name || "";
+    let buyerName = buyerUser?.name || "";
+    let buyerEmail = buyerUser?.email || "";
+
+    if (buyerUser?.clerkId || sellerUser?.clerkId) {
+      try {
+        const [sellerClerk, buyerClerk] = await Promise.all([
+          sellerUser?.clerkId ? clerkClient.users.getUser(sellerUser.clerkId) : null,
+          buyerUser?.clerkId ? clerkClient.users.getUser(buyerUser.clerkId) : null,
+        ]);
+        if (sellerClerk) sellerName = sellerName || sellerClerk.firstName || sellerClerk.username || "";
+        if (buyerClerk) {
+          buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || "";
+          const primary = buyerClerk.emailAddresses?.find(e => e.id === buyerClerk.primaryEmailAddressId)?.emailAddress;
+          const firstAny = buyerClerk.emailAddresses?.[0]?.emailAddress;
+          buyerEmail = buyerEmail || primary || firstAny || "";
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    if (buyerEmail) {
+      const viewLink = appUrl(`/t/${updated.id}?role=buyer${(updated as any).buyerToken ? `&token=${(updated as any).buyerToken}` : ""}`);
+      const counterLink = `${viewLink}&action=counter`;
+      const declineLink = `${viewLink}&action=decline`;
+
+      const { html, preheader } = renderBuyerCounterEmail({
+        buyerName,
+        sellerName,
+        offer: {
+          listingTitle: (updated as any).listingTitle || "Water Trade",
+          district: (updated as any).district || "—",
+          waterType: (updated as any).waterType || null,
+          volumeAf: updated.volumeAf ?? 0,
+          pricePerAf: updated.pricePerAf ?? 0,
+          // windowLabel intentionally omitted
+        },
+        viewLink,
+        counterLink,
+        declineLink,
       });
 
-      let data: any = {};
-      const ct = res.headers.get("content-type") || "";
-      if (ct.includes("application/json")) {
-        try { data = await res.json(); } catch {}
-      } else {
-        try { data = { raw: await res.text() }; } catch {}
-      }
-
-      if (!res.ok) {
-        if (res.status === 403 && data?.details) {
-          const d = data.details;
-          const hint =
-            `Not recognized as ${role}.\n` +
-            `viewerRole=${d.viewer?.role}, via=${d.viewer?.via}, hasToken=${d.details?.hasToken}, sawRoleParam=${d.details?.sawRoleParam}`;
-          throw new Error(data?.error ? `${data.error}\n${hint}` : hint);
-        }
-        throw new Error(data?.error || "Counter failed.");
-      }
-
-      close();
-      setShowSuccess(true);
-    } catch (e: any) {
-      setErr(e?.message || "Something went wrong sending the counter.");
-    } finally {
-      setBusy(false);
+      await sendEmail({
+        to: buyerEmail,
+        subject: "Seller sent a counteroffer",
+        html,
+        preheader,
+      });
     }
+
+    return NextResponse.json({ ok: true, tradeId: updated.id, status: updated.status });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
-
-  const ruleText =
-    role === "seller"
-      ? "Your counter price must be ≥ current offer."
-      : "Your counter price must be ≤ current offer.";
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        disabled={busy}
-        className={
-          className ??
-          "inline-flex h-9 items-center justify-center rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-        }
-        title="Make a counteroffer"
-      >
-        {label}
-      </button>
-
-      {open && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" aria-modal="true" role="dialog">
-          <div className="absolute inset-0 bg-black/40" onClick={close} />
-          <div className="relative z-[110] w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-slate-900">Counteroffer</h2>
-            <p className="mt-1 text-sm text-slate-600">{ruleText}</p>
-
-            <form className="mt-4 space-y-3" onSubmit={onSubmit}>
-              <label className="block text-sm">
-                <span className="text-slate-700">Price (USD/AF)</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                />
-              </label>
-
-              <label className="block text-sm">
-                <span className="text-slate-700">Quantity (AF)</span>
-                <input
-                  type="number"
-                  step="1"
-                  min="1"
-                  value={qty}
-                  onChange={(e) => setQty(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                />
-              </label>
-
-              {err && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 whitespace-pre-wrap">
-                  {err}
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={close}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003a2f] disabled:opacity-60"
-                >
-                  {busy ? "Submitting…" : "Send Counter"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showSuccess && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" aria-modal="true" role="dialog">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowSuccess(false)} />
-          <div className="relative z-[110] w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl text-center">
-            <h2 className="text-lg font-semibold text-slate-900">{successTitle}</h2>
-            <p className="mt-2 text-sm text-slate-600">{successMessage}</p>
-            <button
-              onClick={() => {
-                setShowSuccess(false);
-                router.refresh();
-              }}
-              className="mt-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              OK
-            </button>
-          </div>
-        </div>
-      )}
-    </>
-  );
 }
