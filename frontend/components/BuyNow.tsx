@@ -3,6 +3,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
+import { Info } from "lucide-react";
 
 type BuyNowProps = {
   listingId: string;
@@ -60,13 +61,15 @@ export default function BuyNow({
 
   return (
     <div className={className}>
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="text-sm font-medium">Buy Now</div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="text-sm font-semibold text-slate-900">Buy Now</div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Two cards side by side on desktop */}
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Quantity card */}
           <div className="text-sm text-slate-700">
-            Quantity (AF)
-            <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="text-[13px] font-medium text-slate-700">Quantity (AF)</div>
+            <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-900">
               {previewAcreFeet.toLocaleString()}
             </div>
             <div className="mt-1 text-xs text-slate-500">
@@ -74,19 +77,40 @@ export default function BuyNow({
             </div>
           </div>
 
+          {/* Price card with right-side note on ≥sm */}
           <div className="text-sm text-slate-700">
-            Price / AF
-            <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              {priceDollars}
+            <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-[1fr,18rem]">
+              {/* Left: label + value */}
+              <div>
+                <div className="text-[13px] font-medium text-slate-700">Price $/AF</div>
+                <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-900">
+                  {priceDollars}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">Price is fixed by the listing.</div>
+              </div>
+
+              {/* Right: explanatory note (sits to the right on desktop, stacks on mobile) */}
+              <div className="sm:mt-[26px]">
+                <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <Info className="mt-[1px] h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                  <p className="text-xs leading-5 text-slate-600">
+                    Final total is computed on the server from listing data.
+                  </p>
+                </div>
+              </div>
             </div>
-            <div className="mt-1 text-xs text-slate-500">Price is fixed by the listing.</div>
           </div>
         </div>
 
-        <div className="mt-3 text-sm">
-          <span className="text-slate-600">Preview Total:</span>{" "}
-          <span className="font-medium">{totalDollars}</span>
-          <span className="ml-2 text-xs text-slate-500">(final total computed on server)</span>
+        {/* Preview total */}
+        <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">
+          <div className="flex items-baseline justify-between">
+            <span className="text-slate-600">Preview Total</span>
+            <span className="font-semibold text-slate-900">{totalDollars}</span>
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            This is a preview; the server will finalize totals during checkout.
+          </div>
         </div>
 
         {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
@@ -94,7 +118,7 @@ export default function BuyNow({
         <button
           onClick={startBuyNow}
           disabled={loading}
-          className="mt-4 rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50"
+          className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[#004434] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#003a2f] disabled:opacity-50"
         >
           {loading ? "Starting…" : "Buy Now"}
         </button>
