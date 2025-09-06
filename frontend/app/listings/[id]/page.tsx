@@ -23,7 +23,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
       availabilityEnd: true,
       acreFeet: true,
       pricePerAF: true, // cents
-      kind: true,       // SELL | BUY
+      kind: true, // SELL | BUY
       isAuction: true,
       reservePrice: true, // cents | null
       status: true,
@@ -36,8 +36,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   const pricePerAfDollars = row.pricePerAF / 100;
   const reservePriceDollars = row.reservePrice != null ? row.reservePrice / 100 : null;
-  const startIso = row.availabilityStart.toISOString();
-  const endIso = row.availabilityEnd.toISOString();
 
   const title = (row.title || "").trim() || "Untitled Listing";
   const description = (row.description || "").trim() || "No description provided.";
@@ -102,10 +100,10 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
             <ListingActions
               listingId={row.id}
-              kind="SELL"                         // actions are only for SELL now
-              pricePerAf={pricePerAfDollars}      // dollars for UI
+              kind="SELL"
+              pricePerAf={pricePerAfDollars}
               isAuction={!!row.isAuction}
-              reservePrice={reservePriceDollars}  // dollars | null
+              reservePrice={reservePriceDollars}
             />
           </aside>
         )}
@@ -139,7 +137,9 @@ function PriceDetailWithNote({ priceLabel }: { priceLabel: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="text-xs text-slate-500">Price $/AF</div>
-      <div className="mt-2 grid grid-cols-1 items-start gap-3 sm:grid-cols-[1fr,18rem]">
+
+      {/* Use arbitrary property to ensure template columns compile in Tailwind */}
+      <div className="mt-2 grid grid-cols-1 items-start gap-3 sm:[grid-template-columns:1fr_18rem]">
         {/* Left: value box + hint */}
         <div>
           <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
