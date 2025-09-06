@@ -79,7 +79,8 @@ export default function BuyNow({
 
           {/* Price card with right-side note on ≥sm */}
           <div className="text-sm text-slate-700">
-            <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-[1fr,18rem]">
+            {/* Use arbitrary property to ensure template columns compile in Tailwind */}
+            <div className="grid grid-cols-1 items-start gap-3 sm:[grid-template-columns:1fr_18rem]">
               {/* Left: label + value */}
               <div>
                 <div className="text-[13px] font-medium text-slate-700">Price $/AF</div>
