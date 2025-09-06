@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import ListingActions from "@/components/ListingActions";
+import { Info } from "lucide-react";
 
 export const revalidate = 0; // always fresh
 
@@ -68,7 +69,10 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <Detail label="District" value={row.district} />
           <Detail label="Water Type" value={row.waterType} />
           <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
-          <Detail label="Price / AF" value={`$${format2(pricePerAfDollars)}`} />
+
+          {/* Price card with right-side note on ≥sm */}
+          <PriceDetailWithNote priceLabel={`$${format2(pricePerAfDollars)}`} />
+
           <Detail label="Status" value={row.status} />
           <Detail label="Created" value={new Date(row.createdAt).toLocaleString()} />
           <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
@@ -126,6 +130,34 @@ function Detail({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="text-xs text-slate-500">{label}</div>
       <div className="mt-1 text-sm font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+/** Specialized price card with right-side explanatory note on desktop */
+function PriceDetailWithNote({ priceLabel }: { priceLabel: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-xs text-slate-500">Price $/AF</div>
+      <div className="mt-2 grid grid-cols-1 items-start gap-3 sm:grid-cols-[1fr,18rem]">
+        {/* Left: value box + hint */}
+        <div>
+          <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+            {priceLabel}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">Price is fixed by the listing.</div>
+        </div>
+
+        {/* Right: note card */}
+        <div className="sm:mt-[6px]">
+          <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <Info className="mt-[1px] h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            <p className="text-xs leading-5 text-slate-600">
+              Final total is computed on the server from listing data.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
