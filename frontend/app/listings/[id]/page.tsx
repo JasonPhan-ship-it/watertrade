@@ -136,12 +136,27 @@ function PriceDetailWithNote({ priceLabel }: { priceLabel: string }) {
 
       {/* Use arbitrary property to ensure template columns compile in Tailwind */}
       <div className="mt-2 grid grid-cols-1 items-start gap-3 sm:[grid-template-columns:1fr_18rem]">
-        {/* Left: value box + hint */}
+        {/* Left: value box */}
         <div>
           <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
             {priceLabel}
           </div>
         </div>
+
+        {/* Right: explanatory note */}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          <div className="flex items-start gap-2">
+            <Info className="mt-0.5 h-4 w-4 text-slate-500" />
+            <p>
+              Shown as dollars per acre-foot. Final settlement may vary with delivery window,
+              conveyance, and district fees.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ---------- format helpers ---------- */
 function formatInt(n: number) {
