@@ -205,6 +205,11 @@ function buildCustomFields(
   return mergeFields.map(({ name }) => ({ name, value: String(valFor(name) || "") || "-" }));
 }
 
+/** Mask a sensitive-ish id for logs/debug JSON */
+function mask(s: string) {
+  return s ? `${s.slice(0, 6)}…${s.slice(-6)}` : "";
+}
+
 /** ---- route handler ---- */
 export async function GET(req: NextRequest) {
   try {
@@ -325,6 +330,7 @@ export async function GET(req: NextRequest) {
           hasTemplateApi: Boolean(TemplateApi),
           apiKeyPresent: Boolean(dropboxApiKey),
           clientIdPresent: Boolean(clientId),
+          clientIdMasked: mask(clientId), // <-- masked client id
           templateId,
           fileUrlPresent: Boolean(fileUrl),
           templateRoles: tplRoles.length ? tplRoles : null,
