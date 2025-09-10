@@ -29,6 +29,7 @@ async function loadDropbox() {
 
   dropboxApiKey = process.env.DROPBOX_SIGN_API_KEY || "";
   if (dropboxApiKey) {
+    // v3 SDK supports basic auth by setting username
     SignatureRequestApi.username = dropboxApiKey;
     EmbeddedApi.username = dropboxApiKey;
     TemplateApi.username = dropboxApiKey;
@@ -212,6 +213,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
     const debug = searchParams.get("debug") === "1";
+    const roleParam = (searchParams.get("role") || "").toLowerCase();
 
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
@@ -230,7 +232,12 @@ export async function GET(req: NextRequest) {
     if (viewer.role !== "seller" && viewer.role !== "buyer") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const effectiveRole: "seller" | "buyer" = viewer.role;
+
+    // Allow explicit ?role= override only if consistent with viewer
+    const requestedRole: "seller" | "buyer" | null =
+      roleParam === "seller" ? "seller" : roleParam === "buyer" ? "buyer" : null;
+    const effectiveRole: "seller" | "buyer" =
+      requestedRole && requestedRole === viewer.role ? requestedRole : (viewer.role as any);
 
     // Resolve BOTH signers (templates usually require all roles defined)
     const sellerResolved = await resolveSigner(trade, "seller");
@@ -437,107 +444,3 @@ export async function GET(req: NextRequest) {
 
         // pick the signature for the viewing party if present, else first
         signatureId =
-          signatures.find(
-            (s: any) =>
-              (s?.signer_role || s?.role || "").toString().toLowerCase() ===
-              targetRole.toLowerCase()
-          )?.signature_id || signatures[0]?.signature_id;
-
-        if (!signatureId) {
-          return NextResponse.json(
-            { error: "No signature_id returned by Dropbox Sign", raw: createBody ?? createText },
-            { status: 502 }
-          );
-        }
-      } catch (e: any) {
-        const info = parseDropboxError(e);
-        console.error("[sign-url] create-with-template (REST) failed", info);
-        return NextResponse.json(
-          {
-            error: info.message,
-            provider: "dropbox_sign",
-            code: info.name,
-            status: info.status,
-            raw: info.raw ?? null,
-          },
-          { status: info.status || 502 }
-        );
-      }
-    }
-    /** ---- File URL path (SDK) ---- */
-    else if (fileUrl) {
-      try {
-        const created = await SignatureRequestApi.signatureRequestCreateEmbedded({
-          client_id: clientId,
-          title: `Water Traders – Trade ${trade.id}`,
-          subject: "Sign the Water Traders agreement",
-          message: "Please review and sign.",
-          signers: [
-            {
-              email_address: effectiveRole === "seller" ? seller.email : buyer.email,
-              name: effectiveRole === "seller" ? seller.name : buyer.name,
-              role: "signer",
-            },
-          ],
-          file_urls: [fileUrl],
-          test_mode: testMode,
-        } as any);
-
-        signatureId = created?.body?.signature_request?.signatures?.[0]?.signature_id;
-        if (!signatureId) {
-          return NextResponse.json(
-            { error: "No signature_id returned by Dropbox Sign", raw: created?.body ?? null },
-            { status: 502 }
-          );
-        }
-      } catch (e: any) {
-        const info = parseDropboxError(e);
-        console.error("[sign-url] create-embedded (file) failed", info);
-        return NextResponse.json(
-          {
-            error: info.message,
-            provider: "dropbox_sign",
-            code: info.name,
-            status: info.status,
-            raw: info.raw ?? null,
-          },
-          { status: info.status || 502 }
-        );
-      }
-    } else {
-      return NextResponse.json(
-        {
-          error:
-            "No template or fileUrl configured. Set DROPBOX_SIGN_TEMPLATE_ID or DROPBOX_SIGN_FILE_URL.",
-        },
-        { status: 422 }
-      );
-    }
-
-    /** ---- Get embedded sign URL (SDK) ---- */
-    try {
-      const embedded = await EmbeddedApi.embeddedSignUrl(signatureId);
-      const signUrl = embedded?.body?.embedded?.sign_url;
-      if (!signUrl) {
-        return NextResponse.json({ error: "Failed to get embedded URL" }, { status: 500 });
-      }
-      return NextResponse.json({ url: signUrl, testMode });
-    } catch (e: any) {
-      const info = parseDropboxError(e);
-      console.error("[sign-url] embeddedSignUrl failed", info);
-      return NextResponse.json(
-        {
-          error: info.message,
-          provider: "dropbox_sign",
-          code: info.name,
-          status: info.status,
-          raw: info.raw ?? null,
-        },
-        { status: info.status || 502 }
-      );
-    }
-  } catch (e: any) {
-    console.error("[sign-url] error", e);
-    return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
-  }
-}
