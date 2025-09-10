@@ -1,7 +1,7 @@
 // app/sign/[id]/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import SignClient from "./SignClient";
 
@@ -20,7 +20,6 @@ export default function SignPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
 
-  // Route/query params
   const id = useMemo(() => {
     const raw = params?.id as unknown;
     return Array.isArray(raw) ? (raw[0] ?? "") : ((raw as string) ?? "");
@@ -31,41 +30,42 @@ export default function SignPage() {
 
   const [state, setState] = useState<SignState>({ kind: "idle" });
 
-  // Fetch the provider sign URL from our API (no direct iframe!)
-  const start = useCallback(async () => {
+  useEffect(() => {
     if (!id) {
       setState({ kind: "error", message: "Missing signing ID in the URL." });
       return;
     }
-    setState({ kind: "loading" });
 
     const ac = new AbortController();
-    try {
-      const qs = new URLSearchParams({ id });
-      if (role) qs.set("role", role);
-      if (token) qs.set("token", token);
+    (async () => {
+      try {
+        setState({ kind: "loading" });
+        const qs = new URLSearchParams({ id });
+        if (role) qs.set("role", role);
+        if (token) qs.set("token", token);
 
-      const res = await fetch(`/api/sign-url?${qs.toString()}`, {
-        cache: "no-store",
-        signal: ac.signal,
-      });
-      const data = await res.json().catch(() => null);
+        const res = await fetch(`/api/sign-url?${qs.toString()}`, {
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const data = await res.json().catch(() => null);
 
-      if (!res.ok || !data?.url) {
-        throw new Error(data?.error || `Failed to get sign URL (${res.status})`);
+        if (!res.ok || !data?.url) {
+          throw new Error(data?.error || `Failed to get sign URL (${res.status})`);
+        }
+        setState({ kind: "ready", url: data.url, testMode: !!data.testMode });
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        setState({
+          kind: "error",
+          message: e?.message || "Failed to start signing session.",
+          details: e,
+        });
       }
+    })();
 
-      setState({ kind: "ready", url: data.url, testMode: !!data.testMode });
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
-      setState({ kind: "error", message: e?.message || "Failed to start signing session.", details: e });
-    }
     return () => ac.abort();
   }, [id, role, token]);
-
-  useEffect(() => {
-    start();
-  }, [start]);
 
   // Soft guard: warn if this page somehow loads inside a non-WT iframe
   useEffect(() => {
@@ -82,8 +82,6 @@ export default function SignPage() {
     }
   }, []);
 
-  // ---------- UI ----------
-
   if (state.kind === "error") {
     return (
       <div className="mx-auto flex min-h-[100dvh] max-w-lg flex-col items-center justify-center p-6 text-center">
@@ -92,7 +90,7 @@ export default function SignPage() {
           <p className="mt-2 text-sm text-slate-600">{state.message}</p>
           <div className="mt-6 flex items-center justify-center gap-3">
             <button
-              onClick={start}
+              onClick={() => router.refresh()}
               className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
               Retry
@@ -106,7 +104,12 @@ export default function SignPage() {
           </div>
           <p className="mt-4 text-xs text-slate-500">
             Trade ID <span className="font-mono">{id || "?"}</span>
-            {role && <> · Role <span className="font-mono">{role}</span></>}
+            {role && (
+              <>
+                {" "}
+                · Role <span className="font-mono">{role}</span>
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -118,7 +121,9 @@ export default function SignPage() {
       <div className="flex min-h-[100dvh] items-center justify-center p-6">
         <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
-          <h2 className="mt-4 text-base font-semibold text-slate-900">Preparing your signing session…</h2>
+          <h2 className="mt-4 text-base font-semibold text-slate-900">
+            Preparing your signing session…
+          </h2>
           <p className="mt-2 text-sm text-slate-600">
             Verifying access and creating the embedded request.
           </p>
@@ -127,8 +132,7 @@ export default function SignPage() {
     );
   }
 
-  // Ready: DO NOT render an <iframe src={state.url}>.
-  // SignClient will open the HelloSign modal and append the proper parent_url.
+  // DO NOT iframe the URL; SignClient opens the HelloSign modal with clientId.
   return (
     <div className="flex min-h-[100dvh] flex-col">
       <div className="flex items-center justify-between border-b border-slate-200 bg-white/70 px-4 py-3 backdrop-blur">
@@ -147,7 +151,7 @@ export default function SignPage() {
             Back
           </button>
           <button
-            onClick={start}
+            onClick={() => router.refresh()}
             className="rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
             aria-label="Reload signing session"
           >
