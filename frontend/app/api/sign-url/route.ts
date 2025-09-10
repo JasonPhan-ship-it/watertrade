@@ -1,42 +1,27 @@
 // app/api/sign-url/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { Configuration, EmbeddedApi, SignatureRequestApi } from "@dropbox/sign";
+import * as DropboxSign from "@dropbox/sign";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/* ----------------- Helpers ----------------- */
-function parseDropboxError(e: any) {
-  if (e?.response?.body) {
-    return {
-      status: e?.response?.statusCode,
-      body: e.response.body,
-    };
-  }
-  return { status: 500, body: String(e) };
-}
-
-/* ----------------- API Route ----------------- */
 export async function GET(req: NextRequest) {
   try {
-    // Load env
     const apiKey = process.env.DROPBOX_SIGN_API_KEY!;
     const clientId = process.env.DROPBOX_SIGN_CLIENT_ID!;
     const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID!;
     const testMode = process.env.DROPBOX_SIGN_TEST_MODE === "1" ? 1 : 0;
 
     if (!apiKey || !clientId || !templateId) {
-      return NextResponse.json(
-        { error: "Missing Dropbox Sign environment variables" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Missing Dropbox Sign env vars" }, { status: 500 });
     }
 
-    const sdkConfig = new Configuration({ username: apiKey });
-    const signatureApi = new SignatureRequestApi(sdkConfig);
-    const embeddedApi = new EmbeddedApi(sdkConfig);
+    // Init Dropbox Sign SDK
+    const config = new DropboxSign.Configuration({ username: apiKey });
+    const signatureApi = new DropboxSign.SignatureRequestApi(config);
+    const embeddedApi = new DropboxSign.EmbeddedApi(config);
 
-    // Example payload (in real use you’d build this from your DB/trade)
+    // Example signer payload (replace with DB lookup)
     const signers = [
       {
         role: "SELLER",
@@ -45,59 +30,41 @@ export async function GET(req: NextRequest) {
       },
       {
         role: "BUYER",
-        email_address: "jasonphuocphan+buyer.53fl1a@gmail.com",
+        email_address: "jasonphuocphan+buyer@gmail.com",
         name: "Jason Phan",
       },
     ];
 
-    // Build request
-    const request = {
+    // Create embedded signature request
+    const createResp = await signatureApi.signatureRequestCreateEmbeddedWithTemplate({
       clientId,
       templateId,
       subject: "WaterTrade Agreement",
       message: "Please review and sign.",
       signers,
       testMode,
-    };
+    } as any);
 
-    // Create signature request
-    const createResp = await signatureApi.signatureRequestCreateEmbeddedWithTemplate(
-      request as any
-    );
-
-    const signatureRequest = createResp?.body?.signature_request;
+    const signatureRequest = createResp.body.signature_request;
     if (!signatureRequest) {
-      return NextResponse.json(
-        { error: "Failed to create signature request" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Failed to create signature request" }, { status: 500 });
     }
 
-    // Pick the right signer — for now, assume SELLER is the viewer
-    const targetRole = "SELLER";
-    const sigForRole = signatureRequest.signatures?.find(
-      (s: any) => s.signer_role === targetRole
+    // Find the SELLER signature (you could target BUYER instead)
+    const sigForSeller = signatureRequest.signatures?.find(
+      (s: any) => s.signer_role === "SELLER"
     );
-    if (!sigForRole) {
-      return NextResponse.json(
-        { error: "Could not find signature for target role" },
-        { status: 400 }
-      );
+    if (!sigForSeller) {
+      return NextResponse.json({ error: "Could not find SELLER signature" }, { status: 400 });
     }
 
-    const signatureId = sigForRole.signature_id;
+    const signatureId = sigForSeller.signature_id;
 
-    // Get embedded signing URL
-    const embeddedResp = await embeddedApi.embeddedSignUrl(signatureId, {
-      signatures: [signatureId], // 👈 important
-    });
-
-    const embeddedUrl = embeddedResp?.body?.embedded?.sign_url;
+    // Fetch the embedded signing URL
+    const embeddedResp = await embeddedApi.embeddedSignUrl(signatureId);
+    const embeddedUrl = embeddedResp.body.embedded?.sign_url;
     if (!embeddedUrl) {
-      return NextResponse.json(
-        { error: "Failed to get embedded URL" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Failed to get embedded URL" }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -106,11 +73,8 @@ export async function GET(req: NextRequest) {
       requestId: signatureRequest.signature_request_id,
       signatureId,
     });
-  } catch (e: any) {
-    const err = parseDropboxError(e);
-    return NextResponse.json(
-      { error: "Dropbox Sign error", details: err },
-      { status: err.status || 500 }
-    );
+  } catch (err: any) {
+    console.error("Dropbox Sign error:", err);
+    return NextResponse.json({ error: "Dropbox Sign error", details: err.message }, { status: 500 });
   }
 }
