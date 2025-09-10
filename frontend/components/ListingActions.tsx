@@ -24,10 +24,9 @@ export default function ListingActions({
 }: Props) {
   const router = useRouter();
 
-  // Default tab: BUY_NOW for SELL listings, SELL_NOW for BUY listings
   const [mode, setMode] = React.useState<Mode>(() => (kind === "SELL" ? "BUY_NOW" : "SELL_NOW"));
 
-  // Inputs ONLY for OFFER / BID (Buy/Sell Now are server-driven, no inputs)
+  // Inputs ONLY for OFFER / BID
   const [acreFeet, setAcreFeet] = React.useState<number>(1);
   const [price, setPrice] = React.useState<number>(() => {
     const base = isAuction ? (reservePrice ?? pricePerAf) : pricePerAf;
@@ -40,7 +39,6 @@ export default function ListingActions({
   const total = React.useMemo(() => round2(acreFeet * price), [acreFeet, price]);
 
   React.useEffect(() => {
-    // Reset suggested price when switching tabs that use inputs
     if (mode === "OFFER") setPrice(round2(pricePerAf));
     if (mode === "BID") setPrice(round2(reservePrice ?? pricePerAf));
   }, [mode, pricePerAf, reservePrice]);
@@ -54,13 +52,11 @@ export default function ListingActions({
 
     try {
       if (mode === "BUY_NOW" || mode === "SELL_NOW") {
-        // Server-only: no client quantity/price. Server reads DB.
         const res = await fetch(
           `/api/transactions/buy-now?listingId=${encodeURIComponent(listingId)}`,
           { method: "POST", credentials: "include" }
         );
 
-        // Try JSON, fallback to text for better errors
         let data: any = null;
         const ct = res.headers.get("content-type") || "";
         if (ct.includes("application/json")) data = await res.json().catch(() => ({} as any));
@@ -81,7 +77,6 @@ export default function ListingActions({
         return;
       }
 
-      // OFFER: user inputs
       if (mode === "OFFER") {
         const res = await fetch("/api/transactions", {
           method: "POST",
@@ -90,8 +85,8 @@ export default function ListingActions({
           body: JSON.stringify({
             type: "OFFER",
             listingId,
-            acreFeet: Number(acreFeet),   // integer AF
-            pricePerAF: Number(price),    // dollars (server converts to cents)
+            acreFeet: Number(acreFeet),
+            pricePerAF: Number(price),
           }),
         });
         const data = await safeJson(res);
@@ -100,7 +95,6 @@ export default function ListingActions({
         return;
       }
 
-      // BID: user inputs
       if (mode === "BID") {
         const res = await fetch("/api/auctions/bid", {
           method: "POST",
@@ -109,7 +103,7 @@ export default function ListingActions({
           body: JSON.stringify({
             listingId,
             acreFeet: Number(acreFeet),
-            pricePerAF: Number(price), // dollars
+            pricePerAF: Number(price),
           }),
         });
         const data = await safeJson(res);
@@ -128,8 +122,8 @@ export default function ListingActions({
   const canSellNow = kind === "BUY";
   const minBid = reservePrice ?? pricePerAf;
 
-  const isFixed = mode === "BUY_NOW" || mode === "SELL_NOW";  // no inputs
-  const showInputs = mode === "OFFER" || mode === "BID";      // show inputs
+  const isFixed = mode === "BUY_NOW" || mode === "SELL_NOW";
+  const showInputs = mode === "OFFER" || mode === "BID";
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -157,13 +151,10 @@ export default function ListingActions({
 
       {/* Form */}
       <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {/* BUY/SELL NOW: note on the left, price on the right */}
+        {/* BUY/SELL NOW: price only (note removed) */}
         {isFixed && (
           <div className="sm:col-span-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div className="text-xs leading-5 text-slate-500">
-                Final total is computed on the server from listing data.
-              </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-end">
               <div className="min-w-[220px]">
                 <label className="block">
                   <div className="text-xs text-slate-500">Price $/AF</div>
