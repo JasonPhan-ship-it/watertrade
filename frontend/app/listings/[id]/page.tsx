@@ -148,20 +148,6 @@ function PriceDetailWithNote({ priceLabel }: { priceLabel: string }) {
           <div className="mt-1 text-xs text-slate-500">Price is fixed by the listing.</div>
         </div>
 
-        {/* Right: note card */}
-        <div className="sm:mt-[6px]">
-          <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <Info className="mt-[1px] h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-            <p className="text-xs leading-5 text-slate-600">
-              Final total is computed on the server from listing data.
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------- format helpers ---------- */
 function formatInt(n: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
