@@ -145,7 +145,6 @@ function PriceDetailWithNote({ priceLabel }: { priceLabel: string }) {
           <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
             {priceLabel}
           </div>
-          <div className="mt-1 text-xs text-slate-500">Price is fixed by the listing.</div>
         </div>
 
 /* ---------- format helpers ---------- */
