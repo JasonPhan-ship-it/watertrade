@@ -1,50 +1,86 @@
 // app/sign/[id]/SignClient.tsx
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import Script from "next/script";
 
-function isProdHost(h: string) {
-  return h === "watertraders.com" || h === "www.watertraders.com";
+type Props = {
+  signUrl: string;
+  isTestMode: boolean;
+};
+
+declare global {
+  interface Window {
+    HelloSign?: {
+      open: (opts: {
+        url: string;
+        clientId: string;
+        uxVersion?: number;
+        allowCancel?: boolean;
+        skipDomainVerification?: boolean;
+        // parent_url is auto-detected, but you can pass it explicitly if needed:
+        // parentUrl?: string;
+      }) => void;
+      close?: () => void;
+    };
+  }
 }
 
-export default function SignClient({
-  signUrl,
-  isTestMode,
-}: { signUrl: string; isTestMode: boolean }) {
+const CLIENT_ID = process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID || "";
+
+export default function SignClient({ signUrl, isTestMode }: Props) {
+  const openedRef = useRef(false);
+
   useEffect(() => {
-    const clientId = process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID!;
-    const host = window.location.hostname;
-
-    // ✅ Force skip when test_mode=1, and also skip on non-prod hosts
-    const skip = isTestMode || !isProdHost(host);
-
-    const ensureAndOpen = async () => {
-      if (!(window as any).HelloSign) {
-        await new Promise<void>((resolve, reject) => {
-          const s = document.createElement("script");
-          s.src = "https://cdn.hellosign.com/public/js/hellosign-embedded.min.js";
-          s.async = true;
-          s.onload = () => resolve();
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-      const hs = new (window as any).HelloSign({ clientId });
-      hs.open(signUrl, {
-        skipDomainVerification: skip,
-        allowCancel: true,
-        debug: true,
-      });
-      // helpful log
-      // eslint-disable-next-line no-console
-      console.info("[sign/open]", { host, isTestMode, skipDomainVerification: skip, clientId, signUrl });
+    // If the embed script is already on the page, try opening immediately.
+    if (window.HelloSign && !openedRef.current) {
+      open(signUrl, isTestMode);
+      openedRef.current = true;
+    }
+    return () => {
+      try {
+        window.HelloSign?.close?.();
+      } catch {}
     };
-
-    ensureAndOpen().catch((e) => {
-      // eslint-disable-next-line no-console
-      console.error("[sign/open] failed", e);
-    });
   }, [signUrl, isTestMode]);
 
-  return null;
+  // Called once the script is loaded
+  const handleLoad = () => {
+    if (!openedRef.current) {
+      open(signUrl, isTestMode);
+      openedRef.current = true;
+    }
+  };
+
+  return (
+    <Script
+      src="https://cdn.hellosign.com/public/js/hellosign-embedded.LATEST.min.js"
+      strategy="afterInteractive"
+      onLoad={handleLoad}
+    />
+  );
+}
+
+function open(signUrl: string, isTestMode: boolean) {
+  if (!CLIENT_ID) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "[SignClient] Missing NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID. The embed will fail with 'Missing parameter: client_id'."
+    );
+    return;
+  }
+  try {
+    window.HelloSign?.open({
+      url: signUrl,
+      clientId: CLIENT_ID,
+      uxVersion: 2,
+      allowCancel: true,
+      // Skip only in test mode. In production, make sure your exact host(s) are whitelisted.
+      skipDomainVerification: !!isTestMode,
+      // parentUrl: window.location.origin, // optional; auto-detected
+    });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error("[SignClient] HelloSign.open failed", e);
+  }
 }
