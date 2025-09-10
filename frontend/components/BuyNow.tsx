@@ -3,7 +3,6 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
 
 type BuyNowProps = {
   listingId: string;
@@ -77,7 +76,7 @@ export default function BuyNow({
             </div>
           </div>
 
-          {/* Price card with right-side note on ≥sm */}
+          {/* Price card (right-side note removed) */}
           <div className="text-sm text-slate-700">
             {/* Use arbitrary property to ensure template columns compile in Tailwind */}
             <div className="grid grid-cols-1 items-start gap-3 sm:[grid-template-columns:1fr_18rem]">
@@ -86,17 +85,6 @@ export default function BuyNow({
                 <div className="text-[13px] font-medium text-slate-700">Price $/AF</div>
                 <div className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-900">
                   {priceDollars}
-                </div>
-                <div className="mt-1 text-xs text-slate-500">Price is fixed by the listing.</div>
-              </div>
-
-              {/* Right: explanatory note (sits to the right on desktop, stacks on mobile) */}
-              <div className="sm:mt-[26px]">
-                <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <Info className="mt-[1px] h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-                  <p className="text-xs leading-5 text-slate-600">
-                    Final total is computed on the server from listing data.
-                  </p>
                 </div>
               </div>
             </div>
