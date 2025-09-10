@@ -67,10 +67,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <Detail label="District" value={row.district} />
           <Detail label="Water Type" value={row.waterType} />
           <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
-
-          {/* Price card with right-side note on ≥sm */}
-          <PriceDetailWithNote priceLabel={`$${format2(pricePerAfDollars)}`} />
-
           <Detail label="Status" value={row.status} />
           <Detail label="Created" value={new Date(row.createdAt).toLocaleString()} />
           <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
