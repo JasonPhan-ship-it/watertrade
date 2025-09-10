@@ -6,28 +6,60 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureTradeFromAnyIdOrCreate, getViewer } from "@/lib/trade";
 import { clerkClient } from "@clerk/nextjs/server";
-import * as DropboxSign from "@dropbox/sign";
 
-/* --------------------- helpers --------------------- */
-
+/** ---- auth guard helper ---- */
 function isForbidden(v: any): v is { role: "forbidden"; reason: string } {
   return v?.role === "forbidden";
 }
 
+/** ---- lazy Dropbox Sign SDK (for template meta + embedded URL only) ---- */
+let SignatureRequestApi: any;
+let EmbeddedApi: any;
+let TemplateApi: any;
+let dropboxApiKey = "";
+
+async function loadDropbox() {
+  if (SignatureRequestApi && EmbeddedApi && TemplateApi) return;
+  const mod = await import("@dropbox/sign").catch(() => null);
+  if (!mod) return;
+
+  SignatureRequestApi = new mod.SignatureRequestApi();
+  EmbeddedApi = new mod.EmbeddedApi();
+  TemplateApi = new mod.TemplateApi();
+
+  dropboxApiKey = process.env.DROPBOX_SIGN_API_KEY || "";
+  if (dropboxApiKey) {
+    SignatureRequestApi.username = dropboxApiKey;
+    EmbeddedApi.username = dropboxApiKey;
+    TemplateApi.username = dropboxApiKey;
+  }
+}
+
+/** ---- REST config (for create_embedded_with_template) ---- */
 const DBX_BASE = process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3";
 function dbxAuthHeader(apiKey: string) {
   return `Basic ${Buffer.from(`${apiKey}:`, "utf8").toString("base64")}`;
 }
 
+/** ---- error normalizer (SDK or REST) ---- */
 function parseDropboxError(e: any) {
   const status =
     e?.status ?? e?.response?.status ?? e?.response?.statusCode ?? e?.statusCode ?? 500;
 
-  const texts = [e?.response?.text, e?.text, e?.message].filter((x) => typeof x === "string" && x);
+  const texts = [
+    e?.response?.text,
+    e?.response?.res?.text,
+    e?.response?.error?.text,
+    e?.text,
+    e?.message,
+  ].filter((x) => typeof x === "string" && x);
+
   let body = e?.response?.body ?? null;
   for (const t of texts) {
     if (!body) {
-      try { body = JSON.parse(t as string); } catch {}
+      try {
+        body = JSON.parse(t as string);
+      } catch {}
     }
   }
 
@@ -36,15 +68,16 @@ function parseDropboxError(e: any) {
     err?.error_name ||
     err?.type ||
     (status === 401 || status === 403 ? "unauthorized" : "dropbox_sign_error");
-  const message = err?.error_msg || err?.message || texts[0] || "HTTP request failed";
+  const message = err?.error_msg || err?.message || texts.find(Boolean) || "HTTP request failed";
 
   return { status, name, message, raw: body || texts[0] || e?.message || e };
 }
 
+/** ---- resolve signer from Trade → User → Clerk → Transaction ---- */
 async function resolveSigner(trade: any, role: "seller" | "buyer") {
   const isSeller = role === "seller";
 
-  // 1) try trade fields first
+  // 1) Try trade fields
   const tradeEmail =
     (isSeller ? trade.sellerEmail : trade.buyerEmail) ??
     (isSeller ? trade.sellerUserEmail : trade.buyerUserEmail) ??
@@ -60,7 +93,7 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
 
   if (tradeEmail) return { email: tradeEmail, name: tradeName || "Signer" };
 
-  // 2) user table
+  // 2) Local user table
   const [sellerUser, buyerUser] = await Promise.all([
     trade.sellerUserId ? prisma.user.findUnique({ where: { id: trade.sellerUserId } }) : null,
     trade.buyerUserId ? prisma.user.findUnique({ where: { id: trade.buyerUserId } }) : null,
@@ -69,19 +102,20 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
   let email = u?.email || null;
   let name = u?.name || tradeName || "";
 
-  // 3) clerk
+  // 3) Clerk profile
   if ((!email || !name) && u?.clerkId) {
     try {
       const cl = await clerkClient.users.getUser(u.clerkId);
       name = name || cl.firstName || cl.username || name;
-      const primary = cl.emailAddresses?.find((e) => e.id === cl.primaryEmailAddressId)?.emailAddress;
+      const primary = cl.emailAddresses?.find((e) => e.id === cl.primaryEmailAddressId)
+        ?.emailAddress;
       const firstAny = cl.emailAddresses?.[0]?.emailAddress;
       email = email || primary || firstAny || null;
     } catch {}
   }
   if (email) return { email, name: name || "Signer" };
 
-  // 4) source transaction as last resort
+  // 4) Source transaction as last resort
   if (trade.transactionId) {
     const txn = await prisma.transaction.findUnique({ where: { id: trade.transactionId } });
     if (txn) {
@@ -100,20 +134,15 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
   return { email: email ?? null, name: name || "Signer" };
 }
 
-function plusAlias(email: string, tag: string) {
-  const parts = email.split("@");
-  if (parts.length !== 2) return email;
-  const [local, domain] = parts;
-  const base = local.split("+")[0];
-  return `${base}+${tag}@${domain}`;
-}
-
-async function getTemplateMeta(templateId: string, apiKey: string) {
-  // Use SDK just to fetch template meta (no Configuration class used)
-  const templateApi = new DropboxSign.TemplateApi();
-  (templateApi as any).username = apiKey;
+/** ---- template metadata (roles, cc roles, merge fields) ---- */
+async function getTemplateMeta(templateId: string): Promise<{
+  signerRoles: string[];
+  ccRoles: string[];
+  mergeFields: Array<{ name: string; required?: boolean }>;
+} | null> {
+  if (!TemplateApi || !dropboxApiKey || !templateId) return null;
   try {
-    const res = await templateApi.templateGet(templateId as any);
+    const res = await TemplateApi.templateGet(templateId);
     const tpl: any = res?.body?.template ?? null;
     const signerRoles =
       tpl?.signerRoles?.map((r: any) => r?.name).filter(Boolean) ??
@@ -124,17 +153,30 @@ async function getTemplateMeta(templateId: string, apiKey: string) {
       tpl?.cc_roles?.map((r: any) => r?.role).filter(Boolean) ??
       [];
     const mergeFields =
-      tpl?.mergeFields?.map((f: any) => ({ name: f?.name, required: f?.required }))?.filter((f: any) => !!f.name) ??
-      tpl?.merge_fields?.map((f: any) => ({ name: f?.name, required: f?.required }))?.filter((f: any) => !!f.name) ??
+      tpl?.mergeFields
+        ?.map((f: any) => ({ name: f?.name, required: f?.required }))
+        ?.filter((f: any) => !!f.name) ??
+      tpl?.merge_fields
+        ?.map((f: any) => ({ name: f?.name, required: f?.required }))
+        ?.filter((f: any) => !!f.name) ??
       [];
     return { signerRoles, ccRoles, mergeFields };
   } catch {
-    return { signerRoles: [], ccRoles: [], mergeFields: [] };
+    return null;
   }
 }
 
+/** ---- helpers ---- */
+function plusAlias(email: string, tag: string) {
+  const parts = email.split("@");
+  if (parts.length !== 2) return email;
+  const [local, domain] = parts;
+  const base = local.split("+")[0];
+  return `${base}+${tag}@${domain}`;
+}
+
 function buildCustomFields(
-  mergeFields: Array<{ name: string; required?: boolean }>,
+  mergeFields: Array<{ name: string; required?: boolean }> | null | undefined,
   trade: any,
   seller: { email: string; name: string },
   buyer: { email: string; name: string }
@@ -162,25 +204,10 @@ function buildCustomFields(
   return mergeFields.map(({ name }) => ({ name, value: String(valFor(name) || "") || "-" }));
 }
 
-/* --------------------- route --------------------- */
-
+/** ---- route handler ---- */
 export async function GET(req: NextRequest) {
   try {
-    const apiKey = process.env.DROPBOX_SIGN_API_KEY || "";
-    const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
-    const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID || "";
-    const fileUrl = process.env.DROPBOX_SIGN_FILE_URL || ""; // optional fallback (no template)
-    const ENV_SELLER = process.env.DROPBOX_SIGN_ROLE_SELLER || "SELLER";
-    const ENV_BUYER = process.env.DROPBOX_SIGN_ROLE_BUYER || "BUYER";
-    const testMode =
-      process.env.DROPBOX_SIGN_TEST_MODE === "1" ? 1 : (process.env.NODE_ENV !== "production" ? 1 : 0);
-
-    if (!apiKey || !clientId) {
-      return NextResponse.json(
-        { error: "Dropbox Sign not configured (API key / Client ID missing)" },
-        { status: 500 }
-      );
-    }
+    await loadDropbox();
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
@@ -188,10 +215,16 @@ export async function GET(req: NextRequest) {
 
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    // trade + viewer
+    // Accept Trade.id OR Transaction.id; create Trade if missing
     const trade = await ensureTradeFromAnyIdOrCreate(id);
-    if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!trade) {
+      return NextResponse.json(
+        { error: "Not found", details: "No Trade or Transaction with this id" },
+        { status: 404 }
+      );
+    }
 
+    // AuthZ (viewer derived from auth or token in query/header)
     const viewer = await getViewer(req as any, trade as any);
     if (isForbidden(viewer)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (viewer.role !== "seller" && viewer.role !== "buyer") {
@@ -199,46 +232,71 @@ export async function GET(req: NextRequest) {
     }
     const effectiveRole: "seller" | "buyer" = viewer.role;
 
-    // both signers
+    // Resolve BOTH signers (templates usually require all roles defined)
     const sellerResolved = await resolveSigner(trade, "seller");
     const buyerResolved = await resolveSigner(trade, "buyer");
     const fallbackEmail = `no-email+${trade.id}@example.com`;
-    const seller = { email: sellerResolved.email || fallbackEmail, name: sellerResolved.name || "Seller" };
-    const buyer = { email: buyerResolved.email || fallbackEmail, name: buyerResolved.name || "Buyer" };
+    const seller = {
+      email: sellerResolved.email || fallbackEmail,
+      name: sellerResolved.name || "Seller",
+    };
+    const buyer = {
+      email: buyerResolved.email || fallbackEmail,
+      name: buyerResolved.name || "Buyer",
+    };
 
-    // ensure distinct emails
+    // Ensure distinct emails (Dropbox Sign can be picky with same-address signers)
     if (seller.email.toLowerCase() === buyer.email.toLowerCase()) {
       buyer.email = plusAlias(buyer.email, `buyer.${trade.id.slice(-6)}`);
     }
 
-    // template meta
-    const meta = templateId ? await getTemplateMeta(templateId, apiKey) : { signerRoles: [], ccRoles: [], mergeFields: [] };
-    const tplRoles = meta.signerRoles;
+    // Config
+    const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
+    const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID || "";
+    const fileUrl = process.env.DROPBOX_SIGN_FILE_URL || "";
 
-    // map role strings to template
+    const ENV_SELLER = process.env.DROPBOX_SIGN_ROLE_SELLER || "seller";
+    const ENV_BUYER = process.env.DROPBOX_SIGN_ROLE_BUYER || "buyer";
+
+    const testMode =
+      process.env.DROPBOX_SIGN_TEST_MODE === "1"
+        ? 1
+        : process.env.NODE_ENV !== "production"
+        ? 1
+        : 0;
+
+    // Template meta
+    const meta = templateId ? await getTemplateMeta(templateId) : null;
+    const tplRoles: string[] = meta?.signerRoles ?? [];
+
+    // Map to template’s exact role names
     const mapRole = (want: "seller" | "buyer") => {
       const desired = want === "seller" ? ENV_SELLER : ENV_BUYER;
       if (!tplRoles.length) return desired;
-      const exact = tplRoles.find((r) => r === desired);
+
+      const exact = tplRoles.find((r: string) => r === desired);
       if (exact) return exact;
-      const ci = tplRoles.find((r) => r.toLowerCase() === want);
+
+      const ci = tplRoles.find((r: string) => r.toLowerCase() === want);
       if (ci) return ci;
-      const sub = tplRoles.find((r) => r.toLowerCase().includes(want));
+
+      const sub = tplRoles.find((r: string) => r.toLowerCase().includes(want));
       return sub || desired;
     };
-
     const sellerRoleName = mapRole("seller");
     const buyerRoleName = mapRole("buyer");
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
+    // Two-signer payload (MUST match template role names exactly)
     const signersPayload = [
       { role: sellerRoleName, email_address: seller.email, name: seller.name },
       { role: buyerRoleName, email_address: buyer.email, name: buyer.name },
     ];
 
-    // CCs (optional via env: DROPBOX_SIGN_CC_<ROLE>=email or DROPBOX_SIGN_CC_DEFAULT)
+    // Optional CC roles from env
+    const ccRoles: string[] = meta?.ccRoles ?? [];
     const ccEmailsByRole = Object.fromEntries(
-      (meta.ccRoles || []).map((role) => {
+      ccRoles.map((role) => {
         const key = `DROPBOX_SIGN_CC_${role.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}`;
         const email = process.env[key] || process.env.DROPBOX_SIGN_CC_DEFAULT || "";
         return [role, email];
@@ -248,27 +306,32 @@ export async function GET(req: NextRequest) {
       .filter(([, email]) => !!email)
       .map(([role, email]) => ({ role, email_address: email as string }));
 
-    const customFields = buildCustomFields(meta.mergeFields || [], trade, seller, buyer);
+    // Custom fields
+    const customFields = buildCustomFields(meta?.mergeFields, trade, seller, buyer);
 
+    // Debug payload only (no network)
     if (debug) {
       return NextResponse.json({
         ok: true,
         debug: {
-          hasSdk: true,
-          apiKeyPresent: true,
-          clientIdPresent: true,
+          hasSdk: Boolean(SignatureRequestApi && EmbeddedApi),
+          hasTemplateApi: Boolean(TemplateApi),
+          apiKeyPresent: Boolean(dropboxApiKey),
+          clientIdPresent: Boolean(clientId),
           templateId,
-          fileUrlPresent: !!fileUrl,
-          templateRoles: tplRoles,
-          ccRoles: meta.ccRoles,
-          mergeFields: meta.mergeFields,
+          fileUrlPresent: Boolean(fileUrl),
+          templateRoles: tplRoles.length ? tplRoles : null,
+          ccRoles,
+          mergeFields: meta?.mergeFields ?? [],
           targetRole,
           signersPayload,
           emailsDistinct: seller.email.toLowerCase() !== buyer.email.toLowerCase(),
           ccsPayload,
           customFields,
           signerForViewer:
-            targetRole === sellerRoleName ? { email: seller.email, name: seller.name } : { email: buyer.email, name: buyer.name },
+            targetRole === sellerRoleName
+              ? { email: seller.email, name: seller.name }
+              : { email: buyer.email, name: buyer.name },
           testMode,
           tradeId: trade.id,
           tradeStatus: trade.status,
@@ -276,110 +339,205 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    /* ----------------- Create request ----------------- */
+    // Safety check
+    if (!SignatureRequestApi || !EmbeddedApi || !clientId || !dropboxApiKey) {
+      return NextResponse.json(
+        {
+          error: "Dropbox Sign not configured",
+          details: {
+            hasSdk: Boolean(SignatureRequestApi && EmbeddedApi),
+            apiKeyPresent: Boolean(dropboxApiKey),
+            clientIdPresent: Boolean(clientId),
+          },
+        },
+        { status: 500 }
+      );
+    }
+
     let signatureId: string | undefined;
 
+    /** ---- Template path (REST) ---- */
     if (templateId) {
-      // REST: /signature_request/create_embedded_with_template
-      const form = new URLSearchParams();
-      form.set("client_id", clientId);
-      form.set("test_mode", String(testMode ? 1 : 0));
-      form.append("template_ids[]", templateId);
-      signersPayload.forEach((s, i) => {
-        form.set(`signers[${i}][role]`, s.role);
-        form.set(`signers[${i}][email_address]`, s.email_address);
-        form.set(`signers[${i}][name]`, s.name);
-      });
-      ccsPayload.forEach((c, j) => {
-        form.set(`ccs[${j}][role]`, c.role);
-        form.set(`ccs[${j}][email_address]`, c.email_address);
-      });
-      if (customFields.length) {
-        form.set("custom_fields", JSON.stringify(customFields));
-      }
-
-      const createResp = await fetch(`${DBX_BASE}/signature_request/create_embedded_with_template`, {
-        method: "POST",
-        headers: {
-          Authorization: dbxAuthHeader(apiKey),
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Accept: "application/json",
-        },
-        body: form.toString(),
-      });
-
-      const createText = await createResp.text();
-      let createBody: any = null;
-      try { createBody = createText ? JSON.parse(createText) : null; } catch {}
-
-      if (!createResp.ok) {
-        const name = createBody?.error?.error_name || "dropbox_sign_error";
-        const msg = createBody?.error?.error_msg || "HTTP request failed";
+      // If we know roles and the computed one is not included, fail early
+      if (tplRoles.length && !tplRoles.includes(targetRole)) {
         return NextResponse.json(
-          { error: msg, provider: "dropbox_sign", code: name, status: createResp.status, raw: createBody ?? createText ?? null },
-          { status: createResp.status || 502 }
+          {
+            error: "Template role mismatch",
+            details: `Template expects roles: ${tplRoles.join(", ")}, got "${targetRole}".`,
+            hint:
+              "Update DROPBOX_SIGN_ROLE_SELLER / DROPBOX_SIGN_ROLE_BUYER to match the template, or rename roles in the template.",
+          },
+          { status: 422 }
         );
       }
 
-      const signatures: any[] =
-        createBody?.signature_request?.signatures ||
-        createBody?.signatureRequest?.signatures ||
-        [];
+      try {
+        const form = new URLSearchParams();
+        form.set("client_id", clientId);
+        form.set("test_mode", String(testMode ? 1 : 0));
+        form.append("template_ids[]", templateId);
 
-      signatureId =
-        signatures.find((s: any) =>
-          (s?.signer_role || s?.role || "").toString().toLowerCase() === targetRole.toLowerCase()
-        )?.signature_id || signatures[0]?.signature_id;
+        // Signers
+        signersPayload.forEach((s, i) => {
+          form.set(`signers[${i}][role]`, s.role);
+          form.set(`signers[${i}][email_address]`, s.email_address);
+          form.set(`signers[${i}][name]`, s.name);
+        });
 
-      if (!signatureId) {
+        // CCs
+        ccsPayload.forEach((c, j) => {
+          form.set(`ccs[${j}][role]`, c.role);
+          form.set(`ccs[${j}][email_address]`, c.email_address);
+        });
+
+        // Custom fields (JSON string in form body)
+        if (customFields.length) {
+          form.set("custom_fields", JSON.stringify(customFields));
+        }
+
+        const createResp = await fetch(
+          `${DBX_BASE}/signature_request/create_embedded_with_template`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: dbxAuthHeader(dropboxApiKey),
+              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+              Accept: "application/json",
+            },
+            body: form.toString(),
+          }
+        );
+
+        const createText = await createResp.text();
+        let createBody: any = null;
+        try {
+          createBody = createText ? JSON.parse(createText) : null;
+        } catch {}
+
+        if (!createResp.ok) {
+          const errName =
+            createBody?.error?.error_name || createResp.statusText || "dropbox_sign_error";
+          const errMsg = createBody?.error?.error_msg || "HTTP request failed";
+          return NextResponse.json(
+            {
+              error: errMsg,
+              provider: "dropbox_sign",
+              code: errName,
+              status: createResp.status,
+              raw: createBody ?? createText ?? null,
+            },
+            { status: createResp.status || 502 }
+          );
+        }
+
+        const signatures: any[] =
+          createBody?.signature_request?.signatures ||
+          createBody?.signatureRequest?.signatures ||
+          [];
+
+        // pick the signature for the viewing party if present, else first
+        signatureId =
+          signatures.find(
+            (s: any) =>
+              (s?.signer_role || s?.role || "").toString().toLowerCase() ===
+              targetRole.toLowerCase()
+          )?.signature_id || signatures[0]?.signature_id;
+
+        if (!signatureId) {
+          return NextResponse.json(
+            { error: "No signature_id returned by Dropbox Sign", raw: createBody ?? createText },
+            { status: 502 }
+          );
+        }
+      } catch (e: any) {
+        const info = parseDropboxError(e);
+        console.error("[sign-url] create-with-template (REST) failed", info);
         return NextResponse.json(
-          { error: "No signature_id returned by Dropbox Sign", raw: createBody ?? createText ?? null },
-          { status: 502 }
+          {
+            error: info.message,
+            provider: "dropbox_sign",
+            code: info.name,
+            status: info.status,
+            raw: info.raw ?? null,
+          },
+          { status: info.status || 502 }
         );
       }
-    } else if (fileUrl) {
-      // simple embedded with file (SDK is OK)
-      const sigApi = new DropboxSign.SignatureRequestApi();
-      (sigApi as any).username = apiKey;
-      const created = await sigApi.signatureRequestCreateEmbedded({
-        client_id: clientId,
-        title: `Water Traders – Trade ${trade.id}`,
-        subject: "Sign the Water Traders agreement",
-        message: "Please review and sign.",
-        signers: [{
-          email_address: effectiveRole === "seller" ? seller.email : buyer.email,
-          name:          effectiveRole === "seller" ? seller.name  : buyer.name,
-          role: "signer",
-        }],
-        file_urls: [fileUrl],
-        test_mode: testMode,
-      } as any);
-      signatureId = created?.body?.signature_request?.signatures?.[0]?.signature_id;
-      if (!signatureId) {
-        return NextResponse.json({ error: "No signature_id returned by Dropbox Sign" }, { status: 502 });
+    }
+    /** ---- File URL path (SDK) ---- */
+    else if (fileUrl) {
+      try {
+        const created = await SignatureRequestApi.signatureRequestCreateEmbedded({
+          client_id: clientId,
+          title: `Water Traders – Trade ${trade.id}`,
+          subject: "Sign the Water Traders agreement",
+          message: "Please review and sign.",
+          signers: [
+            {
+              email_address: effectiveRole === "seller" ? seller.email : buyer.email,
+              name: effectiveRole === "seller" ? seller.name : buyer.name,
+              role: "signer",
+            },
+          ],
+          file_urls: [fileUrl],
+          test_mode: testMode,
+        } as any);
+
+        signatureId = created?.body?.signature_request?.signatures?.[0]?.signature_id;
+        if (!signatureId) {
+          return NextResponse.json(
+            { error: "No signature_id returned by Dropbox Sign", raw: created?.body ?? null },
+            { status: 502 }
+          );
+        }
+      } catch (e: any) {
+        const info = parseDropboxError(e);
+        console.error("[sign-url] create-embedded (file) failed", info);
+        return NextResponse.json(
+          {
+            error: info.message,
+            provider: "dropbox_sign",
+            code: info.name,
+            status: info.status,
+            raw: info.raw ?? null,
+          },
+          { status: info.status || 502 }
+        );
       }
     } else {
       return NextResponse.json(
-        { error: "No template or fileUrl configured. Set DROPBOX_SIGN_TEMPLATE_ID or DROPBOX_SIGN_FILE_URL." },
+        {
+          error:
+            "No template or fileUrl configured. Set DROPBOX_SIGN_TEMPLATE_ID or DROPBOX_SIGN_FILE_URL.",
+        },
         { status: 422 }
       );
     }
 
-    /* ----------------- Embedded URL ----------------- */
-    const embeddedApi = new DropboxSign.EmbeddedApi();
-    (embeddedApi as any).username = apiKey;
-
-    const embedded = await embeddedApi.embeddedSignUrl(signatureId);
-    const signUrl = embedded?.body?.embedded?.sign_url;
-    if (!signUrl) return NextResponse.json({ error: "Failed to get embedded URL" }, { status: 500 });
-
-    return NextResponse.json({ url: signUrl, testMode });
+    /** ---- Get embedded sign URL (SDK) ---- */
+    try {
+      const embedded = await EmbeddedApi.embeddedSignUrl(signatureId);
+      const signUrl = embedded?.body?.embedded?.sign_url;
+      if (!signUrl) {
+        return NextResponse.json({ error: "Failed to get embedded URL" }, { status: 500 });
+      }
+      return NextResponse.json({ url: signUrl, testMode });
+    } catch (e: any) {
+      const info = parseDropboxError(e);
+      console.error("[sign-url] embeddedSignUrl failed", info);
+      return NextResponse.json(
+        {
+          error: info.message,
+          provider: "dropbox_sign",
+          code: info.name,
+          status: info.status,
+          raw: info.raw ?? null,
+        },
+        { status: info.status || 502 }
+      );
+    }
   } catch (e: any) {
-    const info = parseDropboxError(e);
-    console.error("[sign-url] error", info);
-    return NextResponse.json(
-      { error: info.message, provider: "dropbox_sign", code: info.name, status: info.status, raw: info.raw ?? null },
-      { status: info.status || 500 }
-    );
+    console.error("[sign-url] error", e);
+    return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
   }
 }
