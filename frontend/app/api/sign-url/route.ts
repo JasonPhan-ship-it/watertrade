@@ -444,3 +444,130 @@ export async function GET(req: NextRequest) {
 
         // pick the signature for the viewing party if present, else first
         signatureId =
+          signatures.find(
+            (s: any) =>
+              ((s?.signer_role || s?.role || "") as string).toLowerCase() ===
+              targetRole.toLowerCase()
+          )?.signature_id ||
+          signatures[0]?.signature_id ||
+          signatures[0]?.signatureId; // tolerate camelCase fallback just in case
+
+        if (!signatureId) {
+          return NextResponse.json(
+            { error: "No signature_id returned by Dropbox Sign", raw: createBody ?? createText },
+            { status: 502 }
+          );
+        }
+      } catch (e: any) {
+        const info = parseDropboxError(e);
+        console.error("[sign-url] create-with-template (REST) failed", info);
+        return NextResponse.json(
+          {
+            error: info.message,
+            provider: "dropbox_sign",
+            code: info.name,
+            status: info.status,
+            raw: info.raw ?? null,
+          },
+          { status: info.status || 502 }
+        );
+      }
+    }
+    /** ---- File URL path (SDK) ---- */
+    else if (fileUrl) {
+      try {
+        const created = await SignatureRequestApi.signatureRequestCreateEmbedded({
+          client_id: clientId,
+          title: `Water Traders – Trade ${trade.id}`,
+          subject: "Sign the Water Traders agreement",
+          message: "Please review and sign.",
+          signers: [
+            {
+              email_address: effectiveRole === "seller" ? seller.email : buyer.email,
+              name: effectiveRole === "seller" ? seller.name : buyer.name,
+              role: "signer",
+            },
+          ],
+          file_urls: [fileUrl],
+          test_mode: testMode,
+        } as any);
+
+        const sr =
+          created?.body?.signature_request || created?.body?.signatureRequest || created?.signatureRequest;
+        const sigs: any[] = sr?.signatures || [];
+        signatureId =
+          sigs[0]?.signature_id || sigs[0]?.signatureId; // support both casings
+        if (!signatureId) {
+          return NextResponse.json(
+            { error: "No signature_id returned by Dropbox Sign", raw: created?.body ?? null },
+            { status: 502 }
+          );
+        }
+      } catch (e: any) {
+        const info = parseDropboxError(e);
+        console.error("[sign-url] create-embedded (file) failed", info);
+        return NextResponse.json(
+          {
+            error: info.message,
+            provider: "dropbox_sign",
+            code: info.name,
+            status: info.status,
+            raw: info.raw ?? null,
+          },
+          { status: info.status || 502 }
+        );
+      }
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "No template or fileUrl configured. Set DROPBOX_SIGN_TEMPLATE_ID or DROPBOX_SIGN_FILE_URL.",
+        },
+        { status: 422 }
+      );
+    }
+
+    /** ---- Get embedded sign URL (SDK) ---- */
+    try {
+      // v3 signature is EmbeddedApi.embeddedSignUrl(signatureId)
+      const embeddedResp = await EmbeddedApi.embeddedSignUrl(signatureId);
+      const embeddedBody = embeddedResp?.body || embeddedResp;
+
+      // Normalize both casings
+      const embeddedObj =
+        embeddedBody?.embedded ||
+        embeddedBody?.Embedded ||
+        embeddedBody?.data?.embedded ||
+        embeddedBody;
+      const signUrl = embeddedObj?.sign_url || embeddedObj?.signUrl;
+
+      if (!signUrl) {
+        return NextResponse.json(
+          {
+            error: "Failed to get embedded URL",
+            raw: embeddedBody ?? null,
+          },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ url: signUrl, testMode });
+    } catch (e: any) {
+      const info = parseDropboxError(e);
+      console.error("[sign-url] embeddedSignUrl failed", info);
+      return NextResponse.json(
+        {
+          error: info.message,
+          provider: "dropbox_sign",
+          code: info.name,
+          status: info.status,
+          raw: info.raw ?? null,
+        },
+        { status: info.status || 502 }
+      );
+    }
+  } catch (e: any) {
+    console.error("[sign-url] error", e);
+    return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
+  }
+}
