@@ -21,13 +21,16 @@
 
     "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": false,
+    "incremental": true,
 
+    "typeRoots": ["./types", "./node_modules/@types"],
     "plugins": [{ "name": "next" }]
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    "types/**/*.d.ts",
     ".next/types/**/*.ts"
   ],
   "exclude": ["node_modules"]
