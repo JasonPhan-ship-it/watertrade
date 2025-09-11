@@ -25,7 +25,7 @@
     "@radix-ui/react-slot": "^1.0.2",
     "autoprefixer": "^10.4.15",
     "clsx": "^2.1.0",
-    "docusign-esign": "^6.2.0",
+    "docusign-esign": "8.4.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.31",
     "hellosign-embedded": "^2.12.3",
