@@ -1,52 +1,64 @@
-{
-  "name": "water-trading-frontend",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "postinstall": "prisma generate",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio",
-    "lint": "next lint --max-warnings=0",
-    "typecheck": "tsc --noEmit",
-    "format": "prettier --write ."
-  },
-  "engines": {
-    "node": ">=20 <21"
-  },
-  "dependencies": {
-    "@clerk/nextjs": "^4.31.8",
-    "@dropbox/sign": "^1.10.0",
-    "@prisma/client": "^6.14.0",
-    "@radix-ui/react-slot": "^1.0.2",
-    "autoprefixer": "^10.4.15",
-    "clsx": "^2.1.0",
-    "docusign-esign": "^7.0.0",
-    "eslint": "^8.57.1",
-    "eslint-config-next": "14.2.31",
-    "hellosign-embedded": "^2.12.3",
-    "lucide-react": "^0.344.0",
-    "next": "14.2.31",
-    "postcss": "^8.4.28",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "stripe": "^16.0.0",
-    "tailwind-merge": "^2.3.0",
-    "tailwindcss": "^3.4.4",
-    "xlsx": "^0.18.5",
-    "zod": "^3.22.4"
-  },
-  "devDependencies": {
-    "@types/node": "^20.5.1",
-    "@types/react": "^18.2.21",
-    "@types/react-dom": "^18.2.7",
-    "@types/hellosign-embedded": "^2.0.6",
-    "prisma": "^6.14.0",
-    "typescript": "^5.3.3",
-    "prettier": "^3.3.3"
+// lib/docusign.ts
+import * as docusign from 'docusign-esign';
+
+type DsClient = {
+  apiClient: docusign.ApiClient;
+  accessToken: string;
+  userInfo: any;
+  basePath: string;
+};
+
+/**
+ * Creates a DocuSign API client using JWT (demo/sandbox).
+ * Required env:
+ * - DOCUSIGN_INTEGRATION_KEY        (a.k.a. "Client ID" / Integration Key)
+ * - DOCUSIGN_USER_ID                (GUID of the user who granted consent)
+ * - DOCUSIGN_PRIVATE_KEY            (RSA private key, with \n escaped)
+ * Optional:
+ * - DOCUSIGN_OAUTH_BASE_PATH        (default: account-d.docusign.com)
+ * - DOCUSIGN_REST_BASE_PATH         (default: https://demo.docusign.net/restapi)
+ */
+export async function getDsClient(): Promise<DsClient> {
+  const INTEGRATION_KEY = process.env.DOCUSIGN_INTEGRATION_KEY!;
+  const USER_ID = process.env.DOCUSIGN_USER_ID!;
+  const PRIVATE_KEY = (process.env.DOCUSIGN_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+
+  if (!INTEGRATION_KEY || !USER_ID || !PRIVATE_KEY) {
+    throw new Error(
+      'Missing DocuSign env vars. Set DOCUSIGN_INTEGRATION_KEY, DOCUSIGN_USER_ID, DOCUSIGN_PRIVATE_KEY.'
+    );
   }
+
+  const OAUTH_BASE = process.env.DOCUSIGN_OAUTH_BASE_PATH || 'account-d.docusign.com';
+  const REST_BASE = process.env.DOCUSIGN_REST_BASE_PATH || 'https://demo.docusign.net/restapi';
+
+  const apiClient = new docusign.ApiClient();
+  apiClient.setOAuthBasePath(OAUTH_BASE); // e.g. account-d.docusign.com
+
+  // Request JWT user token
+  const jwtLifeSec = 3600;
+  const scopes = ['signature', 'impersonation'];
+  const jwt = await apiClient.requestJWTUserToken(
+    INTEGRATION_KEY,
+    USER_ID,
+    scopes,
+    PRIVATE_KEY,
+    jwtLifeSec
+  );
+
+  const accessToken = jwt.body?.access_token;
+  if (!accessToken) throw new Error('Failed to obtain DocuSign access token (JWT).');
+
+  // Attach bearer on REST client and resolve user info
+  apiClient.setBasePath(REST_BASE);
+  apiClient.addDefaultHeader('Authorization', `Bearer ${accessToken}`);
+
+  const userInfo = await apiClient.getUserInfo(accessToken);
+
+  return {
+    apiClient,
+    accessToken,
+    userInfo,
+    basePath: REST_BASE,
+  };
 }
