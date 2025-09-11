@@ -1,37 +1,52 @@
-// lib/docusign.ts
-export async function getDsClient() {
-  // Lazy-load so it never touches client bundles
-  const docusign = await import('docusign-esign');
-
-  const INTEGRATION_KEY = process.env.DOCUSIGN_INTEGRATION_KEY!;
-  const USER_ID        = process.env.DOCUSIGN_USER_ID!;
-  const OAUTH_BASE     = process.env.DOCUSIGN_OAUTH_BASE_PATH || 'account-d.docusign.com';
-  const PRIVATE_KEY    = (process.env.DOCUSIGN_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-
-  if (!INTEGRATION_KEY || !USER_ID || !PRIVATE_KEY) {
-    throw new Error('Missing DocuSign env vars: check DOCUSIGN_INTEGRATION_KEY, DOCUSIGN_USER_ID, DOCUSIGN_PRIVATE_KEY');
+{
+  "name": "water-trading-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "lint": "next lint --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "engines": {
+    "node": ">=20 <21"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^4.31.8",
+    "@dropbox/sign": "^1.10.0",
+    "@prisma/client": "^6.14.0",
+    "@radix-ui/react-slot": "^1.0.2",
+    "autoprefixer": "^10.4.15",
+    "clsx": "^2.1.0",
+    "docusign-esign": "^7.0.0",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.31",
+    "hellosign-embedded": "^2.12.3",
+    "lucide-react": "^0.344.0",
+    "next": "14.2.31",
+    "postcss": "^8.4.28",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "stripe": "^16.0.0",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss": "^3.4.4",
+    "xlsx": "^0.18.5",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.5.1",
+    "@types/react": "^18.2.21",
+    "@types/react-dom": "^18.2.7",
+    "@types/hellosign-embedded": "^2.0.6",
+    "prisma": "^6.14.0",
+    "typescript": "^5.3.3",
+    "prettier": "^3.3.3"
   }
-
-  const apiClient = new docusign.ApiClient();
-  apiClient.setOAuthBasePath(OAUTH_BASE);
-
-  // Request JWT (1 hour)
-  const scopes = ['signature', 'impersonation'];
-  const jwt = await apiClient.requestJWTUserToken(
-    INTEGRATION_KEY,
-    USER_ID,
-    scopes,
-    Buffer.from(PRIVATE_KEY, 'utf8'),
-    3600
-  );
-  const accessToken = jwt.body.access_token;
-
-  // Resolve baseUri/accountId
-  const userInfo = await apiClient.getUserInfo(accessToken);
-  const account = userInfo?.accounts?.find((a: any) => a.isDefault) || userInfo?.accounts?.[0];
-  if (!account) throw new Error('No DocuSign account found for this user');
-
-  apiClient.addDefaultHeader('Authorization', `Bearer ${accessToken}`);
-  apiClient.setBasePath(`${account.baseUri}/restapi`);
-  return { apiClient, accountId: account.accountId, accessToken };
 }
