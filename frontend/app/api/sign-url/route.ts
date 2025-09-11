@@ -7,25 +7,45 @@ import { prisma } from "@/lib/prisma";
 import { ensureTradeFromAnyIdOrCreate, getViewer } from "@/lib/trade";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 
-/** ---- auth guard helper ---- */
+/** ---- small helpers ---- */
 function isForbidden(v: any): v is { role: "forbidden"; reason: string } {
   return v?.role === "forbidden";
 }
+function plusAlias(email: string, tag: string) {
+  const parts = String(email || "").split("@");
+  if (parts.length !== 2) return email;
+  const [local, domain] = parts;
+  const base = local.split("+")[0];
+  return `${base}+${tag}@${domain}`;
+}
+function mask(s: string) {
+  return s ? `${s.slice(0, 6)}…${s.slice(-6)}` : "";
+}
+function maskEmail(e?: string | null) {
+  if (!e) return "";
+  const [local, domain = ""] = e.split("@");
+  if (!local) return e;
+  return `${local[0] ?? ""}…@${domain}`;
+}
 
-/** ---- lazy Dropbox Sign SDK (for template meta + embedded URL only) ---- */
+/** ---- lazy Dropbox Sign SDK (SDK + extra Admin APIs for diagnostics) ---- */
 let SignatureRequestApi: any;
 let EmbeddedApi: any;
 let TemplateApi: any;
+let ApiAppApi: any;
+let AccountApi: any;
 let dropboxApiKey = "";
 
 async function loadDropbox() {
-  if (SignatureRequestApi && EmbeddedApi && TemplateApi) return;
+  if (SignatureRequestApi && EmbeddedApi && TemplateApi && ApiAppApi && AccountApi) return;
   const mod = await import("@dropbox/sign").catch(() => null);
   if (!mod) return;
 
   SignatureRequestApi = new mod.SignatureRequestApi();
   EmbeddedApi = new mod.EmbeddedApi();
   TemplateApi = new mod.TemplateApi();
+  ApiAppApi = new mod.ApiAppApi();
+  AccountApi = new mod.AccountApi();
 
   dropboxApiKey = process.env.DROPBOX_SIGN_API_KEY || "";
   if (dropboxApiKey) {
@@ -33,6 +53,8 @@ async function loadDropbox() {
     SignatureRequestApi.username = dropboxApiKey;
     EmbeddedApi.username = dropboxApiKey;
     TemplateApi.username = dropboxApiKey;
+    ApiAppApi.username = dropboxApiKey;
+    AccountApi.username = dropboxApiKey;
   }
 }
 
@@ -72,25 +94,6 @@ function parseDropboxError(e: any) {
   const message = err?.error_msg || err?.message || texts.find(Boolean) || "HTTP request failed";
 
   return { status, name, message, raw: body || texts[0] || e?.message || e };
-}
-
-/** ---- helpers ---- */
-function plusAlias(email: string, tag: string) {
-  const parts = String(email || "").split("@");
-  if (parts.length !== 2) return email;
-  const [local, domain] = parts;
-  const base = local.split("+")[0];
-  return `${base}+${tag}@${domain}`;
-}
-
-function mask(s: string) {
-  return s ? `${s.slice(0, 6)}…${s.slice(-6)}` : "";
-}
-function maskEmail(e?: string | null) {
-  if (!e) return "";
-  const [local, domain = ""] = e.split("@");
-  if (!local) return e;
-  return `${local[0] ?? ""}…@${domain}`;
 }
 
 /** Resolve signer from Trade → User → Clerk → Transaction */
@@ -207,7 +210,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // -------- 1) Viewer (from your existing guard) --------
+    // -------- 1) Viewer from your existing guard --------
     const viewer = await getViewer(req as any, trade as any);
     if (isForbidden(viewer)) {
       return NextResponse.json(
@@ -220,21 +223,15 @@ export async function GET(req: NextRequest) {
     const sellerResolved = await resolveSigner(trade, "seller");
     const buyerResolved = await resolveSigner(trade, "buyer");
     const fallbackEmail = `no-email+${trade.id}@example.com`;
-    const seller = {
-      email: sellerResolved.email || fallbackEmail,
-      name: sellerResolved.name || "Seller",
-    };
-    const buyer = {
-      email: buyerResolved.email || fallbackEmail,
-      name: buyerResolved.name || "Buyer",
-    };
+    const seller = { email: sellerResolved.email || fallbackEmail, name: sellerResolved.name || "Seller" };
+    const buyer  = { email: buyerResolved.email  || fallbackEmail, name: buyerResolved.name  || "Buyer"  };
 
     // Ensure distinct emails
     if (seller.email.toLowerCase() === buyer.email.toLowerCase()) {
       buyer.email = plusAlias(buyer.email, `buyer.${trade.id.slice(-6)}`);
     }
 
-    // -------- 3) Try to infer role from logged-in Clerk user emails --------
+    // -------- 3) Infer role via Clerk authed emails --------
     const { userId } = auth();
     let authedEmails: string[] = [];
     if (userId) {
@@ -255,20 +252,14 @@ export async function GET(req: NextRequest) {
     if (matchesSeller) inferredRole = "seller";
     else if (matchesBuyer) inferredRole = "buyer";
 
-    // -------- 4) Effective role selection logic --------
     const requestedRole: "seller" | "buyer" | null =
       roleParam === "seller" ? "seller" : roleParam === "buyer" ? "buyer" : null;
 
-    // Start with viewer.role if already trusted
     let effectiveRole: "seller" | "buyer" | null =
       viewer.role === "seller" || viewer.role === "buyer" ? viewer.role : null;
 
-    // If viewer was unknown, allow soft inference by email
-    if (!effectiveRole && inferredRole) {
-      effectiveRole = inferredRole;
-    }
+    if (!effectiveRole && inferredRole) effectiveRole = inferredRole;
 
-    // If a ?role= is provided, only allow it when it agrees with a trusted role
     if (requestedRole && effectiveRole && requestedRole !== effectiveRole) {
       return NextResponse.json(
         {
@@ -279,7 +270,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // If we still have no effective role, deny with a precise reason
     if (!effectiveRole) {
       return NextResponse.json(
         {
@@ -298,7 +288,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // -------- 5) Config & template meta --------
+    // -------- 4) Config & App/Account diagnostics --------
     const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
     const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID || "";
     const fileUrl = process.env.DROPBOX_SIGN_FILE_URL || "";
@@ -313,6 +303,91 @@ export async function GET(req: NextRequest) {
         ? 1
         : 0;
 
+    // Who am I (API key owner)?
+    let whoami: { account_id?: string; email_address?: string } | null = null;
+    try {
+      const acctRes = await AccountApi.accountGet();
+      whoami = {
+        account_id: acctRes?.body?.account?.account_id,
+        email_address: acctRes?.body?.account?.email_address,
+      };
+    } catch {}
+
+    // What is the API App (client) and who owns it?
+    let appInfo:
+      | {
+          client_id?: string;
+          name?: string;
+          owner_account_id?: string;
+          is_embedded?: boolean;
+          domains?: string[];
+        }
+      | null = null;
+    try {
+      if (clientId) {
+        const appRes = await ApiAppApi.apiAppGet(clientId);
+        appInfo = {
+          client_id: appRes?.body?.api_app?.client_id,
+          name: appRes?.body?.api_app?.name,
+          owner_account_id: appRes?.body?.api_app?.owner_account_id,
+          is_embedded: !!appRes?.body?.api_app?.options?.can_use_embedded_signing,
+          domains: (appRes?.body?.api_app?.domains || [])
+            .map((d: any) => d?.value)
+            .filter(Boolean),
+        };
+      }
+    } catch {}
+
+    const sameOwner =
+      !!(whoami?.account_id && appInfo?.owner_account_id) &&
+      whoami!.account_id === appInfo!.owner_account_id;
+
+    // Fail fast for the common “Invalid parameter: client_id” root causes
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "Dropbox Sign client_id missing on server (DROPBOX_SIGN_CLIENT_ID)" },
+        { status: 500 }
+      );
+    }
+    if (!dropboxApiKey) {
+      return NextResponse.json(
+        { error: "Dropbox Sign API key missing (DROPBOX_SIGN_API_KEY)" },
+        { status: 500 }
+      );
+    }
+    if (!sameOwner) {
+      return NextResponse.json(
+        {
+          error: "Invalid client_id / API key pairing",
+          reason:
+            "The API key's account is not the owner of the Dropbox Sign app (client_id). Use an API key from the same account that owns the app.",
+          details: {
+            clientIdMasked: mask(clientId),
+            apiKeyAccountId: whoami?.account_id || null,
+            apiKeyEmail: whoami?.email_address || null,
+            appOwnerAccountId: appInfo?.owner_account_id || null,
+          },
+        },
+        { status: 422 }
+      );
+    }
+    if (appInfo && !appInfo.is_embedded) {
+      return NextResponse.json(
+        {
+          error: "Embedded Signing is not enabled for this Dropbox Sign app",
+          details: {
+            clientIdMasked: mask(clientId),
+            appName: appInfo?.name || null,
+            domains: appInfo?.domains || [],
+          },
+          hint:
+            "Enable Embedded Signing for this app in the Dropbox Sign dashboard and add your allowed domains.",
+        },
+        { status: 422 }
+      );
+    }
+
+    // -------- 5) Template meta / role mapping --------
     const meta = templateId ? await getTemplateMeta(templateId) : null;
     const tplRoles: string[] = meta?.signerRoles ?? [];
 
@@ -376,7 +451,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // -------- 6) Debug block with viewer/inference context --------
+    // -------- 6) Debug block --------
     if (debug) {
       return NextResponse.json({
         ok: true,
@@ -410,26 +485,16 @@ export async function GET(req: NextRequest) {
           testMode,
           tradeId: trade.id,
           tradeStatus: trade.status,
+
+          // Ownership / app diagnostics
+          whoami,
+          appInfo,
+          sameOwner,
         },
       });
     }
 
-    // -------- 7) Config sanity --------
-    if (!SignatureRequestApi || !EmbeddedApi || !clientId || !dropboxApiKey) {
-      return NextResponse.json(
-        {
-          error: "Dropbox Sign not configured",
-          details: {
-            hasSdk: Boolean(SignatureRequestApi && EmbeddedApi),
-            apiKeyPresent: Boolean(dropboxApiKey),
-            clientIdPresent: Boolean(clientId),
-          },
-        },
-        { status: 500 }
-      );
-    }
-
-    // -------- 8) Create embedded request (template or file URL) --------
+    // -------- 7) Create embedded request --------
     let signatureId: string | undefined;
 
     if (templateId) {
@@ -587,7 +652,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // -------- 9) Get embedded sign URL --------
+    // -------- 8) Get embedded sign URL --------
     try {
       const embeddedResp = await EmbeddedApi.embeddedSignUrl(signatureId!);
       const embeddedBody = embeddedResp?.body || embeddedResp;
