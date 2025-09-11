@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureTradeFromAnyIdOrCreate, getViewer } from "@/lib/trade";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 
-/** ---- small helpers ---- */
+/* ---------------- small helpers ---------------- */
 function isForbidden(v: any): v is { role: "forbidden"; reason: string } {
   return v?.role === "forbidden";
 }
@@ -28,7 +28,7 @@ function maskEmail(e?: string | null) {
   return `${local[0] ?? ""}…@${domain}`;
 }
 
-/** ---- lazy Dropbox Sign SDK (SDK + extra Admin APIs for diagnostics) ---- */
+/* ---------------- Dropbox Sign SDK (lazy) ---------------- */
 let SignatureRequestApi: any;
 let EmbeddedApi: any;
 let TemplateApi: any;
@@ -49,7 +49,6 @@ async function loadDropbox() {
 
   dropboxApiKey = process.env.DROPBOX_SIGN_API_KEY || "";
   if (dropboxApiKey) {
-    // v3 SDK supports basic auth by setting username
     SignatureRequestApi.username = dropboxApiKey;
     EmbeddedApi.username = dropboxApiKey;
     TemplateApi.username = dropboxApiKey;
@@ -58,13 +57,13 @@ async function loadDropbox() {
   }
 }
 
-/** ---- REST config (for create_embedded_with_template) ---- */
+/* ---------------- REST config (template create) ---------------- */
 const DBX_BASE = process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3";
 function dbxAuthHeader(apiKey: string) {
   return `Basic ${Buffer.from(`${apiKey}:`, "utf8").toString("base64")}`;
 }
 
-/** ---- error normalizer (SDK or REST) ---- */
+/* ---------------- error normalizer ---------------- */
 function parseDropboxError(e: any) {
   const status =
     e?.status ?? e?.response?.status ?? e?.response?.statusCode ?? e?.statusCode ?? 500;
@@ -96,11 +95,9 @@ function parseDropboxError(e: any) {
   return { status, name, message, raw: body || texts[0] || e?.message || e };
 }
 
-/** Resolve signer from Trade → User → Clerk → Transaction */
+/* ---------------- resolve signer ---------------- */
 async function resolveSigner(trade: any, role: "seller" | "buyer") {
   const isSeller = role === "seller";
-
-  // 1) Try trade fields
   const tradeEmail =
     (isSeller ? trade.sellerEmail : trade.buyerEmail) ??
     (isSeller ? trade.sellerUserEmail : trade.buyerUserEmail) ??
@@ -116,7 +113,6 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
 
   if (tradeEmail) return { email: tradeEmail, name: tradeName || "Signer" };
 
-  // 2) Local user table
   const [sellerUser, buyerUser] = await Promise.all([
     trade.sellerUserId ? prisma.user.findUnique({ where: { id: trade.sellerUserId } }) : null,
     trade.buyerUserId ? prisma.user.findUnique({ where: { id: trade.buyerUserId } }) : null,
@@ -125,7 +121,6 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
   let email = u?.email || null;
   let name = u?.name || tradeName || "";
 
-  // 3) Clerk profile
   if ((!email || !name) && u?.clerkId) {
     try {
       const cl = await clerkClient.users.getUser(u.clerkId);
@@ -138,7 +133,6 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
   }
   if (email) return { email, name: name || "Signer" };
 
-  // 4) Source transaction as last resort
   if (trade.transactionId) {
     const txn = await prisma.transaction.findUnique({ where: { id: trade.transactionId } });
     if (txn) {
@@ -153,11 +147,10 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
         name;
     }
   }
-
   return { email: email ?? null, name: name || "Signer" };
 }
 
-/** Get template metadata (roles/cc/merge fields) */
+/* ---------------- template metadata ---------------- */
 async function getTemplateMeta(templateId: string): Promise<{
   signerRoles: string[];
   ccRoles: string[];
@@ -189,7 +182,7 @@ async function getTemplateMeta(templateId: string): Promise<{
   }
 }
 
-/** ---- route handler ---- */
+/* ---------------- route handler ---------------- */
 export async function GET(req: NextRequest) {
   try {
     await loadDropbox();
@@ -201,7 +194,6 @@ export async function GET(req: NextRequest) {
 
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    // Accept Trade.id OR Transaction.id; create Trade if missing
     const trade = await ensureTradeFromAnyIdOrCreate(id);
     if (!trade) {
       return NextResponse.json(
@@ -210,7 +202,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // -------- 1) Viewer from your existing guard --------
+    /* -------- viewer -------- */
     const viewer = await getViewer(req as any, trade as any);
     if (isForbidden(viewer)) {
       return NextResponse.json(
@@ -219,19 +211,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // -------- 2) Resolve signers early (for email matching) --------
+    /* -------- resolve signers -------- */
     const sellerResolved = await resolveSigner(trade, "seller");
     const buyerResolved = await resolveSigner(trade, "buyer");
     const fallbackEmail = `no-email+${trade.id}@example.com`;
     const seller = { email: sellerResolved.email || fallbackEmail, name: sellerResolved.name || "Seller" };
     const buyer  = { email: buyerResolved.email  || fallbackEmail, name: buyerResolved.name  || "Buyer"  };
-
-    // Ensure distinct emails
     if (seller.email.toLowerCase() === buyer.email.toLowerCase()) {
       buyer.email = plusAlias(buyer.email, `buyer.${trade.id.slice(-6)}`);
     }
 
-    // -------- 3) Infer role via Clerk authed emails --------
+    /* -------- infer role from Clerk -------- */
     const { userId } = auth();
     let authedEmails: string[] = [];
     if (userId) {
@@ -242,22 +232,17 @@ export async function GET(req: NextRequest) {
           [];
       } catch {}
     }
-
     const sellerEmailLc = (seller.email || "").toLowerCase();
     const buyerEmailLc = (buyer.email || "").toLowerCase();
     const matchesSeller = authedEmails.includes(sellerEmailLc);
     const matchesBuyer = authedEmails.includes(buyerEmailLc);
-
-    let inferredRole: "seller" | "buyer" | null = null;
-    if (matchesSeller) inferredRole = "seller";
-    else if (matchesBuyer) inferredRole = "buyer";
+    let inferredRole: "seller" | "buyer" | null = matchesSeller ? "seller" : matchesBuyer ? "buyer" : null;
 
     const requestedRole: "seller" | "buyer" | null =
       roleParam === "seller" ? "seller" : roleParam === "buyer" ? "buyer" : null;
 
     let effectiveRole: "seller" | "buyer" | null =
       viewer.role === "seller" || viewer.role === "buyer" ? viewer.role : null;
-
     if (!effectiveRole && inferredRole) effectiveRole = inferredRole;
 
     if (requestedRole && effectiveRole && requestedRole !== effectiveRole) {
@@ -269,7 +254,6 @@ export async function GET(req: NextRequest) {
         { status: 403 }
       );
     }
-
     if (!effectiveRole) {
       return NextResponse.json(
         {
@@ -288,8 +272,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // -------- 4) Config & App/Account diagnostics --------
+    /* -------- config -------- */
     const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
+    const browserClientId = process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID || "";
     const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID || "";
     const fileUrl = process.env.DROPBOX_SIGN_FILE_URL || "";
 
@@ -303,17 +288,51 @@ export async function GET(req: NextRequest) {
         ? 1
         : 0;
 
-    // Who am I (API key owner)?
+    /* ---- sanity: ids present ---- */
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "Dropbox Sign client_id missing on server (DROPBOX_SIGN_CLIENT_ID)" },
+        { status: 500 }
+      );
+    }
+    if (!dropboxApiKey) {
+      return NextResponse.json(
+        { error: "Dropbox Sign API key missing (DROPBOX_SIGN_API_KEY)" },
+        { status: 500 }
+      );
+    }
+
+    /* ---- very common cause: server vs browser clientId mismatch ---- */
+    const serverVsBrowserClientIdMismatch =
+      !!browserClientId && browserClientId !== clientId;
+    if (serverVsBrowserClientIdMismatch) {
+      return NextResponse.json(
+        {
+          error: "Server and browser client IDs differ",
+          reason:
+            "DROPBOX_SIGN_CLIENT_ID (server) must equal NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID (browser) for embedded signing.",
+          details: {
+            serverClientIdMasked: mask(clientId),
+            browserClientIdMasked: mask(browserClientId),
+          },
+        },
+        { status: 422 }
+      );
+    }
+
+    /* -------- diagnostics: try to fetch owner info, but don't block if unavailable -------- */
     let whoami: { account_id?: string; email_address?: string } | null = null;
+    let whoamiError: any = null;
     try {
       const acctRes = await AccountApi.accountGet();
       whoami = {
         account_id: acctRes?.body?.account?.account_id,
         email_address: acctRes?.body?.account?.email_address,
       };
-    } catch {}
+    } catch (e: any) {
+      whoamiError = parseDropboxError(e);
+    }
 
-    // What is the API App (client) and who owns it?
     let appInfo:
       | {
           client_id?: string;
@@ -323,6 +342,7 @@ export async function GET(req: NextRequest) {
           domains?: string[];
         }
       | null = null;
+    let appInfoError: any = null;
     try {
       if (clientId) {
         const appRes = await ApiAppApi.apiAppGet(clientId);
@@ -336,26 +356,14 @@ export async function GET(req: NextRequest) {
             .filter(Boolean),
         };
       }
-    } catch {}
-
-    const sameOwner =
-      !!(whoami?.account_id && appInfo?.owner_account_id) &&
-      whoami!.account_id === appInfo!.owner_account_id;
-
-    // Fail fast for the common “Invalid parameter: client_id” root causes
-    if (!clientId) {
-      return NextResponse.json(
-        { error: "Dropbox Sign client_id missing on server (DROPBOX_SIGN_CLIENT_ID)" },
-        { status: 500 }
-      );
+    } catch (e: any) {
+      appInfoError = parseDropboxError(e);
     }
-    if (!dropboxApiKey) {
-      return NextResponse.json(
-        { error: "Dropbox Sign API key missing (DROPBOX_SIGN_API_KEY)" },
-        { status: 500 }
-      );
-    }
-    if (!sameOwner) {
+
+    const haveOwnershipData = !!(whoami?.account_id && appInfo?.owner_account_id);
+    const sameOwner = haveOwnershipData && whoami!.account_id === appInfo!.owner_account_id;
+
+    if (haveOwnershipData && !sameOwner) {
       return NextResponse.json(
         {
           error: "Invalid client_id / API key pairing",
@@ -371,7 +379,7 @@ export async function GET(req: NextRequest) {
         { status: 422 }
       );
     }
-    if (appInfo && !appInfo.is_embedded) {
+    if (appInfo && haveOwnershipData && !appInfo.is_embedded) {
       return NextResponse.json(
         {
           error: "Embedded Signing is not enabled for this Dropbox Sign app",
@@ -387,20 +395,16 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // -------- 5) Template meta / role mapping --------
+    /* -------- template meta / roles -------- */
     const meta = templateId ? await getTemplateMeta(templateId) : null;
     const tplRoles: string[] = meta?.signerRoles ?? [];
-
     const mapRole = (want: "seller" | "buyer") => {
       const desired = want === "seller" ? ENV_SELLER : ENV_BUYER;
       if (!tplRoles.length) return desired;
-
       const exact = tplRoles.find((r: string) => r === desired);
       if (exact) return exact;
-
       const ci = tplRoles.find((r: string) => r.toLowerCase() === want);
       if (ci) return ci;
-
       const sub = tplRoles.find((r: string) => r.toLowerCase().includes(want));
       return sub || desired;
     };
@@ -451,7 +455,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // -------- 6) Debug block --------
+    /* -------- debug short-circuit -------- */
     if (debug) {
       return NextResponse.json({
         ok: true,
@@ -488,13 +492,20 @@ export async function GET(req: NextRequest) {
 
           // Ownership / app diagnostics
           whoami,
+          whoamiError,
           appInfo,
+          appInfoError,
+          haveOwnershipData,
           sameOwner,
+
+          // Server vs Browser
+          browserClientIdMasked: mask(browserClientId),
+          serverVsBrowserClientIdMismatch,
         },
       });
     }
 
-    // -------- 7) Create embedded request --------
+    /* -------- create embedded request -------- */
     let signatureId: string | undefined;
 
     if (templateId) {
@@ -652,7 +663,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // -------- 8) Get embedded sign URL --------
+    /* -------- embedded sign URL -------- */
     try {
       const embeddedResp = await EmbeddedApi.embeddedSignUrl(signatureId!);
       const embeddedBody = embeddedResp?.body || embeddedResp;
@@ -669,7 +680,6 @@ export async function GET(req: NextRequest) {
           { status: 500 }
         );
       }
-
       return NextResponse.json({ url: signUrl, testMode });
     } catch (e: any) {
       const info = parseDropboxError(e);
