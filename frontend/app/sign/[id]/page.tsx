@@ -1,7 +1,7 @@
 // app/sign/[id]/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import SignClient from "./SignClient";
 
@@ -20,6 +20,7 @@ export default function SignPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
 
+  // Route/query params
   const id = useMemo(() => {
     const raw = params?.id as unknown;
     return Array.isArray(raw) ? (raw[0] ?? "") : ((raw as string) ?? "");
@@ -30,29 +31,35 @@ export default function SignPage() {
 
   const [state, setState] = useState<SignState>({ kind: "idle" });
 
-  useEffect(() => {
-    if (!id) {
-      setState({ kind: "error", message: "Missing signing ID in the URL." });
-      return;
-    }
+  // Centralized loader so Retry/Reload can reuse it
+  const start = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!id) {
+        setState({ kind: "error", message: "Missing signing ID in the URL." });
+        return;
+      }
+      setState({ kind: "loading" });
 
-    const ac = new AbortController();
-    (async () => {
       try {
-        setState({ kind: "loading" });
         const qs = new URLSearchParams({ id });
         if (role) qs.set("role", role);
         if (token) qs.set("token", token);
 
         const res = await fetch(`/api/sign-url?${qs.toString()}`, {
           cache: "no-store",
-          signal: ac.signal,
+          signal,
         });
         const data = await res.json().catch(() => null);
 
         if (!res.ok || !data?.url) {
+          // Special handling for 403s so the user gets a clear next step
+          if (res.status === 403) {
+            const reason = data?.reason || data?.error || "Forbidden";
+            throw new Error(`Forbidden – ${reason}`);
+          }
           throw new Error(data?.error || `Failed to get sign URL (${res.status})`);
         }
+
         setState({ kind: "ready", url: data.url, testMode: !!data.testMode });
       } catch (e: any) {
         if (e?.name === "AbortError") return;
@@ -62,10 +69,16 @@ export default function SignPage() {
           details: e,
         });
       }
-    })();
+    },
+    [id, role, token]
+  );
 
+  // Kick off on mount/param changes
+  useEffect(() => {
+    const ac = new AbortController();
+    start(ac.signal);
     return () => ac.abort();
-  }, [id, role, token]);
+  }, [start]);
 
   // Soft guard: warn if this page somehow loads inside a non-WT iframe
   useEffect(() => {
@@ -83,18 +96,31 @@ export default function SignPage() {
   }, []);
 
   if (state.kind === "error") {
+    // Build redirect back to this page after auth
+    const redirectUrl =
+      typeof window !== "undefined"
+        ? encodeURIComponent(window.location.pathname + window.location.search)
+        : encodeURIComponent(`/sign/${id}${role ? `?role=${role}` : ""}`);
+
     return (
       <div className="mx-auto flex min-h-[100dvh] max-w-lg flex-col items-center justify-center p-6 text-center">
         <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h1 className="text-lg font-semibold text-slate-900">Can’t open signing session</h1>
           <p className="mt-2 text-sm text-slate-600">{state.message}</p>
-          <div className="mt-6 flex items-center justify-center gap-3">
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <button
-              onClick={() => router.refresh()}
+              onClick={() => start()}
               className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
               Retry
             </button>
+            <a
+              href={`/sign-in?redirect_url=${redirectUrl}`}
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Sign in
+            </a>
             <button
               onClick={() => router.back()}
               className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -102,6 +128,7 @@ export default function SignPage() {
               Go Back
             </button>
           </div>
+
           <p className="mt-4 text-xs text-slate-500">
             Trade ID <span className="font-mono">{id || "?"}</span>
             {role && (
@@ -110,6 +137,16 @@ export default function SignPage() {
                 · Role <span className="font-mono">{role}</span>
               </>
             )}
+            {token && (
+              <>
+                {" "}
+                · Token <span className="font-mono">present</span>
+              </>
+            )}
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Tip: You must be the {role || "seller/buyer"} on this trade. If you received a secure
+            link, ensure it includes a valid <span className="font-mono">token</span>.
           </p>
         </div>
       </div>
@@ -132,7 +169,7 @@ export default function SignPage() {
     );
   }
 
-  // DO NOT iframe the URL; SignClient opens the HelloSign modal with clientId.
+  // Ready: DO NOT iframe the URL; SignClient opens the HelloSign modal with clientId.
   return (
     <div className="flex min-h-[100dvh] flex-col">
       <div className="flex items-center justify-between border-b border-slate-200 bg-white/70 px-4 py-3 backdrop-blur">
@@ -151,7 +188,7 @@ export default function SignPage() {
             Back
           </button>
           <button
-            onClick={() => router.refresh()}
+            onClick={() => start()}
             className="rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
             aria-label="Reload signing session"
           >
