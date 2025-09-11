@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureTradeFromAnyIdOrCreate, getViewer } from "@/lib/trade";
-import { clerkClient } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 
 /** ---- auth guard helper ---- */
 function isForbidden(v: any): v is { role: "forbidden"; reason: string } {
@@ -74,7 +74,26 @@ function parseDropboxError(e: any) {
   return { status, name, message, raw: body || texts[0] || e?.message || e };
 }
 
-/** ---- resolve signer from Trade → User → Clerk → Transaction ---- */
+/** ---- helpers ---- */
+function plusAlias(email: string, tag: string) {
+  const parts = String(email || "").split("@");
+  if (parts.length !== 2) return email;
+  const [local, domain] = parts;
+  const base = local.split("+")[0];
+  return `${base}+${tag}@${domain}`;
+}
+
+function mask(s: string) {
+  return s ? `${s.slice(0, 6)}…${s.slice(-6)}` : "";
+}
+function maskEmail(e?: string | null) {
+  if (!e) return "";
+  const [local, domain = ""] = e.split("@");
+  if (!local) return e;
+  return `${local[0] ?? ""}…@${domain}`;
+}
+
+/** Resolve signer from Trade → User → Clerk → Transaction */
 async function resolveSigner(trade: any, role: "seller" | "buyer") {
   const isSeller = role === "seller";
 
@@ -135,7 +154,7 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
   return { email: email ?? null, name: name || "Signer" };
 }
 
-/** ---- template metadata (roles, cc roles, merge fields) ---- */
+/** Get template metadata (roles/cc/merge fields) */
 async function getTemplateMeta(templateId: string): Promise<{
   signerRoles: string[];
   ccRoles: string[];
@@ -167,49 +186,6 @@ async function getTemplateMeta(templateId: string): Promise<{
   }
 }
 
-/** ---- helpers ---- */
-function plusAlias(email: string, tag: string) {
-  const parts = email.split("@");
-  if (parts.length !== 2) return email;
-  const [local, domain] = parts;
-  const base = local.split("+")[0];
-  return `${base}+${tag}@${domain}`;
-}
-
-function buildCustomFields(
-  mergeFields: Array<{ name: string; required?: boolean }> | null | undefined,
-  trade: any,
-  seller: { email: string; name: string },
-  buyer: { email: string; name: string }
-) {
-  if (!mergeFields?.length) return [];
-  const valFor = (name: string) => {
-    const n = name.toLowerCase();
-    if (n === "trade_id" || n === "tradeid") return trade.id || "";
-    if (n === "transaction_id" || n === "transactionid") return trade.transactionId || "";
-    if (n === "listing_id" || n === "listingid") return trade.listingId || "";
-    if (n === "district") return trade.district || "";
-    if (n === "water_type" || n === "watertype") return trade.waterType || "";
-    if (n === "price_per_af" || n === "price" || n === "price_usd_af") {
-      return typeof trade.pricePerAf === "number" ? (trade.pricePerAf / 100).toFixed(2) : "";
-    }
-    if (n === "volume_af" || n === "volume" || n === "acre_feet") {
-      return typeof trade.volumeAf === "number" ? String(trade.volumeAf) : "";
-    }
-    if (n === "seller_name") return seller.name || "";
-    if (n === "seller_email") return seller.email || "";
-    if (n === "buyer_name") return buyer.name || "";
-    if (n === "buyer_email") return buyer.email || "";
-    return "";
-  };
-  return mergeFields.map(({ name }) => ({ name, value: String(valFor(name) || "") || "-" }));
-}
-
-/** Mask a sensitive-ish id for logs/debug JSON */
-function mask(s: string) {
-  return s ? `${s.slice(0, 6)}…${s.slice(-6)}` : "";
-}
-
 /** ---- route handler ---- */
 export async function GET(req: NextRequest) {
   try {
@@ -231,7 +207,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // AuthZ (viewer derived from auth or token in query/header) — surface reasons on 403
+    // -------- 1) Viewer (from your existing guard) --------
     const viewer = await getViewer(req as any, trade as any);
     if (isForbidden(viewer)) {
       return NextResponse.json(
@@ -239,20 +215,8 @@ export async function GET(req: NextRequest) {
         { status: 403 }
       );
     }
-    if (viewer.role !== "seller" && viewer.role !== "buyer") {
-      return NextResponse.json(
-        { error: "Forbidden", reason: `viewer role is "${String(viewer.role)}"` },
-        { status: 403 }
-      );
-    }
 
-    // Allow explicit ?role= override only if consistent with viewer
-    const requestedRole: "seller" | "buyer" | null =
-      roleParam === "seller" ? "seller" : roleParam === "buyer" ? "buyer" : null;
-    const effectiveRole: "seller" | "buyer" =
-      requestedRole && requestedRole === viewer.role ? requestedRole : (viewer.role as any);
-
-    // Resolve BOTH signers (templates usually require all roles defined)
+    // -------- 2) Resolve signers early (for email matching) --------
     const sellerResolved = await resolveSigner(trade, "seller");
     const buyerResolved = await resolveSigner(trade, "buyer");
     const fallbackEmail = `no-email+${trade.id}@example.com`;
@@ -265,12 +229,76 @@ export async function GET(req: NextRequest) {
       name: buyerResolved.name || "Buyer",
     };
 
-    // Ensure distinct emails (Dropbox Sign can be picky with same-address signers)
+    // Ensure distinct emails
     if (seller.email.toLowerCase() === buyer.email.toLowerCase()) {
       buyer.email = plusAlias(buyer.email, `buyer.${trade.id.slice(-6)}`);
     }
 
-    // Config
+    // -------- 3) Try to infer role from logged-in Clerk user emails --------
+    const { userId } = auth();
+    let authedEmails: string[] = [];
+    if (userId) {
+      try {
+        const u = await clerkClient.users.getUser(userId);
+        authedEmails =
+          u?.emailAddresses?.map((e) => (e?.emailAddress || "").toLowerCase()).filter(Boolean) ||
+          [];
+      } catch {}
+    }
+
+    const sellerEmailLc = (seller.email || "").toLowerCase();
+    const buyerEmailLc = (buyer.email || "").toLowerCase();
+    const matchesSeller = authedEmails.includes(sellerEmailLc);
+    const matchesBuyer = authedEmails.includes(buyerEmailLc);
+
+    let inferredRole: "seller" | "buyer" | null = null;
+    if (matchesSeller) inferredRole = "seller";
+    else if (matchesBuyer) inferredRole = "buyer";
+
+    // -------- 4) Effective role selection logic --------
+    const requestedRole: "seller" | "buyer" | null =
+      roleParam === "seller" ? "seller" : roleParam === "buyer" ? "buyer" : null;
+
+    // Start with viewer.role if already trusted
+    let effectiveRole: "seller" | "buyer" | null =
+      viewer.role === "seller" || viewer.role === "buyer" ? viewer.role : null;
+
+    // If viewer was unknown, allow soft inference by email
+    if (!effectiveRole && inferredRole) {
+      effectiveRole = inferredRole;
+    }
+
+    // If a ?role= is provided, only allow it when it agrees with a trusted role
+    if (requestedRole && effectiveRole && requestedRole !== effectiveRole) {
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+          reason: `requested role "${requestedRole}" does not match your verified role "${effectiveRole}"`,
+        },
+        { status: 403 }
+      );
+    }
+
+    // If we still have no effective role, deny with a precise reason
+    if (!effectiveRole) {
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+          reason:
+            'viewer role is "unknown" and we could not match your signed-in email to the seller/buyer on this trade',
+          hint:
+            "Sign in with the seller/buyer email for this trade, or open the secure link that includes a valid token.",
+          context: {
+            authedEmailsMasked: authedEmails.map(maskEmail),
+            sellerEmailMasked: maskEmail(seller.email),
+            buyerEmailMasked: maskEmail(buyer.email),
+          },
+        },
+        { status: 403 }
+      );
+    }
+
+    // -------- 5) Config & template meta --------
     const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
     const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID || "";
     const fileUrl = process.env.DROPBOX_SIGN_FILE_URL || "";
@@ -285,11 +313,9 @@ export async function GET(req: NextRequest) {
         ? 1
         : 0;
 
-    // Template meta
     const meta = templateId ? await getTemplateMeta(templateId) : null;
     const tplRoles: string[] = meta?.signerRoles ?? [];
 
-    // Map to template’s exact role names
     const mapRole = (want: "seller" | "buyer") => {
       const desired = want === "seller" ? ENV_SELLER : ENV_BUYER;
       if (!tplRoles.length) return desired;
@@ -307,13 +333,11 @@ export async function GET(req: NextRequest) {
     const buyerRoleName = mapRole("buyer");
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
-    // Two-signer payload (MUST match template role names exactly)
     const signersPayload = [
       { role: sellerRoleName, email_address: seller.email, name: seller.name },
       { role: buyerRoleName, email_address: buyer.email, name: buyer.name },
     ];
 
-    // Optional CC roles from env
     const ccRoles: string[] = meta?.ccRoles ?? [];
     const ccEmailsByRole = Object.fromEntries(
       ccRoles.map((role) => {
@@ -326,10 +350,33 @@ export async function GET(req: NextRequest) {
       .filter(([, email]) => !!email)
       .map(([role, email]) => ({ role, email_address: email as string }));
 
-    // Custom fields
-    const customFields = buildCustomFields(meta?.mergeFields, trade, seller, buyer);
+    const customFields: Array<{ name: string; value: string }> = [];
+    if (meta?.mergeFields?.length) {
+      const valFor = (name: string) => {
+        const n = name.toLowerCase();
+        if (n === "trade_id" || n === "tradeid") return trade.id || "";
+        if (n === "transaction_id" || n === "transactionid") return trade.transactionId || "";
+        if (n === "listing_id" || n === "listingid") return trade.listingId || "";
+        if (n === "district") return trade.district || "";
+        if (n === "water_type" || n === "watertype") return trade.waterType || "";
+        if (n === "price_per_af" || n === "price" || n === "price_usd_af") {
+          return typeof trade.pricePerAf === "number" ? (trade.pricePerAf / 100).toFixed(2) : "";
+        }
+        if (n === "volume_af" || n === "volume" || n === "acre_feet") {
+          return typeof trade.volumeAf === "number" ? String(trade.volumeAf) : "";
+        }
+        if (n === "seller_name") return seller.name || "";
+        if (n === "seller_email") return seller.email || "";
+        if (n === "buyer_name") return buyer.name || "";
+        if (n === "buyer_email") return buyer.email || "";
+        return "";
+      };
+      for (const f of meta.mergeFields) {
+        customFields.push({ name: f.name, value: String(valFor(f.name) || "") || "-" });
+      }
+    }
 
-    // Debug payload only (no network) — include viewer context
+    // -------- 6) Debug block with viewer/inference context --------
     if (debug) {
       return NextResponse.json({
         ok: true,
@@ -346,8 +393,11 @@ export async function GET(req: NextRequest) {
           mergeFields: meta?.mergeFields ?? [],
           viewer: {
             role: (viewer as any)?.role ?? null,
+            authedEmailsMasked: authedEmails.map(maskEmail),
           },
+          inferredRole,
           requestedRole,
+          effectiveRole,
           targetRole,
           signersPayload,
           emailsDistinct: seller.email.toLowerCase() !== buyer.email.toLowerCase(),
@@ -364,7 +414,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Safety check
+    // -------- 7) Config sanity --------
     if (!SignatureRequestApi || !EmbeddedApi || !clientId || !dropboxApiKey) {
       return NextResponse.json(
         {
@@ -379,11 +429,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // -------- 8) Create embedded request (template or file URL) --------
     let signatureId: string | undefined;
 
-    /** ---- Template path (REST) ---- */
     if (templateId) {
-      // If we know roles and the computed one is not included, fail early
       if (tplRoles.length && !tplRoles.includes(targetRole)) {
         return NextResponse.json(
           {
@@ -402,20 +451,17 @@ export async function GET(req: NextRequest) {
         form.set("test_mode", String(testMode ? 1 : 0));
         form.append("template_ids[]", templateId);
 
-        // Signers
         signersPayload.forEach((s, i) => {
           form.set(`signers[${i}][role]`, s.role);
           form.set(`signers[${i}][email_address]`, s.email_address);
           form.set(`signers[${i}][name]`, s.name);
         });
 
-        // CCs
         ccsPayload.forEach((c, j) => {
           form.set(`ccs[${j}][role]`, c.role);
           form.set(`ccs[${j}][email_address]`, c.email_address);
         });
 
-        // Custom fields (JSON string in form body)
         if (customFields.length) {
           form.set("custom_fields", JSON.stringify(customFields));
         }
@@ -460,7 +506,6 @@ export async function GET(req: NextRequest) {
           createBody?.signatureRequest?.signatures ||
           [];
 
-        // pick the signature for the viewing party if present, else first
         signatureId =
           signatures.find(
             (s: any) =>
@@ -468,7 +513,7 @@ export async function GET(req: NextRequest) {
               targetRole.toLowerCase()
           )?.signature_id ||
           signatures[0]?.signature_id ||
-          signatures[0]?.signatureId; // tolerate camelCase fallback just in case
+          signatures[0]?.signatureId;
 
         if (!signatureId) {
           return NextResponse.json(
@@ -490,9 +535,7 @@ export async function GET(req: NextRequest) {
           { status: info.status || 502 }
         );
       }
-    }
-    /** ---- File URL path (SDK) ---- */
-    else if (fileUrl) {
+    } else if (fileUrl) {
       try {
         const created = await SignatureRequestApi.signatureRequestCreateEmbedded({
           client_id: clientId,
@@ -513,8 +556,7 @@ export async function GET(req: NextRequest) {
         const sr =
           created?.body?.signature_request || created?.body?.signatureRequest || created?.signatureRequest;
         const sigs: any[] = sr?.signatures || [];
-        signatureId =
-          sigs[0]?.signature_id || sigs[0]?.signatureId; // support both casings
+        signatureId = sigs[0]?.signature_id || sigs[0]?.signatureId;
         if (!signatureId) {
           return NextResponse.json(
             { error: "No signature_id returned by Dropbox Sign", raw: created?.body ?? null },
@@ -545,13 +587,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    /** ---- Get embedded sign URL (SDK) ---- */
+    // -------- 9) Get embedded sign URL --------
     try {
-      // v3 signature is EmbeddedApi.embeddedSignUrl(signatureId)
-      const embeddedResp = await EmbeddedApi.embeddedSignUrl(signatureId);
+      const embeddedResp = await EmbeddedApi.embeddedSignUrl(signatureId!);
       const embeddedBody = embeddedResp?.body || embeddedResp;
-
-      // Normalize both casings
       const embeddedObj =
         embeddedBody?.embedded ||
         embeddedBody?.Embedded ||
@@ -561,10 +600,7 @@ export async function GET(req: NextRequest) {
 
       if (!signUrl) {
         return NextResponse.json(
-          {
-            error: "Failed to get embedded URL",
-            raw: embeddedBody ?? null,
-          },
+          { error: "Failed to get embedded URL", raw: embeddedBody ?? null },
           { status: 500 }
         );
       }
