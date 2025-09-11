@@ -2,5 +2,22 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "framework": "nextjs",
-  "buildCommand": "npm run build"
+  "buildCommand": "npm run build",
+  "headers": [
+    {
+      "source": "/sign/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.hellosign.com; connect-src 'self' https://api.hellosign.com https://app.hellosign.com; frame-src https://app.hellosign.com https://*.hellosign.com; img-src 'self' data: blob: https://*.hellosign.com; style-src 'self' 'unsafe-inline'"
+        }
+      ]
+    },
+    {
+      "source": "/api/sign-url",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    }
+  ]
 }
