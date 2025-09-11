@@ -9,7 +9,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.hellosign.com; connect-src 'self' https://api.hellosign.com https://app.hellosign.com; frame-src https://app.hellosign.com https://*.hellosign.com; img-src 'self' data: blob: https://*.hellosign.com; style-src 'self' 'unsafe-inline'"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.hellosign.com https://*.clerk.com https://*.clerk.dev https://*.clerk.accounts.dev; connect-src 'self' https://api.hellosign.com https://app.hellosign.com https://*.hellosign.com https://*.clerk.com https://*.clerk.dev https://*.clerk.accounts.dev; frame-src https://app.hellosign.com https://*.hellosign.com https://*.clerk.com https://*.clerk.dev https://*.clerk.accounts.dev; img-src 'self' data: blob: https://*.hellosign.com https://*.clerk.com https://*.clerk.dev https://*.clerk.accounts.dev; style-src 'self' 'unsafe-inline'; font-src 'self' data: https://fonts.gstatic.com"
         }
       ]
     },
