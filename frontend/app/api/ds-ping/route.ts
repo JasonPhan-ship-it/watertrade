@@ -1,19 +1,25 @@
 // app/api/ds-ping/route.ts
-import { NextResponse } from "next/server";
-import { getEnvelopesApiWithAuth } from "@/lib/docusign";
-
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+
+import { NextResponse } from "next/server";
+import { getDsClient } from "@/lib/docusign";
 
 export async function GET() {
   try {
-    const { envelopesApi, accountId } = await getEnvelopesApiWithAuth();
-    // simple call: list status changes in last day (or just return ok)
-    return NextResponse.json({ ok: true, accountId });
+    const { accountId, basePath, userInfo } = await getDsClient();
+    return NextResponse.json({
+      ok: true,
+      accountId,
+      basePath,
+      userName: userInfo?.name || userInfo?.userName,
+      accounts: (userInfo?.accounts || []).map((a: any) => ({
+        accountId: a.accountId,
+        name: a.accountName,
+        baseUri: a.baseUri,
+        isDefault: a.isDefault,
+      })),
+    });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "DocuSign error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }
