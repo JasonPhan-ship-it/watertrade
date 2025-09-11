@@ -231,11 +231,19 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // AuthZ (viewer derived from auth or token in query/header)
+    // AuthZ (viewer derived from auth or token in query/header) — surface reasons on 403
     const viewer = await getViewer(req as any, trade as any);
-    if (isForbidden(viewer)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (isForbidden(viewer)) {
+      return NextResponse.json(
+        { error: "Forbidden", reason: viewer.reason || "unauthorized" },
+        { status: 403 }
+      );
+    }
     if (viewer.role !== "seller" && viewer.role !== "buyer") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return NextResponse.json(
+        { error: "Forbidden", reason: `viewer role is "${String(viewer.role)}"` },
+        { status: 403 }
+      );
     }
 
     // Allow explicit ?role= override only if consistent with viewer
@@ -321,7 +329,7 @@ export async function GET(req: NextRequest) {
     // Custom fields
     const customFields = buildCustomFields(meta?.mergeFields, trade, seller, buyer);
 
-    // Debug payload only (no network)
+    // Debug payload only (no network) — include viewer context
     if (debug) {
       return NextResponse.json({
         ok: true,
@@ -330,12 +338,16 @@ export async function GET(req: NextRequest) {
           hasTemplateApi: Boolean(TemplateApi),
           apiKeyPresent: Boolean(dropboxApiKey),
           clientIdPresent: Boolean(clientId),
-          clientIdMasked: mask(clientId), // <-- masked client id
+          clientIdMasked: mask(clientId),
           templateId,
           fileUrlPresent: Boolean(fileUrl),
           templateRoles: tplRoles.length ? tplRoles : null,
           ccRoles,
           mergeFields: meta?.mergeFields ?? [],
+          viewer: {
+            role: (viewer as any)?.role ?? null,
+          },
+          requestedRole,
           targetRole,
           signersPayload,
           emailsDistinct: seller.email.toLowerCase() !== buyer.email.toLowerCase(),
