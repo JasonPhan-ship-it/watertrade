@@ -4,9 +4,9 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { sendEmail } from "@/lib/email"; // add this helper (see below)
+import { sendEmail } from "@/lib/email";
 
-// Helper: timing-safe equality
+/* ---------- helpers ---------- */
 function safeEqual(a: string, b: string) {
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);
@@ -14,32 +14,42 @@ function safeEqual(a: string, b: string) {
   return crypto.timingSafeEqual(ab, bb);
 }
 
+const esc = (s: string) =>
+  s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]!));
+
+const renderSimpleHtml = (title: string, text: string) => `
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;font-size:14px;line-height:1.6;">
+        <tr><td style="padding:20px 24px;">
+          <div style="font-size:16px;font-weight:700;margin-bottom:8px;">${esc(title)}</div>
+          <div style="white-space:pre-line;">${esc(text)}</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>`;
+
+/* ---------- minimal XML extraction ---------- */
 async function parseXml(xml: string) {
-  // lightweight XML -> JSON without extra deps
-  // This is minimal: we pull fields we care about using simple regex + slices.
-  // If you prefer a full parser, install "xml2js" and use it instead.
   const grab = (re: RegExp) => (xml.match(re)?.[1] ?? "").trim();
 
-  // Envelope-level
   const envelopeId = grab(/<EnvelopeID>([^<]+)<\/EnvelopeID>/i);
-  const status     = grab(/<Status>([^<]+)<\/Status>/i);
+  const status = grab(/<Status>([^<]+)<\/Status>/i);
 
-  // Recipient blocks – grab multiple
   const recips: Array<{ email: string; name: string; status: string; type?: string }> = [];
   const recipBlocks = xml.match(/<RecipientStatus\b[^>]*>[\s\S]*?<\/RecipientStatus>/gi) || [];
   for (const block of recipBlocks) {
-    const email  = (block.match(/<Email>([^<]+)<\/Email>/i)?.[1] ?? "").trim();
-    const name   = (block.match(/<UserName>([^<]+)<\/UserName>/i)?.[1] ?? "").trim();
-    const rstat  = (block.match(/<Status>([^<]+)<\/Status>/i)?.[1] ?? "").trim();
-    const rtype  = (block.match(/<Type>([^<]+)<\/Type>/i)?.[1] ?? "").trim();
+    const email = (block.match(/<Email>([^<]+)<\/Email>/i)?.[1] ?? "").trim();
+    const name = (block.match(/<UserName>([^<]+)<\/UserName>/i)?.[1] ?? "").trim();
+    const rstat = (block.match(/<Status>([^<]+)<\/Status>/i)?.[1] ?? "").trim();
+    const rtype = (block.match(/<Type>([^<]+)<\/Type>/i)?.[1] ?? "").trim();
     if (email) recips.push({ email, name, status: rstat, type: rtype });
   }
 
-  // Custom Fields (envelope text fields), if present
   const customFields: Record<string, string> = {};
   const cfBlocks = xml.match(/<TextCustomField>[\s\S]*?<\/TextCustomField>/gi) || [];
   for (const cf of cfBlocks) {
-    const name  = (cf.match(/<Name>([^<]+)<\/Name>/i)?.[1] ?? "").trim();
+    const name = (cf.match(/<Name>([^<]+)<\/Name>/i)?.[1] ?? "").trim();
     const value = (cf.match(/<Value>([^<]+)<\/Value>/i)?.[1] ?? "").trim();
     if (name) customFields[name] = value;
   }
@@ -47,14 +57,14 @@ async function parseXml(xml: string) {
   return { envelopeId, status, recips, customFields };
 }
 
+/* ---------- routes ---------- */
 export async function GET() {
-  // Simple liveness probe
   return NextResponse.json({ ok: true });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const raw = await req.text(); // raw body for HMAC
+    const raw = await req.text(); // keep raw for HMAC
     const headerSig = req.headers.get("x-docusign-signature-1") || "";
     const key = process.env.DOCUSIGN_CONNECT_HMAC_KEY || "";
 
@@ -67,11 +77,9 @@ export async function POST(req: NextRequest) {
 
     const { envelopeId, status, recips, customFields } = await parseXml(raw);
 
-    // We’ll send emails for each signer who just reached Completed
-    // DocuSign may post multiple times; idempotency is okay (receivers can get >1 email in edge cases).
-    const completedNow = recips.filter(r => r.status?.toLowerCase() === "completed");
+    // Send to recipients who just completed
+    const completedNow = recips.filter((r) => r.status?.toLowerCase() === "completed");
 
-    // Subject/body
     const subject = "Water Traders: Document signed";
     const tradeIdLabel = customFields["trade_id"] ? ` for Trade ${customFields["trade_id"]}` : "";
     const body = (who: string) =>
@@ -86,21 +94,30 @@ https://www.watertraders.com/dashboard
 
 — Water Traders`;
 
-    // fire emails
     for (const r of completedNow) {
       if (!r.email) continue;
+      const text = body(r.name);
       await sendEmail({
         to: r.email,
         subject,
-        text: body(r.name),
+        text,
+        html: renderSimpleHtml(subject, text),
+        preheader: "Your document has been completed on DocuSign.",
       });
     }
 
-    // Optional: when the envelope as a whole reaches Completed, email everyone in the envelope
+    // When the envelope as a whole is Completed, email everyone once
     if ((status || "").toLowerCase() === "completed") {
-      const everyone = Array.from(new Set(recips.map(r => r.email).filter(Boolean)));
+      const everyone = Array.from(new Set(recips.map((r) => r.email).filter(Boolean)));
       for (const email of everyone) {
-        await sendEmail({ to: email!, subject, text: body("") });
+        const text = body("");
+        await sendEmail({
+          to: email!,
+          subject,
+          text,
+          html: renderSimpleHtml(subject, text),
+          preheader: "Your document has been completed on DocuSign.",
+        });
       }
     }
 
