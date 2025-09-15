@@ -13,6 +13,9 @@ type Props = {
   pricePerAf: number;          // dollars (already converted from cents)
   isAuction?: boolean;
   reservePrice?: number | null; // dollars, if applicable
+
+  /** Optional override for where Cancel should go (e.g. "/dashboard?tab=listings") */
+  cancelHref?: string;          // default: "/dashboard"
 };
 
 export default function ListingActions({
@@ -21,10 +24,13 @@ export default function ListingActions({
   pricePerAf,
   isAuction = false,
   reservePrice = null,
+  cancelHref = "/dashboard",
 }: Props) {
   const router = useRouter();
 
-  const [mode, setMode] = React.useState<Mode>(() => (kind === "SELL" ? "BUY_NOW" : "SELL_NOW"));
+  const [mode, setMode] = React.useState<Mode>(() =>
+    kind === "SELL" ? "BUY_NOW" : "SELL_NOW"
+  );
 
   // Inputs ONLY for OFFER / BID
   const [acreFeet, setAcreFeet] = React.useState<number>(1);
@@ -118,6 +124,12 @@ export default function ListingActions({
     }
   }
 
+  const onCancel = React.useCallback(() => {
+    // Prefer a deterministic return to the dashboard listings tab/page
+    router.push(cancelHref);
+    // If you'd rather mimic browser back behavior, use: router.back();
+  }, [router, cancelHref]);
+
   const canBuyNow = kind === "SELL";
   const canSellNow = kind === "BUY";
   const minBid = reservePrice ?? pricePerAf;
@@ -126,7 +138,7 @@ export default function ListingActions({
   const showInputs = mode === "OFFER" || mode === "BID";
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
       {/* Tabs */}
       <div className="flex flex-wrap gap-2">
         {canBuyNow && (
@@ -157,8 +169,8 @@ export default function ListingActions({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-end">
               <div className="min-w-[220px]">
                 <label className="block">
-                  <div className="text-xs text-slate-500">Price $/AF</div>
-                  <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium">
+                  <div className="text-xs text-emerald-700/80">Price $/AF</div>
+                  <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 font-medium text-emerald-900">
                     ${format2(pricePerAf)}
                   </div>
                 </label>
@@ -178,7 +190,7 @@ export default function ListingActions({
                 required
                 value={acreFeet}
                 onChange={(e) => setAcreFeet(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                className="w-full rounded-lg border border-emerald-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               />
             </Field>
 
@@ -190,15 +202,17 @@ export default function ListingActions({
                 required
                 value={price}
                 onChange={(e) => setPrice(Math.max(0, Number(e.target.value) || 0))}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                className="w-full rounded-lg border border-emerald-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               />
               {mode === "BID" && (
-                <p className="mt-1 text-xs text-slate-500">Minimum: ${format2(minBid)} / AF</p>
+                <p className="mt-1 text-xs text-emerald-700/80">
+                  Minimum: ${format2(minBid)} / AF
+                </p>
               )}
             </Field>
 
             <Field label="Estimated Total">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 font-medium text-emerald-900">
                 ${format2(total)}
               </div>
             </Field>
@@ -209,11 +223,22 @@ export default function ListingActions({
           <button
             type="submit"
             disabled={submitting}
-            className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-medium text-white hover:bg-[#00392f] disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             {submitting ? actionText(mode) + "…" : actionText(mode)}
           </button>
-          {message && <p className="text-sm text-slate-600">{message}</p>}
+
+          {/* Cancel -> go to dashboard/listings */}
+          <button
+            type="button"
+            onClick={onCancel}
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-emerald-300 px-5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+            aria-label="Cancel and go back to Your Listing dashboard"
+          >
+            Cancel
+          </button>
+
+          {message && <p className="text-sm text-emerald-800">{message}</p>}
         </div>
       </form>
     </div>
@@ -246,8 +271,10 @@ function Tab({
       type="button"
       onClick={onClick}
       className={
-        "h-9 rounded-full px-4 text-sm " +
-        (selected ? "bg-[#0A6B58] text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200")
+        "h-9 rounded-full px-4 text-sm transition-colors " +
+        (selected
+          ? "bg-emerald-600 text-white"
+          : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200")
       }
     >
       {children}
@@ -258,7 +285,7 @@ function Tab({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-xs text-emerald-700/80">{label}</div>
       <div className="mt-1">{children}</div>
     </label>
   );
