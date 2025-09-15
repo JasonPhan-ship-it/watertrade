@@ -6,6 +6,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import { Analytics } from "@vercel/analytics/next"; // ⬅️ add this
 
 export default async function AdminRootLayout({ children }: { children: ReactNode }) {
   const { userId } = auth();
@@ -62,6 +63,9 @@ export default async function AdminRootLayout({ children }: { children: ReactNod
           <section>{children}</section>
         </div>
       </div>
+
+      {/* Vercel Analytics for the admin section */}
+      <Analytics />
     </div>
   );
 }
