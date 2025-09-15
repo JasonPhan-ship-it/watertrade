@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
   try {
     const q = parseQuery(req);
 
-    // Who’s viewing? (Clerk -> DB user)
+    // Viewer → DB user
     const { userId: clerkUserId } = auth();
     let viewerDbUserId: string | null = null;
     if (clerkUserId) {
@@ -51,7 +51,6 @@ export async function GET(req: NextRequest) {
     }
 
     const whereAND: any[] = [];
-
     if (q.district && q.district !== "All Districts") whereAND.push({ district: q.district });
     if (q.waterType && q.waterType !== "Any Water Type") whereAND.push({ waterType: q.waterType });
 
@@ -62,13 +61,11 @@ export async function GET(req: NextRequest) {
         return noCache(NextResponse.json({ listings: [], total: 0, limited: !q.premium }));
       }
       whereAND.push({ sellerId: viewerDbUserId });
-      // If you only want ACTIVE here, also add: whereAND.push({ status: "ACTIVE" });
+      // If you only want ACTIVE here, add: whereAND.push({ status: "ACTIVE" });
     } else {
-      // Marketplace: only active/open, and exclude my own if signed in
+      // Marketplace: show active/open only, exclude my own if signed in
       whereAND.push({ status: { in: ["ACTIVE", "OPEN"] } });
-      if (viewerDbUserId) {
-        whereAND.push({ NOT: { sellerId: viewerDbUserId } });
-      }
+      if (viewerDbUserId) whereAND.push({ NOT: { sellerId: viewerDbUserId } });
     }
 
     const where = whereAND.length ? { AND: whereAND } : {};
@@ -94,7 +91,7 @@ export async function GET(req: NextRequest) {
           createdAt: true,
           status: true,
           kind: true,
-          sellerId: true,        // the single owner field we rely on
+          sellerId: true,        // owner
         },
       }),
     ]);
@@ -103,11 +100,11 @@ export async function GET(req: NextRequest) {
       id: r.id,
       district: r.district,
       acreFeet: r.acreFeet,
-      pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars for UI
+      pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars
       availabilityEnd: r.availabilityEnd?.toISOString?.() ?? null,
       waterType: r.waterType,
       createdAt: r.createdAt.toISOString(),
-      ownerUserId: r.sellerId, // normalize for client
+      ownerUserId: r.sellerId,
       status: r.status,
       kind: r.kind,
     }));
@@ -121,7 +118,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ---------- POST (unchanged aside from earlier decisions) ----------
 export async function POST(req: NextRequest) {
   try {
     const { userId: clerkId } = auth();
@@ -138,18 +134,16 @@ export async function POST(req: NextRequest) {
     const acreFeet = Math.max(0, Math.floor(Number(body.volumeAF ?? 0)));
     const pricePerAfCents = Math.max(0, Math.round(Number(body.pricePerAF ?? 0) * 100));
 
-    const availabilityStart = body.availabilityStart ? new Date(body.availabilityStart) : new Date();
+    // Only availabilityEnd is used now
     const availabilityEnd = body.availabilityEnd
       ? new Date(body.availabilityEnd)
       : new Date(Date.now() + 60 * 24 * 3600 * 1000);
 
+    // Optional: human-friendly label from end date only
     const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-    const availability =
-      availabilityStart.getFullYear() === availabilityEnd.getFullYear()
-        ? `${mm(availabilityStart)}–${mm(availabilityEnd)} ${availabilityStart.getFullYear()}`
-        : `${mm(availabilityStart)} ${availabilityStart.getFullYear()}–${mm(availabilityEnd)} ${availabilityEnd.getFullYear()}`;
+    const availability = `Through ${mm(availabilityEnd)} ${availabilityEnd.getFullYear()}`;
 
-    // Link to current DB user
+    // Link listing to the current DB user
     let sellerId: string | null = null;
     if (clerkId) {
       const user = await prisma.user.findUnique({ where: { clerkId } });
@@ -162,14 +156,13 @@ export async function POST(req: NextRequest) {
         description: body.description ? String(body.description) : null,
         district,
         waterType,
-        availability,
-        availabilityStart, // remove if column dropped
-        availabilityEnd,
+        availability,     // keep label if your schema has it
+        availabilityEnd,  // single date we persist
         acreFeet,
         pricePerAF: pricePerAfCents,
         kind,
         status: "ACTIVE",
-        sellerId, // ownership!
+        sellerId,
       },
       select: { id: true },
     });
