@@ -30,8 +30,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
       description: true,
       district: true,
       waterType: true,
-      availability: true,      // keep if column exists
-      availabilityEnd: true,   // end-only date
+      // availability: true,      // keep if column exists
+      // availabilityEnd: true,   // end-only date
       acreFeet: true,
       pricePerAF: true,        // cents
       kind: true,              // SELL | BUY
@@ -79,13 +79,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <Detail label="Water Type" value={row.waterType} />
           <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
           <Detail label="Price $/AF" value={`$${format2(pricePerAfDollars)}`} />
-          {row.availability && <Detail label="Availability" value={row.availability} />}
-          {row.availabilityEnd && (
-            <Detail
-              label="Available Through"
-              value={new Date(row.availabilityEnd).toLocaleDateString()}
-            />
-          )}
           <Detail label="Status" value={row.status} />
           <Detail label="Created" value={new Date(row.createdAt).toLocaleString()} />
           <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
