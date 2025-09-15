@@ -43,7 +43,8 @@ export type SendEmailOptions = {
   bcc?: EmailAddress | EmailAddress[];
   idempotencyKey?: string;
   timeoutMs?: number;
-  attachments?: Array<{ filename: string; content: string; path?: string; contentType?: string }>;
+  // Resend expects base64 `content`. If you pass `path`, we ignore it (serverless friendly).
+  attachments?: Array<{ filename: string; content: string; contentType?: string; path?: string }>;
 };
 
 function ensureArray<T>(v?: T | T[]) {
@@ -84,10 +85,16 @@ export function appUrl(path = "/") {
 export async function sendEmail(opts: SendEmailOptions): Promise<{ id?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
   const defaultFrom = process.env.EMAIL_FROM;
+
+  // Helpful soft-fail in dev/preview if email isn’t configured.
   if (!apiKey) {
-    console.warn("RESEND_API_KEY missing; skipping email send.");
+    console.warn("[email] RESEND_API_KEY missing; skipping email send:", {
+      to: opts.to,
+      subject: opts.subject,
+    });
     return {};
   }
+
   const from = opts.from ?? defaultFrom;
   if (!from) throw new Error("EMAIL_FROM is required (e.g., 'Water Traders <no-reply@yourdomain.com>').");
   if (!isValidFromAddress(from)) throw new Error(`EMAIL_FROM invalid format: ${from}`);
@@ -102,13 +109,22 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ id?: string }
     html: withPreheader(opts.html, opts.preheader),
     text: opts.text ?? stripHtml(opts.html),
   };
+
   const replyTo = ensureArray(opts.replyTo);
   const cc = ensureArray(opts.cc);
   const bcc = ensureArray(opts.bcc);
+
   if (replyTo) body.reply_to = replyTo;
   if (cc) body.cc = cc;
   if (bcc) body.bcc = bcc;
-  if (opts.attachments?.length) body.attachments = opts.attachments;
+
+  if (opts.attachments?.length) {
+    body.attachments = opts.attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content, // base64
+      ...(a.contentType ? { "contentType": a.contentType } : {}),
+    }));
+  }
 
   const timeoutMs = opts.timeoutMs ?? 15000;
   const ctrl = new AbortController();
@@ -173,11 +189,10 @@ function renderEmailLayout(params: {
   keyValues?: KeyValue[];
   ctas?: Cta[];
   footerNote?: string;
-  logoUrl?: string; // ignored now; banner is text-only per spec
+  logoUrl?: string; // unused in current header—kept for compatibility
 }): string {
   const { title, subtitle, intro, keyValues = [], ctas = [], footerNote } = params;
 
-  // Buttons: add a bit more spacing after the first button (esp. for "Review & Sign").
   const btn = (c: Cta, addRightMargin = false) => {
     const baseStyles = c.primary
       ? `background: linear-gradient(90deg, ${BRAND.greenMid}, ${BRAND.greenDark}); color:#fff; border:1px solid ${BRAND.greenDark};`
@@ -202,7 +217,7 @@ function renderEmailLayout(params: {
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:${BRAND.slate100};padding:24px 0;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="background:#fff;border-radius:16px;border:1px solid ${BRAND.slate200};overflow:hidden;">
-        <!-- Header banner: text-only, bold white "Water Traders" (no logo) -->
+        <!-- Header banner: text-only, bold white "Water Traders" -->
         <tr>
           <td style="padding:18px 20px;background:linear-gradient(90deg, ${BRAND.greenDark}, ${BRAND.greenMid});">
             <table width="100%" role="presentation" cellpadding="0" cellspacing="0">
@@ -248,7 +263,6 @@ function renderEmailLayout(params: {
               ${
                 ctas.length
                   ? `<tr><td style="padding:16px;text-align:left;">
-                       <!-- Slightly larger gap, plus extra right margin on the first button -->
                        <div style="display:inline-flex;gap:14px;flex-wrap:wrap;">
                          ${ctas.map((c, i) => btn(c, i === 0)).join("")}
                        </div>
