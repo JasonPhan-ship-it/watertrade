@@ -74,14 +74,14 @@ type Listing = {
   district: string;
   acreFeet: number;
   pricePerAf: number;
-  availabilityStart: string;
-  availabilityEnd: string;
+  availabilityEnd?: string | null;
   waterType: string;
   createdAt: string;
 
-  // Optional owner fields (if your API returns them, we can show extra actions)
   ownerUserId?: string | null;
   ownerName?: string | null;
+  status?: string;
+  kind?: "SELL" | "BUY";
 };
 
 type ApiResponse = {
@@ -117,35 +117,31 @@ export default function DashboardPage() {
   const checking = useOnboardedGate();
   const { user } = useUser();
 
-  // NEW: tab scope
   const [scope, setScope] = useState<Scope>("market");
-
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
-  const [premium] = useState<boolean>(false); // still tracked but UI removed
+  const [premium] = useState<boolean>(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const qs = useMemo(() => {
     const u = new URLSearchParams();
-    // filtering
     if (district !== "All Districts") u.set("district", district);
     if (waterType !== "Any Water Type") u.set("waterType", waterType);
-    // sorting & paging
+
     u.set("sortBy", sortBy);
     u.set("sortDir", sortDir);
     u.set("page", String(page));
     u.set("pageSize", String(pageSize));
     u.set("premium", String(premium));
-    // NEW: scope hint for API
-    // Preferred param:
-    u.set("scope", scope); // "market" | "mine"
-    // Back-compat params your API can also accept (no harm if ignored):
+
+    // Scope (server decides filtering)
+    u.set("scope", scope);
     if (scope === "mine") {
       u.set("mine", "1");
     } else {
@@ -213,9 +209,7 @@ export default function DashboardPage() {
     setPage(1);
   }
 
-  const pageTitle =
-    scope === "market" ? "Active Water Sales" : "Your Listings";
-
+  const pageTitle = scope === "market" ? "Active Water Sales" : "Your Listings";
   const subtitle =
     scope === "market"
       ? "Westlands · San Luis · Panoche · Arvin Edison"
@@ -226,10 +220,22 @@ export default function DashboardPage() {
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         {/* Tabs */}
         <div className="mb-4 flex items-center gap-2">
-          <TabButton active={scope === "market"} onClick={() => { setScope("market"); setPage(1); }}>
+          <TabButton
+            active={scope === "market"}
+            onClick={() => {
+              setScope("market");
+              setPage(1);
+            }}
+          >
             Marketplace
           </TabButton>
-          <TabButton active={scope === "mine"} onClick={() => { setScope("mine"); setPage(1); }}>
+          <TabButton
+            active={scope === "mine"}
+            onClick={() => {
+              setScope("mine");
+              setPage(1);
+            }}
+          >
             Your Listings
           </TabButton>
         </div>
@@ -275,7 +281,7 @@ export default function DashboardPage() {
                 setWaterType(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg:white/20 focus:ring-2 focus:ring-white/60"
+              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
             >
               {WATER_TYPES.map((w) => (
                 <option key={w} value={w} className="text-slate-900">
@@ -290,7 +296,10 @@ export default function DashboardPage() {
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Stat label={scope === "market" ? "Active Listings" : "Your Listings"} value={String(active)} />
           <Stat label="Total Acre-Feet" value={formatInt(totalAf)} />
-          <Stat label="Avg $/AF" value={avgPriceRaw ? `$${formatInt(avgPriceRaw)}` : "$0"} />
+          <Stat
+            label="Avg $/AF"
+            value={avgPriceRaw ? `$${avgPriceRaw.toFixed(2)}` : "$0.00"}
+          />
         </section>
 
         {/* Listings */}
@@ -298,6 +307,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
             <div className="font-medium">{scope === "market" ? "Listings" : "Your Listings"}</div>
             <div className="flex items-center gap-3">
+              {/* If you prefer, you can remove this Create button from Marketplace */}
               {scope === "market" ? (
                 <Link
                   href="/create-listing"
@@ -319,11 +329,34 @@ export default function DashboardPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-slate-600">
                     <tr>
-                      <Th label="District" active={sortBy === "district"} dir={sortDir} onClick={() => onSort("district")} />
-                      <Th label="Acre-Feet" align="right" active={sortBy === "acreFeet"} dir={sortDir} onClick={() => onSort("acreFeet")} />
-                      <Th label="$ / AF" align="right" active={sortBy === "pricePerAf"} dir={sortDir} onClick={() => onSort("pricePerAf")} />
+                      <Th
+                        label="District"
+                        active={sortBy === "district"}
+                        dir={sortDir}
+                        onClick={() => onSort("district")}
+                      />
+                      <Th
+                        label="Acre-Feet"
+                        align="right"
+                        active={sortBy === "acreFeet"}
+                        dir={sortDir}
+                        onClick={() => onSort("acreFeet")}
+                      />
+                      <Th
+                        label="$ / AF"
+                        align="right"
+                        active={sortBy === "pricePerAf"}
+                        dir={sortDir}
+                        onClick={() => onSort("pricePerAf")}
+                      />
                       <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
-                      <Th label={scope === "market" ? "Action" : "Manage"} align="center" active={sortBy === "createdAt"} dir={sortDir} onClick={() => onSort("createdAt")} />
+                      <Th
+                        label={scope === "market" ? "Action" : "Manage"}
+                        align="center"
+                        active={sortBy === "createdAt"}
+                        dir={sortDir}
+                        onClick={() => onSort("createdAt")}
+                      />
                     </tr>
                   </thead>
                   <tbody>
@@ -393,7 +426,7 @@ export default function DashboardPage() {
               <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row">
                 <div className="text-xs text-slate-500">
                   Page <span className="font-medium text-slate-700">{page}</span> of{" "}
-                  <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
+                    <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
                   {data?.total ?? 0} total {scope === "market" ? "listings" : "your listings"}
                 </div>
 
