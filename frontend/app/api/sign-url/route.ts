@@ -29,6 +29,17 @@ function maskEmail(e?: string | null) {
   if (!local) return e;
   return `${local[0] ?? ""}…@${domain}`;
 }
+function noCacheHeaders(res: NextResponse) {
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0, s-maxage=0");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noimageindex");
+  res.headers.set("X-Content-Type-Options", "nosniff");
+  return res;
+}
+function json(data: any, init?: ResponseInit) {
+  return noCacheHeaders(NextResponse.json(data, init));
+}
 
 /* ---------------- DocuSign SDK (lazy) ---------------- */
 let docusign: any = null;
@@ -79,8 +90,9 @@ async function loadDocuSign() {
 
 function parseErr(e: any) {
   const status = e?.response?.status ?? e?.status ?? null;
+  const body = e?.response?.body ?? null;
   const text = e?.response?.text ?? e?.message ?? String(e);
-  return { status, text };
+  return { status, text, body };
 }
 
 async function getAccessToken(): Promise<{ accessToken: string; expiresAt: number }> {
@@ -93,7 +105,7 @@ async function getAccessToken(): Promise<{ accessToken: string; expiresAt: numbe
     throw new Error("Missing DOCUSIGN_INTEGRATION_KEY or DOCUSIGN_USER_ID");
   }
 
-  const targetLifetime = 60 * 60;
+  const targetLifetime = 60 * 60; // 1h
   const res = await jwtApiClient.apiClient.requestJWTUserToken(
     jwtApiClient.integrationKey,
     jwtApiClient.userId,
@@ -208,34 +220,34 @@ async function fetchAsBase64(url: string): Promise<{ name: string; data: string 
 
 /* ---------------- route handler ---------------- */
 export async function GET(req: NextRequest) {
+  let PHASE = "start";
+  const fail = (status: number, error: string, details?: any) =>
+    json({ ok: false, error, status, phase: PHASE, details }, { status });
+
   try {
     await loadDocuSign();
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
     const debug = searchParams.get("debug") === "1";
+    const jsonMode = searchParams.get("json") === "1";
     const roleParam = (searchParams.get("role") || "").toLowerCase();
 
-    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    if (!id) return fail(400, "Missing id");
 
+    PHASE = "trade.load";
     const trade = await ensureTradeFromAnyIdOrCreate(id);
-    if (!trade) {
-      return NextResponse.json(
-        { error: "Not found", details: "No Trade or Transaction with this id" },
-        { status: 404 }
-      );
-    }
+    if (!trade) return fail(404, "Not found", "No Trade or Transaction with this id");
 
     /* -------- viewer -------- */
+    PHASE = "viewer.authz";
     const viewer = await getViewer(req as any, trade as any);
     if (isForbidden(viewer)) {
-      return NextResponse.json(
-        { error: "Forbidden", reason: viewer.reason || "unauthorized" },
-        { status: 403 }
-      );
+      return fail(403, "Forbidden", viewer.reason || "unauthorized");
     }
 
     /* -------- resolve signers -------- */
+    PHASE = "signers.resolve";
     const sellerResolved = await resolveSigner(trade, "seller");
     const buyerResolved = await resolveSigner(trade, "buyer");
     const fallbackEmail = `no-email+${trade.id}@example.com`;
@@ -246,6 +258,7 @@ export async function GET(req: NextRequest) {
     }
 
     /* -------- infer role from Clerk -------- */
+    PHASE = "role.infer";
     const { userId } = auth();
     let authedEmails: string[] = [];
     if (userId) {
@@ -268,25 +281,20 @@ export async function GET(req: NextRequest) {
     if (!effectiveRole && inferredRole) effectiveRole = inferredRole;
 
     if (requestedRole && effectiveRole && requestedRole !== effectiveRole) {
-      return NextResponse.json(
-        { error: "Forbidden", reason: `requested role "${requestedRole}" does not match your verified role "${effectiveRole}"` },
-        { status: 403 }
-      );
+      return fail(403, "Forbidden", `requested role "${requestedRole}" != verified role "${effectiveRole}"`);
     }
     if (!effectiveRole) {
-      return NextResponse.json(
-        {
-          error: "Forbidden",
-          reason: 'viewer role is "unknown" and we could not match your signed-in email to the seller/buyer on this trade',
-          hint: "Sign in with the seller/buyer email for this trade, or open the secure link that includes a valid token.",
-          context: {
-            authedEmailsMasked: authedEmails.map(maskEmail),
-            sellerEmailMasked: maskEmail(seller.email),
-            buyerEmailMasked: maskEmail(buyer.email),
-          },
+      return fail(403, "Forbidden", {
+        reason:
+          'viewer role is "unknown" and we could not match your signed-in email to the seller/buyer on this trade',
+        hint:
+          "Sign in with the seller/buyer email for this trade, or open the secure link that includes a valid token.",
+        context: {
+          authedEmailsMasked: authedEmails.map(maskEmail),
+          sellerEmailMasked: maskEmail(seller.email),
+          buyerEmailMasked: maskEmail(buyer.email),
         },
-        { status: 403 }
-      );
+      });
     }
 
     /* -------- config -------- */
@@ -297,15 +305,17 @@ export async function GET(req: NextRequest) {
     const returnUrl = process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return";
     const pingUrl = process.env.DOCUSIGN_PING_URL || "";
 
-    // OAuth
+    /* -------- OAuth -------- */
+    PHASE = "jwt.token";
     let access: { accessToken: string; expiresAt: number };
     try {
       access = await getAccessToken();
     } catch (e: any) {
-      return NextResponse.json({ error: e?.message || "Failed to obtain DocuSign access token" }, { status: 500 });
+      return fail(500, "Failed to obtain DocuSign access token", e?.message || parseErr(e));
     }
 
-    // Account + REST base from userinfo (prevents 404s)
+    /* -------- account + REST base -------- */
+    PHASE = "oauth.userinfo";
     let accountId: string, restBase: string, userinfo: any, oauthBase: string;
     try {
       const u = await getUserInfoAndRestBase(access.accessToken);
@@ -314,14 +324,14 @@ export async function GET(req: NextRequest) {
       userinfo = u.info;
       oauthBase = u.oauthBase;
     } catch (e: any) {
-      return NextResponse.json({ error: e?.message || "Failed to resolve DocuSign account/base" }, { status: 500 });
+      return fail(500, "Failed to resolve DocuSign account/base", e?.message || parseErr(e));
     }
 
-    // API client bound to the right cluster
+    /* -------- API client -------- */
+    PHASE = "client.init";
     const apiClient = new docusign.ApiClient();
     apiClient.setBasePath(restBase);
     apiClient.addDefaultHeader("Authorization", "Bearer " + access.accessToken);
-
     const envelopesApi = new docusign.EnvelopesApi(apiClient);
 
     /* -------- map roles -------- */
@@ -329,8 +339,9 @@ export async function GET(req: NextRequest) {
     const buyerRoleName = ENV_BUYER;
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
-    /* -------- optional: verify template roles exist (prevents latent 404) -------- */
+    /* -------- optional: verify template roles -------- */
     if (templateId) {
+      PHASE = "templates.get";
       try {
         const templatesApi = new docusign.TemplatesApi(apiClient);
         const tpl = await templatesApi.get(accountId, templateId);
@@ -339,22 +350,14 @@ export async function GET(req: NextRequest) {
         if (!tplRoles.includes(sellerRoleName)) missing.push(sellerRoleName);
         if (!tplRoles.includes(buyerRoleName)) missing.push(buyerRoleName);
         if (missing.length) {
-          return NextResponse.json(
-            {
-              error: "Template role mismatch",
-              hint: "Update DOCUSIGN_ROLE_SELLER / DOCUSIGN_ROLE_BUYER to match the template’s role names.",
-              details: { templateId, templateRoles: tplRoles, missing },
-            },
-            { status: 422 }
-          );
+          return fail(422, "Template role mismatch", { templateId, templateRoles: tplRoles, missing });
         }
       } catch (e: any) {
-        const { status, text } = parseErr(e);
-        return NextResponse.json(
-          { error: "Template not found in selected account", status, details: text, templateId },
-          { status: 404 }
-        );
+        const { status, text, body } = parseErr(e);
+        return fail(404, "Template not found in selected account", { status, text, body, templateId });
       }
+    } else if (!fileUrl) {
+      return fail(422, "No template or file configured. Set DOCUSIGN_TEMPLATE_ID or DOCUSIGN_FILE_URL.");
     }
 
     /* -------- custom fields (tabs) -------- */
@@ -373,6 +376,7 @@ export async function GET(req: NextRequest) {
     };
 
     /* -------- build envelope -------- */
+    PHASE = "envelope.build";
     const envelopeDefinition: any = new docusign.EnvelopeDefinition();
     envelopeDefinition.emailSubject = `Water Traders – Trade ${trade.id}`;
     envelopeDefinition.emailBlurb = "Please review and sign the Water Traders agreement.";
@@ -426,30 +430,25 @@ export async function GET(req: NextRequest) {
 
       envelopeDefinition.recipients = new docusign.Recipients();
       envelopeDefinition.recipients.signers = [sellerSigner, buyerSigner];
-    } else {
-      return NextResponse.json(
-        { error: "No template or file configured. Set DOCUSIGN_TEMPLATE_ID or DOCUSIGN_FILE_URL." },
-        { status: 422 }
-      );
     }
 
     envelopeDefinition.status = "sent";
 
     /* -------- create envelope -------- */
+    PHASE = "envelopes.create";
     let envelopeSummary;
     try {
       envelopeSummary = await envelopesApi.createEnvelope(accountId, { envelopeDefinition });
     } catch (e: any) {
-      const { status, text } = parseErr(e);
-      return NextResponse.json({ error: "DocuSign createEnvelope failed", status, details: text }, { status: 502 });
+      const { status, text, body } = parseErr(e);
+      return fail(502, "DocuSign createEnvelope failed", { status, text, body });
     }
 
     const envelopeId = envelopeSummary?.envelopeId;
-    if (!envelopeId) {
-      return NextResponse.json({ error: "DocuSign did not return an envelopeId", raw: envelopeSummary || null }, { status: 502 });
-    }
+    if (!envelopeId) return fail(502, "No envelopeId returned", envelopeSummary);
 
-    /* -------- verify recipients before creating view (prevents 404) -------- */
+    /* -------- verify recipients -------- */
+    PHASE = "recipients.list";
     try {
       const recips = await envelopesApi.listRecipients(accountId, envelopeId);
       const allSigners: any[] = recips?.signers || [];
@@ -463,31 +462,24 @@ export async function GET(req: NextRequest) {
       );
 
       if (!match) {
-        return NextResponse.json(
-          {
-            error: "Embedded recipient not found on envelope (clientUserId/email mismatch).",
-            hint:
-              "Ensure clientUserId on template role or signer matches the one used for createRecipientView, and emails/names are identical.",
-            details: {
-              target: { clientUserId: wantClientUserId, email: wantEmail, name: wantName },
-              presentRecipients: allSigners.map(s => ({
-                email: s.email,
-                name: s.name,
-                clientUserId: s.clientUserId || s.clientUserID || null,
-                roleName: s.roleName || null,
-                status: s.status,
-              })),
-            },
-          },
-          { status: 422 }
-        );
+        return fail(422, "Embedded recipient not found on envelope (clientUserId/email mismatch)", {
+          target: { clientUserId: wantClientUserId, email: wantEmail, name: wantName },
+          presentRecipients: allSigners.map(s => ({
+            email: s.email,
+            name: s.name,
+            clientUserId: s.clientUserId || s.clientUserID || null,
+            roleName: s.roleName || null,
+            status: s.status,
+          })),
+        });
       }
     } catch (e: any) {
-      const { status, text } = parseErr(e);
-      return NextResponse.json({ error: "listRecipients failed", status, details: text }, { status: 502 });
+      const { status, text, body } = parseErr(e);
+      return fail(502, "listRecipients failed", { status, text, body });
     }
 
     /* -------- recipient view (embedded sign URL) -------- */
+    PHASE = "recipientView.create";
     const isSeller = effectiveRole === "seller";
     const signerEmail = isSeller ? seller.email : buyer.email;
     const signerName = isSeller ? seller.name : buyer.name;
@@ -508,27 +500,24 @@ export async function GET(req: NextRequest) {
     try {
       recipientView = await envelopesApi.createRecipientView(accountId, envelopeId, { recipientViewRequest: viewRequest });
     } catch (e: any) {
-      const { status, text } = parseErr(e);
-      return NextResponse.json(
-        {
-          error: "DocuSign createRecipientView failed",
-          status,
-          details: text,
-          hint:
-            "Double-check the name/email/clientUserId triple matches a recipient on this envelope. Recipient view URLs are single-use and expire quickly; generate right before redirect.",
-        },
-        { status: 502 }
-      );
+      const { status, text, body } = parseErr(e);
+      // 404s often happen here if the triple doesn't match or URL got pre-consumed
+      return fail(404, "DocuSign createRecipientView failed", { status, text, body });
     }
 
     const signUrl = recipientView?.url;
-    if (!signUrl) {
-      return NextResponse.json({ error: "Failed to get embedded signing URL", raw: recipientView || null }, { status: 500 });
+    if (!signUrl) return fail(500, "No sign URL returned", recipientView);
+
+    /* -------- redirect vs JSON -------- */
+    const shouldRedirect = !jsonMode && !debug; // default to redirect (safer)
+    if (shouldRedirect) {
+      const res = NextResponse.redirect(signUrl, 302);
+      return noCacheHeaders(res);
     }
 
-    /* -------- debug short-circuit -------- */
+    /* -------- debug short-circuit / JSON -------- */
     if (debug) {
-      return NextResponse.json({
+      return json({
         ok: true,
         debug: {
           provider: "docusign",
@@ -559,9 +548,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ url: signUrl });
+    return json({ ok: true, url: signUrl, envelopeId });
   } catch (e: any) {
     console.error("[sign-url] error", e);
-    return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
+    return json({ ok: false, error: e?.message || "Internal error", phase: "caught" }, { status: 500 });
   }
 }
