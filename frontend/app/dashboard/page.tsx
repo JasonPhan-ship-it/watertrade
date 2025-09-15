@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 /* ---------------- Onboarding Gate (client-only, stable hooks) ---------------- */
 function useOnboardedGate() {
@@ -116,8 +116,17 @@ const PAGE_SIZES = [5, 10, 20] as const;
 export default function DashboardPage() {
   const checking = useOnboardedGate();
   const { user } = useUser();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [scope, setScope] = useState<Scope>("market");
+  // Read URL params once for initial state
+  const initialScope: Scope =
+    (searchParams.get("scope") === "mine" || searchParams.get("tab") === "listings")
+      ? "mine"
+      : "market";
+  const nocreate = searchParams.get("nocreate") === "1";
+
+  const [scope, setScope] = useState<Scope>(initialScope);
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
@@ -128,6 +137,17 @@ export default function DashboardPage() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Keep scope + nocreate reflected in the URL for deep-linking (Cancel button, etc.)
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("scope", scope);
+    if (nocreate) params.set("nocreate", "1");
+    // don't spam history
+    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+    // Only react to scope or nocreate changes; avoid feedback with searchParams changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, nocreate, router]);
 
   const qs = useMemo(() => {
     const u = new URLSearchParams();
@@ -206,6 +226,15 @@ export default function DashboardPage() {
     setPage(1);
   }
 
+  // Change scope AND keep nocreate flag in the URL so middleware won’t redirect to create-listing
+  const handleScopeChange = (next: Scope) => {
+    setScope(next);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("scope", next);
+    if (nocreate) params.set("nocreate", "1");
+    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+  };
+
   const pageTitle = scope === "market" ? "Active Water Sales" : "Your Listings";
   const subtitle =
     scope === "market"
@@ -220,7 +249,7 @@ export default function DashboardPage() {
           <TabButton
             active={scope === "market"}
             onClick={() => {
-              setScope("market");
+              handleScopeChange("market");
               setPage(1);
             }}
           >
@@ -229,7 +258,7 @@ export default function DashboardPage() {
           <TabButton
             active={scope === "mine"}
             onClick={() => {
-              setScope("mine");
+              handleScopeChange("mine");
               setPage(1);
             }}
           >
@@ -244,7 +273,6 @@ export default function DashboardPage() {
               <div className="text-2xl font-semibold tracking-tight">{pageTitle}</div>
               <div className="mt-1 text-sm text-white/80">{subtitle}</div>
             </div>
-            {/* Removed the create button here to keep placement consistent */}
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -292,7 +320,6 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
             <div className="font-medium">{scope === "market" ? "Listings" : "Your Listings"}</div>
             <div className="flex items-center gap-3">
-              {/* SAME button & SAME placement for both tabs */}
               <Link
                 href="/create-listing"
                 className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
