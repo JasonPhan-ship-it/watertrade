@@ -140,13 +140,10 @@ export default function DashboardPage() {
     u.set("pageSize", String(pageSize));
     u.set("premium", String(premium));
 
-    // Scope (server decides filtering)
     u.set("scope", scope);
-    if (scope === "mine") {
-      u.set("mine", "1");
-    } else {
-      u.set("excludeMine", "1");
-    }
+    if (scope === "mine") u.set("mine", "1");
+    else u.set("excludeMine", "1");
+
     return u.toString();
   }, [district, waterType, sortBy, sortDir, page, pageSize, premium, scope]);
 
@@ -240,23 +237,14 @@ export default function DashboardPage() {
           </TabButton>
         </div>
 
-        {/* Filters */}
+        {/* Filters (header) */}
         <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-2xl font-semibold tracking-tight">{pageTitle}</div>
               <div className="mt-1 text-sm text-white/80">{subtitle}</div>
             </div>
-            {scope === "mine" && (
-              <div className="mt-3 sm:mt-0">
-                <Link
-                  href="/create-listing"
-                  className="inline-flex h-9 items-center justify-center rounded-xl bg-white/15 px-4 text-sm font-semibold text-white hover:bg-white/25"
-                >
-                  Create Listing
-                </Link>
-              </div>
-            )}
+            {/* Removed the create button here to keep placement consistent */}
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -296,10 +284,7 @@ export default function DashboardPage() {
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Stat label={scope === "market" ? "Active Listings" : "Your Listings"} value={String(active)} />
           <Stat label="Total Acre-Feet" value={formatInt(totalAf)} />
-          <Stat
-            label="Avg $/AF"
-            value={avgPriceRaw ? `$${avgPriceRaw.toFixed(2)}` : "$0.00"}
-          />
+          <Stat label="Avg $/AF" value={avgPriceRaw ? `$${avgPriceRaw.toFixed(2)}` : "$0.00"} />
         </section>
 
         {/* Listings */}
@@ -307,15 +292,13 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
             <div className="font-medium">{scope === "market" ? "Listings" : "Your Listings"}</div>
             <div className="flex items-center gap-3">
-              {/* If you prefer, you can remove this Create button from Marketplace */}
-              {scope === "market" ? (
-                <Link
-                  href="/create-listing"
-                  className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
-                >
-                  Create Listing
-                </Link>
-              ) : null}
+              {/* SAME button & SAME placement for both tabs */}
+              <Link
+                href="/create-listing"
+                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
+              >
+                Create Listing
+              </Link>
             </div>
           </div>
 
@@ -426,7 +409,7 @@ export default function DashboardPage() {
               <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row">
                 <div className="text-xs text-slate-500">
                   Page <span className="font-medium text-slate-700">{page}</span> of{" "}
-                    <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
+                  <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
                   {data?.total ?? 0} total {scope === "market" ? "listings" : "your listings"}
                 </div>
 
