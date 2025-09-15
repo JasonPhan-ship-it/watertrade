@@ -117,17 +117,14 @@ export default function DashboardPage() {
   const checking = useOnboardedGate();
   const { user } = useUser();
   const router = useRouter();
-  const searchParams = useSearchParams(); // may be nullish in types
+  const searchParams = useSearchParams();
 
-  // Guarded reads from searchParams
-  const scopeParam = searchParams?.get?.("scope") ?? null;
-  const tabParam = searchParams?.get?.("tab") ?? null;
-  const nocreateParam = searchParams?.get?.("nocreate") ?? null;
-
-  // Initial state derived from URL (safe)
+  // Read URL params once for initial state
   const initialScope: Scope =
-    scopeParam === "mine" || tabParam === "listings" ? "mine" : "market";
-  const nocreate = nocreateParam === "1";
+    (searchParams.get("scope") === "mine" || searchParams.get("tab") === "listings")
+      ? "mine"
+      : "market";
+  const nocreate = searchParams.get("nocreate") === "1";
 
   const [scope, setScope] = useState<Scope>(initialScope);
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
@@ -143,12 +140,13 @@ export default function DashboardPage() {
 
   // Keep scope + nocreate reflected in the URL for deep-linking (Cancel button, etc.)
   useEffect(() => {
-    const existing = typeof window !== "undefined" ? window.location.search : "";
-    const params = new URLSearchParams(existing);
+    const params = new URLSearchParams(searchParams.toString());
     params.set("scope", scope);
     if (nocreate) params.set("nocreate", "1");
-    else params.delete("nocreate");
+    // don't spam history
     router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+    // Only react to scope or nocreate changes; avoid feedback with searchParams changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, nocreate, router]);
 
   const qs = useMemo(() => {
@@ -231,11 +229,9 @@ export default function DashboardPage() {
   // Change scope AND keep nocreate flag in the URL so middleware won’t redirect to create-listing
   const handleScopeChange = (next: Scope) => {
     setScope(next);
-    const existing = typeof window !== "undefined" ? window.location.search : "";
-    const params = new URLSearchParams(existing);
+    const params = new URLSearchParams(searchParams.toString());
     params.set("scope", next);
     if (nocreate) params.set("nocreate", "1");
-    else params.delete("nocreate");
     router.replace(`/dashboard?${params.toString()}`, { scroll: false });
   };
 
@@ -286,7 +282,7 @@ export default function DashboardPage() {
                 setDistrict(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg:white/20 focus:ring-2 focus:ring-white/60"
+              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
             >
               {DISTRICTS.map((d) => (
                 <option key={d} value={d} className="text-slate-900">
@@ -301,7 +297,7 @@ export default function DashboardPage() {
                 setWaterType(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-xl border border-white/30 bg:white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
+              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
             >
               {WATER_TYPES.map((w) => (
                 <option key={w} value={w} className="text-slate-900">
