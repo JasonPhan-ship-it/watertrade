@@ -3,14 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 
-type SortKey = "createdAt" | "pricePerAf" | "acreFeet" | "availabilityStart" | "availabilityEnd";
+// Removed "availabilityStart" from SortKey
+type SortKey = "createdAt" | "pricePerAf" | "acreFeet" | "availabilityEnd";
 
 // Map UI sort keys → Prisma column names
 const ORDER_MAP: Record<SortKey, keyof import("@prisma/client").Listing> = {
   createdAt: "createdAt",
   pricePerAf: "pricePerAF",
   acreFeet: "acreFeet",
-  availabilityStart: "availabilityStart",
+  // availabilityStart mapping removed
   availabilityEnd: "availabilityEnd",
 };
 
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
         waterType: true,
         acreFeet: true,
         pricePerAF: true, // cents
-        availabilityStart: true,
+        // availabilityStart removed from SELECT
         availabilityEnd: true,
         createdAt: true,
       },
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
     acreFeet: r.acreFeet,
     // keep the cents (e.g., 425.50) instead of rounding to whole dollars
     pricePerAf: r.pricePerAF / 100,
-    availabilityStart: r.availabilityStart.toISOString(),
+    // availabilityStart removed from payload
     availabilityEnd: r.availabilityEnd.toISOString(),
     waterType: r.waterType,
     createdAt: r.createdAt.toISOString(),
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest) {
         district,
         waterType,
         availability,
-        availabilityStart,
+        availabilityStart, // kept here in case your DB still has this column
         availabilityEnd,
         acreFeet,
         pricePerAF: pricePerAfCents, // dollars → cents
