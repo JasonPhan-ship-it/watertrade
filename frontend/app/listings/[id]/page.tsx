@@ -103,7 +103,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
             {/* If your ListingActions component expects isAuction/reservePrice,
                keep passing safe defaults so you don’t need to change that component */}
-            {/* @ts-expect-error Server/Client boundary is fine; component is client-side */}
             <ListingActions
               listingId={row.id}
               kind="SELL"
