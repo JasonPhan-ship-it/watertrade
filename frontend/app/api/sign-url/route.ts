@@ -102,8 +102,8 @@ async function loadDocuSign() {
 
   jwtApiClient = {
     apiClient,
-    oauthBase,   // full https://account(-d).docusign.com
-    oauthHost,   // account(-d).docusign.com
+    oauthBase,
+    oauthHost,
     integrationKey,
     userId,
     privateKey,
@@ -150,28 +150,23 @@ async function getAccessToken(): Promise<{ accessToken: string; expiresAt: numbe
     return { accessToken, expiresAt };
   } catch (e: any) {
     const status = e?.response?.status ?? e?.status ?? null;
-    const body = e?.response?.body || e?.body || {};
+    let body = e?.response?.body || e?.body || null;
     const text = e?.response?.text || e?.message || String(e);
+    if (!body && typeof text === "string") { try { body = JSON.parse(text); } catch {} }
     const error = body?.error || null;
     const description = body?.error_description || text || null;
 
-    // Build targeted hint + consentUrl when applicable
     let hint = "Check that your Integration Key, User GUID, and RSA key belong to the same environment (demo vs prod).";
     const consentUrl = buildConsentUrl(oauthBase, integrationKey, process.env.DOCUSIGN_RETURN_URL);
 
     if (status === 404) {
       hint = `OAuth host must be ${oauthBase} (host: ${oauthHost}). Do not use demo.docusign.net.`;
     } else if (error === "consent_required") {
-      hint = `Consent required. Open this in a browser while logged in as the API user: ${consentUrl}`;
+      hint = `Consent required. Open this while logged in as the API user: ${consentUrl}`;
     } else if (error === "invalid_grant") {
-      // Common invalid_grant causes for DocuSign JWT:
-      // - wrong userId (must be the API Username GUID)
-      // - user not in the app's account
-      // - RSA key doesn't match the public key on the app
-      // - clock skew
       hint = "invalid_grant: Verify USER_ID (API Username GUID), user is in the app's account, RSA keypair matches the app, and server clock is accurate.";
     } else if (error === "unauthorized_client") {
-      hint = "unauthorized_client: Ensure JWT is enabled on your Integration Key and RSA public key is added to the app.";
+      hint = "unauthorized_client: Ensure JWT is enabled and the RSA public key is added to the app.";
     }
 
     const diag = { status, error, description, oauthBase, oauthHost, consentUrl };
@@ -181,7 +176,7 @@ async function getAccessToken(): Promise<{ accessToken: string; expiresAt: numbe
   }
 }
 
-/** Build account + REST base from /oauth/userinfo (prevents wrong-cluster 404s) */
+/** Resolve account + REST base via /oauth/userinfo (prevents wrong-cluster 404s) */
 async function getUserInfoAndRestBase(accessToken: string) {
   if (!jwtApiClient) await loadDocuSign();
   const oauthBase = jwtApiClient.oauthBase || "https://account-d.docusign.com";
@@ -213,6 +208,27 @@ async function getUserInfoAndRestBase(accessToken: string) {
 
   const restBase = `${baseUri}/restapi`;
   return { accountId: account.account_id, restBase, info, oauthBase };
+}
+
+/* -------- robust template role extraction -------- */
+async function extractTemplateRoleNames(docusign: any, apiClient: any, accountId: string, templateId: string) {
+  const templatesApi = new docusign.TemplatesApi(apiClient);
+  const resp = await templatesApi.get(accountId, templateId);
+  const buckets: any[][] = [
+    resp?.recipients?.signers,
+    resp?.envelopeTemplate?.recipients?.signers,
+    (resp as any)?.template?.recipients?.signers,
+    (resp as any)?.templateRecipients?.signers,
+    (resp as any)?.roles, // sometimes present, but not standard
+  ].filter(Boolean) as any[][];
+  const names = new Set<string>();
+  for (const arr of buckets) {
+    for (const s of arr || []) {
+      const n = s?.roleName || s?.name || s?.role;
+      if (n) names.add(String(n));
+    }
+  }
+  return Array.from(names);
 }
 
 /* ---------------- resolve signer ---------------- */
@@ -296,6 +312,8 @@ export async function GET(req: NextRequest) {
     const debug = searchParams.get("debug") === "1";
     const jsonMode = searchParams.get("json") === "1";
     const wantConsent = searchParams.get("consent") === "1";
+    const wantRolesOnly = searchParams.get("roles") === "1";   // NEW: role inspector
+    const useSample = searchParams.get("sample") === "1";      // NEW: sample doc
     const roleParam = (searchParams.get("role") || "").toLowerCase();
 
     // Utility: return consent URL on demand
@@ -373,6 +391,10 @@ export async function GET(req: NextRequest) {
     /* -------- config -------- */
     const templateId = process.env.DOCUSIGN_TEMPLATE_ID || "";
     const fileUrl = process.env.DOCUSIGN_FILE_URL || "";
+    const sampleUrl =
+      process.env.DOCUSIGN_SAMPLE_PDF_URL ||
+      "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
+    const effectiveFileUrl = !templateId ? (useSample ? sampleUrl : fileUrl) : ""; // NEW
     const ENV_SELLER = process.env.DOCUSIGN_ROLE_SELLER || "seller";
     const ENV_BUYER = process.env.DOCUSIGN_ROLE_BUYER || "buyer";
     const returnUrl = process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return";
@@ -384,7 +406,6 @@ export async function GET(req: NextRequest) {
     try {
       access = await getAccessToken();
     } catch (e: any) {
-      // surface diagnostics (error, description, consentUrl) if present
       const diag = (e as any)?.diag || null;
       return fail(500, "Failed to obtain DocuSign access token", {
         message: e?.message || String(e),
@@ -423,25 +444,42 @@ export async function GET(req: NextRequest) {
     const buyerRoleName = ENV_BUYER;
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
-    /* -------- optional: verify template roles -------- */
+    /* -------- optional: verify template roles (robust) -------- */
     if (templateId) {
       PHASE = "templates.get";
       try {
-        const templatesApi = new docusign.TemplatesApi(apiClient);
-        const tpl = await templatesApi.get(accountId, templateId);
-        const tplRoles = (tpl?.roles || []).map((r: any) => r?.roleName || r?.name).filter(Boolean);
+        const tplRoles = await extractTemplateRoleNames(docusign, apiClient, accountId, templateId);
+
+        if (wantRolesOnly) {
+          return json({
+            ok: true,
+            templateId,
+            templateRoles: tplRoles,
+            hint: "Set DOCUSIGN_ROLE_SELLER / DOCUSIGN_ROLE_BUYER to exactly match one of these role names.",
+          });
+        }
+
         const missing: string[] = [];
         if (!tplRoles.includes(sellerRoleName)) missing.push(sellerRoleName);
         if (!tplRoles.includes(buyerRoleName)) missing.push(buyerRoleName);
         if (missing.length) {
-          return fail(422, "Template role mismatch", { templateId, templateRoles: tplRoles, missing });
+          return fail(422, "Template role mismatch", {
+            templateId,
+            templateRoles: tplRoles,
+            missing,
+            hint:
+              "Open the template (Recipients panel) and copy the exact role names. " +
+              "Update DOCUSIGN_ROLE_SELLER / DOCUSIGN_ROLE_BUYER to match (case-sensitive).",
+          });
         }
       } catch (e: any) {
         const { status, text, body } = parseErr(e);
         return fail(404, "Template not found in selected account", { status, text, body, templateId });
       }
-    } else if (!fileUrl) {
-      return fail(422, "No template or file configured. Set DOCUSIGN_TEMPLATE_ID or DOCUSIGN_FILE_URL.");
+    } else if (!effectiveFileUrl) {
+      return fail(422, "No template or file configured. Set DOCUSIGN_TEMPLATE_ID or DOCUSIGN_FILE_URL.", {
+        tip: "For a quick test, call this endpoint with ?sample=1 to use a public dummy PDF.",
+      });
     }
 
     /* -------- custom fields (tabs) -------- */
@@ -490,8 +528,8 @@ export async function GET(req: NextRequest) {
 
       envelopeDefinition.templateId = templateId;
       envelopeDefinition.templateRoles = [sellerRole, buyerRole];
-    } else if (fileUrl) {
-      const { name, data } = await fetchAsBase64(fileUrl);
+    } else if (effectiveFileUrl) {
+      const { name, data } = await fetchAsBase64(effectiveFileUrl);
       const doc = new docusign.Document();
       doc.documentBase64 = data;
       doc.name = name;
@@ -610,12 +648,14 @@ export async function GET(req: NextRequest) {
           integrationKeyMasked: mask(process.env.DOCUSIGN_INTEGRATION_KEY || ""),
           userIdMasked: mask(process.env.DOCUSIGN_USER_ID || ""),
           templateId: templateId || null,
-          fileUrlPresent: !!fileUrl,
+          fileUrlPresent: !!effectiveFileUrl,
+          usedSample: useSample || undefined,
           viewer: { role: (viewer as any)?.role ?? null, authedEmailsMasked: authedEmails.map(maskEmail) },
           inferredRole,
           requestedRole,
           effectiveRole,
           targetRole,
+          envRoles: { seller: ENV_SELLER, buyer: ENV_BUYER },
           seller,
           buyer,
           envelopeId,
