@@ -3,13 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 
-type SortKey = "createdAt" | "pricePerAf" | "acreFeet" | "availabilityEnd";
+// NOTE: include 'district' so the UI's "District" sort actually works
+type SortKey = "createdAt" | "pricePerAf" | "acreFeet" | "availabilityEnd" | "district";
 
+// Map UI keys -> Prisma columns
 const ORDER_MAP: Record<SortKey, keyof import("@prisma/client").Listing> = {
   createdAt: "createdAt",
-  pricePerAf: "pricePerAF",
+  pricePerAf: "pricePerAF",      // UI uses pricePerAf, DB is pricePerAF (cents)
   acreFeet: "acreFeet",
   availabilityEnd: "availabilityEnd",
+  district: "district",
 };
 
 function parseQuery(req: NextRequest) {
@@ -39,7 +42,7 @@ export async function GET(req: NextRequest) {
   try {
     const q = parseQuery(req);
 
-    // Viewer → DB user
+    // Clerk user -> DB user id
     const { userId: clerkUserId } = auth();
     let viewerDbUserId: string | null = null;
     if (clerkUserId) {
@@ -54,28 +57,31 @@ export async function GET(req: NextRequest) {
     if (q.district && q.district !== "All Districts") whereAND.push({ district: q.district });
     if (q.waterType && q.waterType !== "Any Water Type") whereAND.push({ waterType: q.waterType });
 
+    // Determine scope (market vs mine)
     const scope = q.scope || (q.mineFlag ? "mine" : q.excludeMineFlag ? "market" : "market");
 
     if (scope === "mine") {
+      // Only my listings (optionally filter status to ACTIVE here if you want)
       if (!viewerDbUserId) {
         return noCache(NextResponse.json({ listings: [], total: 0, limited: !q.premium }));
       }
       whereAND.push({ sellerId: viewerDbUserId });
-      // If you only want ACTIVE here, add: whereAND.push({ status: "ACTIVE" });
     } else {
-      // Marketplace: show active/open only, exclude my own if signed in
+      // Marketplace: show only active/open, exclude my own if signed in
       whereAND.push({ status: { in: ["ACTIVE", "OPEN"] } });
       if (viewerDbUserId) whereAND.push({ NOT: { sellerId: viewerDbUserId } });
     }
 
     const where = whereAND.length ? { AND: whereAND } : {};
 
+    // Paging + sorting
     const take = !q.premium ? 3 : q.pageSize;
     const skip = !q.premium ? 0 : (q.page - 1) * q.pageSize;
     const orderKey = ORDER_MAP[q.sortBy] ?? "createdAt";
 
+    // Option A (recommended): plain count + separate findMany
     const [total, rows] = await Promise.all([
-      prisma.listing.count({ where }),
+      prisma.listing.count({ where }), // <- no select!
       prisma.listing.findMany({
         where,
         orderBy: { [orderKey]: q.sortDir },
@@ -87,11 +93,11 @@ export async function GET(req: NextRequest) {
           waterType: true,
           acreFeet: true,
           pricePerAF: true,      // cents
-          availabilityEnd: true, // keep end only
+          availabilityEnd: true, // end-only now
           createdAt: true,
           status: true,
           kind: true,
-          sellerId: true,        // owner
+          sellerId: true,        // single owner field
         },
       }),
     ]);
@@ -100,11 +106,11 @@ export async function GET(req: NextRequest) {
       id: r.id,
       district: r.district,
       acreFeet: r.acreFeet,
-      pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars
+      pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars for UI
       availabilityEnd: r.availabilityEnd?.toISOString?.() ?? null,
       waterType: r.waterType,
       createdAt: r.createdAt.toISOString(),
-      ownerUserId: r.sellerId,
+      ownerUserId: r.sellerId, // normalized for client
       status: r.status,
       kind: r.kind,
     }));
@@ -134,16 +140,15 @@ export async function POST(req: NextRequest) {
     const acreFeet = Math.max(0, Math.floor(Number(body.volumeAF ?? 0)));
     const pricePerAfCents = Math.max(0, Math.round(Number(body.pricePerAF ?? 0) * 100));
 
-    // Only availabilityEnd is used now
+    // End-only availability
     const availabilityEnd = body.availabilityEnd
       ? new Date(body.availabilityEnd)
-      : new Date(Date.now() + 60 * 24 * 3600 * 1000);
+      : new Date(Date.now() + 60 * 24 * 3600 * 1000); // +60 days
 
-    // Optional: human-friendly label from end date only
     const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
     const availability = `Through ${mm(availabilityEnd)} ${availabilityEnd.getFullYear()}`;
 
-    // Link listing to the current DB user
+    // Link to current DB user
     let sellerId: string | null = null;
     if (clerkId) {
       const user = await prisma.user.findUnique({ where: { clerkId } });
@@ -156,13 +161,13 @@ export async function POST(req: NextRequest) {
         description: body.description ? String(body.description) : null,
         district,
         waterType,
-        availability,     // keep label if your schema has it
-        availabilityEnd,  // single date we persist
+        availability,     // optional label in your schema
+        availabilityEnd,  // the only date we store now
         acreFeet,
         pricePerAF: pricePerAfCents,
         kind,
         status: "ACTIVE",
-        sellerId,
+        sellerId,         // ownership
       },
       select: { id: true },
     });
