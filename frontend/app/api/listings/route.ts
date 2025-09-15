@@ -50,49 +50,31 @@ export async function GET(req: NextRequest) {
       viewerDbUserId = viewer?.id ?? null;
     }
 
-    // Base filters
     const whereAND: any[] = [];
 
     if (q.district && q.district !== "All Districts") whereAND.push({ district: q.district });
     if (q.waterType && q.waterType !== "Any Water Type") whereAND.push({ waterType: q.waterType });
 
-    // Scope logic
-    // Build an OR over likely owner fields (adjust to your schema as needed)
-    const ownerOR = viewerDbUserId
-      ? [
-          { sellerId: viewerDbUserId },        // your POST writes this
-          { sellerUserId: viewerDbUserId },    // common variant
-          { userId: viewerDbUserId },          // generic owner
-          { createdByUserId: viewerDbUserId }, // some schemas
-          { ownerId: viewerDbUserId },         // fallback
-        ]
-      : [];
-
     const scope = q.scope || (q.mineFlag ? "mine" : q.excludeMineFlag ? "market" : "market");
 
     if (scope === "mine") {
-      // Not signed in → nothing to show
       if (!viewerDbUserId) {
         return noCache(NextResponse.json({ listings: [], total: 0, limited: !q.premium }));
       }
-      whereAND.push({ OR: ownerOR });
-      // Show all statuses for "Your Listings" so users can manage drafts/closed/etc.
-      // If you only want ACTIVE here, uncomment next line:
-      // whereAND.push({ status: "ACTIVE" });
+      whereAND.push({ sellerId: viewerDbUserId });
+      // If you only want ACTIVE here, also add: whereAND.push({ status: "ACTIVE" });
     } else {
-      // Marketplace: show ACTIVE (or OPEN) listings from other users
+      // Marketplace: only active/open, and exclude my own if signed in
       whereAND.push({ status: { in: ["ACTIVE", "OPEN"] } });
       if (viewerDbUserId) {
-        whereAND.push({ NOT: { OR: ownerOR } });
+        whereAND.push({ NOT: { sellerId: viewerDbUserId } });
       }
     }
 
     const where = whereAND.length ? { AND: whereAND } : {};
 
-    // premium gating (optional, as in your original code)
     const take = !q.premium ? 3 : q.pageSize;
     const skip = !q.premium ? 0 : (q.page - 1) * q.pageSize;
-
     const orderKey = ORDER_MAP[q.sortBy] ?? "createdAt";
 
     const [total, rows] = await Promise.all([
@@ -110,50 +92,36 @@ export async function GET(req: NextRequest) {
           pricePerAF: true,      // cents
           availabilityEnd: true, // keep end only
           createdAt: true,
-
-          // owner fields (so client can reason if needed)
-          sellerId: true as any,
-          sellerUserId: true as any,
-          userId: true as any,
-          createdByUserId: true as any,
-          ownerId: true as any,
           status: true,
           kind: true,
+          sellerId: true,        // the single owner field we rely on
         },
       }),
     ]);
 
-    const listings = rows.map((r) => {
-      const ownerUserId =
-        (r as any).sellerId ||
-        (r as any).sellerUserId ||
-        (r as any).userId ||
-        (r as any).createdByUserId ||
-        (r as any).ownerId ||
-        null;
-
-      return {
-        id: r.id,
-        district: r.district,
-        acreFeet: r.acreFeet,
-        pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars for your UI table
-        availabilityEnd: r.availabilityEnd?.toISOString?.() ?? null,
-        waterType: r.waterType,
-        createdAt: r.createdAt.toISOString(),
-        ownerUserId,
-        status: r.status,
-        kind: r.kind,
-      };
-    });
+    const listings = rows.map((r) => ({
+      id: r.id,
+      district: r.district,
+      acreFeet: r.acreFeet,
+      pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars for UI
+      availabilityEnd: r.availabilityEnd?.toISOString?.() ?? null,
+      waterType: r.waterType,
+      createdAt: r.createdAt.toISOString(),
+      ownerUserId: r.sellerId, // normalize for client
+      status: r.status,
+      kind: r.kind,
+    }));
 
     return noCache(NextResponse.json({ listings, total, limited: !q.premium }, { status: 200 }));
   } catch (err: any) {
     console.error("[api/listings] error", err);
-    return noCache(NextResponse.json({ listings: [], total: 0, error: err?.message || "Internal error" }, { status: 500 }));
+    return noCache(
+      NextResponse.json({ listings: [], total: 0, error: err?.message || "Internal error" }, { status: 500 })
+    );
   }
 }
 
-// ---------- POST (unchanged except for availabilityStart still written if your DB has it) ----------
+// ---------- POST (unchanged aside from earlier decisions) ----------
 export async function POST(req: NextRequest) {
   try {
     const { userId: clerkId } = auth();
@@ -173,7 +141,7 @@ export async function POST(req: NextRequest) {
     const availabilityStart = body.availabilityStart ? new Date(body.availabilityStart) : new Date();
     const availabilityEnd = body.availabilityEnd
       ? new Date(body.availabilityEnd)
-      : new Date(Date.now() + 60 * 24 * 3600 * 1000); // +60 days
+      : new Date(Date.now() + 60 * 24 * 3600 * 1000);
 
     const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
     const availability =
@@ -195,7 +163,7 @@ export async function POST(req: NextRequest) {
         district,
         waterType,
         availability,
-        availabilityStart, // remove if the column is gone
+        availabilityStart, // remove if column dropped
         availabilityEnd,
         acreFeet,
         pricePerAF: pricePerAfCents,
