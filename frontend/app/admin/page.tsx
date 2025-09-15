@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { ArrowUpRight, ArrowDownRight, TrendingUp } from "lucide-react";
 import {
   Card,
@@ -18,14 +19,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+
+// Dynamically load recharts pieces on the client only
+const ResponsiveContainer = dynamic(
+  () => import("recharts").then((m) => m.ResponsiveContainer),
+  { ssr: false }
+);
+const AreaChart = dynamic(() => import("recharts").then((m) => m.AreaChart), { ssr: false });
+const Area = dynamic(() => import("recharts").then((m) => m.Area), { ssr: false });
+const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
+const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
+const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
 
 export const runtime = "nodejs";
 
@@ -148,7 +152,7 @@ export default function AdminHome() {
             <div className="flex items-center gap-1 font-medium text-slate-800">
               Strong user retention <ArrowUpRight className="h-4 w-4" />
             </div>
-            <CardDescription>Engagement exceed targets</CardDescription>
+            <CardDescription>Engagement exceeds targets</CardDescription>
           </CardContent>
         </Card>
 
@@ -178,9 +182,24 @@ export default function AdminHome() {
               <CardDescription>Total for the selected range</CardDescription>
             </div>
             <div className="flex gap-2">
-              <Button variant={range === "90d" ? "default" : "outline"} onClick={() => setRange("90d")}>Last 3 months</Button>
-              <Button variant={range === "30d" ? "default" : "outline"} onClick={() => setRange("30d")}>Last 30 days</Button>
-              <Button variant={range === "7d" ? "default" : "outline"} onClick={() => setRange("7d")}>Last 7 days</Button>
+              <Button
+                variant={range === "90d" ? "default" : "outline"}
+                onClick={() => setRange("90d")}
+              >
+                Last 3 months
+              </Button>
+              <Button
+                variant={range === "30d" ? "default" : "outline"}
+                onClick={() => setRange("30d")}
+              >
+                Last 30 days
+              </Button>
+              <Button
+                variant={range === "7d" ? "default" : "outline"}
+                onClick={() => setRange("7d")}
+              >
+                Last 7 days
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -196,7 +215,12 @@ export default function AdminHome() {
                 </defs>
                 <XAxis
                   dataKey="date"
-                  tickFormatter={(d) => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  tickFormatter={(d) =>
+                    new Date(d).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })
+                  }
                   tick={{ fontSize: 12, fill: "#64748b" }}
                   axisLine={{ stroke: "#e2e8f0" }}
                   tickLine={false}
@@ -211,7 +235,13 @@ export default function AdminHome() {
                   labelFormatter={(d) => new Date(d as string).toLocaleDateString()}
                   formatter={(value: number) => [value.toLocaleString(), "Visitors"]}
                 />
-                <Area type="monotone" dataKey="visitors" strokeWidth={2} stroke="currentColor" fill="url(#visitorsGradient)" />
+                <Area
+                  type="monotone"
+                  dataKey="visitors"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                  fill="url(#visitorsGradient)"
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -237,10 +267,15 @@ export default function AdminHome() {
               {rawVisitors.slice(-14).map((row) => (
                 <TableRow key={row.date}>
                   <TableCell className="text-slate-700">
-                    {new Date(row.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    {new Date(row.date).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })}
                   </TableCell>
                   <TableCell className="text-slate-600">Visitors</TableCell>
-                  <TableCell className="text-right font-medium">{row.visitors.toLocaleString()}</TableCell>
+                  <TableCell className="text-right font-medium">
+                    {row.visitors.toLocaleString()}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
