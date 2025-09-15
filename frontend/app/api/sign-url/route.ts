@@ -34,31 +34,23 @@ function maskEmail(e?: string | null) {
 let docusign: any = null;
 let jwtApiClient: any = null;
 
-/** Accept raw PEM (DOCUSIGN_PRIVATE_KEY), base64-of-PEM (DOCUSIGN_PRIVATE_KEY_B64),
- *  or base64-of-DER (we'll wrap as PKCS#8 PEM). */
 function readDocuSignPrivateKey(): string {
   const raw = process.env.DOCUSIGN_PRIVATE_KEY || "";
   const b64 = process.env.DOCUSIGN_PRIVATE_KEY_B64 || "";
 
-  if (raw) {
-    if (raw.includes("BEGIN") && raw.includes("PRIVATE KEY")) return raw;
-    // raw provided but not a PEM — treat as invalid
-  }
+  if (raw && raw.includes("PRIVATE KEY")) return raw;
 
   if (b64) {
-    // Try base64 → utf8: if PEM headers appear, it's base64-of-PEM.
     try {
       const asUtf8 = Buffer.from(b64, "base64").toString("utf8");
-      if (asUtf8.includes("BEGIN") && asUtf8.includes("PRIVATE KEY")) return asUtf8;
+      if (asUtf8.includes("PRIVATE KEY")) return asUtf8;
     } catch {}
-    // Otherwise assume it's raw DER bytes (or a different base64) and wrap as PEM:
     try {
       const der = Buffer.from(b64, "base64");
       const wrapped = der.toString("base64").match(/.{1,64}/g)?.join("\n") || der.toString("base64");
       return `-----BEGIN PRIVATE KEY-----\n${wrapped}\n-----END PRIVATE KEY-----\n`;
     } catch {}
   }
-
   return "";
 }
 
@@ -86,8 +78,8 @@ async function loadDocuSign() {
 }
 
 function parseErr(e: any) {
-  const status = e?.response?.status || e?.status || null;
-  const text = e?.response?.text || e?.message || String(e);
+  const status = e?.response?.status ?? e?.status ?? null;
+  const text = e?.response?.text ?? e?.message ?? String(e);
   return { status, text };
 }
 
@@ -95,15 +87,13 @@ async function getAccessToken(): Promise<{ accessToken: string; expiresAt: numbe
   if (!docusign || !jwtApiClient) await loadDocuSign();
 
   if (!jwtApiClient?.privateKey?.includes("PRIVATE KEY")) {
-    throw new Error(
-      "DocuSign private key missing/invalid. Set DOCUSIGN_PRIVATE_KEY (raw PEM) or DOCUSIGN_PRIVATE_KEY_B64 (base64 of PEM/DER)."
-    );
+    throw new Error("Invalid/missing DocuSign private key");
   }
   if (!jwtApiClient?.integrationKey || !jwtApiClient?.userId) {
     throw new Error("Missing DOCUSIGN_INTEGRATION_KEY or DOCUSIGN_USER_ID");
   }
 
-  const targetLifetime = 60 * 60; // 1h
+  const targetLifetime = 60 * 60;
   const res = await jwtApiClient.apiClient.requestJWTUserToken(
     jwtApiClient.integrationKey,
     jwtApiClient.userId,
@@ -116,20 +106,19 @@ async function getAccessToken(): Promise<{ accessToken: string; expiresAt: numbe
   return { accessToken, expiresAt };
 }
 
-/** Use /oauth/userinfo to select the correct account and REST base (prevents 404s). */
+/** Build account + REST base from /oauth/userinfo (prevents 404s) */
 async function getUserInfoAndRestBase(accessToken: string) {
   if (!jwtApiClient) await loadDocuSign();
   const oauthBase = jwtApiClient.oauthBase || "https://account-d.docusign.com";
+
   const resp = await fetch(`${oauthBase}/oauth/userinfo`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  const bodyText = await resp.text();
+  const text = await resp.text();
   let info: any = null;
-  try { info = bodyText ? JSON.parse(bodyText) : null; } catch {}
+  try { info = text ? JSON.parse(text) : null; } catch {}
 
-  if (!resp.ok) {
-    throw new Error(`userinfo failed ${resp.status}: ${bodyText || ""}`);
-  }
+  if (!resp.ok) throw new Error(`userinfo failed ${resp.status}: ${text || ""}`);
 
   const envAcct = (process.env.DOCUSIGN_ACCOUNT_ID || "").trim();
   const accounts: any[] = info?.accounts || [];
@@ -137,15 +126,15 @@ async function getUserInfoAndRestBase(accessToken: string) {
   const byDefault = accounts.find(a => a?.is_default) || accounts[0];
   const account = byEnv || byDefault;
 
-  if (!account) throw new Error("No DocuSign account available on /oauth/userinfo");
+  if (!account) throw new Error("No DocuSign account on token");
 
   if (envAcct && account.account_id !== envAcct) {
     const available = accounts.map(a => a?.account_id).filter(Boolean).join(", ");
-    throw new Error(`DOCUSIGN_ACCOUNT_ID (${envAcct}) not found on token. Available: ${available}`);
+    throw new Error(`DOCUSIGN_ACCOUNT_ID (${envAcct}) not on token. Available: ${available}`);
   }
 
   const baseUri = (account.base_uri || account.baseUri || info?.base_uri || "").replace(/\/+$/, "");
-  if (!baseUri) throw new Error("No base_uri in /oauth/userinfo response");
+  if (!baseUri) throw new Error("No base_uri in userinfo");
 
   const restBase = `${baseUri}/restapi`;
   return { accountId: account.account_id, restBase, info, oauthBase };
@@ -280,10 +269,7 @@ export async function GET(req: NextRequest) {
 
     if (requestedRole && effectiveRole && requestedRole !== effectiveRole) {
       return NextResponse.json(
-        {
-          error: "Forbidden",
-          reason: `requested role "${requestedRole}" does not match your verified role "${effectiveRole}"`,
-        },
+        { error: "Forbidden", reason: `requested role "${requestedRole}" does not match your verified role "${effectiveRole}"` },
         { status: 403 }
       );
     }
@@ -291,10 +277,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           error: "Forbidden",
-          reason:
-            'viewer role is "unknown" and we could not match your signed-in email to the seller/buyer on this trade',
-          hint:
-            "Sign in with the seller/buyer email for this trade, or open the secure link that includes a valid token.",
+          reason: 'viewer role is "unknown" and we could not match your signed-in email to the seller/buyer on this trade',
+          hint: "Sign in with the seller/buyer email for this trade, or open the secure link that includes a valid token.",
           context: {
             authedEmailsMasked: authedEmails.map(maskEmail),
             sellerEmailMasked: maskEmail(seller.email),
@@ -318,10 +302,7 @@ export async function GET(req: NextRequest) {
     try {
       access = await getAccessToken();
     } catch (e: any) {
-      return NextResponse.json(
-        { error: e?.message || "Failed to obtain DocuSign access token" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: e?.message || "Failed to obtain DocuSign access token" }, { status: 500 });
     }
 
     // Account + REST base from userinfo (prevents 404s)
@@ -336,16 +317,45 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: e?.message || "Failed to resolve DocuSign account/base" }, { status: 500 });
     }
 
-    // API client bound to the correct cluster
+    // API client bound to the right cluster
     const apiClient = new docusign.ApiClient();
     apiClient.setBasePath(restBase);
     apiClient.addDefaultHeader("Authorization", "Bearer " + access.accessToken);
+
     const envelopesApi = new docusign.EnvelopesApi(apiClient);
 
     /* -------- map roles -------- */
     const sellerRoleName = ENV_SELLER;
     const buyerRoleName = ENV_BUYER;
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
+
+    /* -------- optional: verify template roles exist (prevents latent 404) -------- */
+    if (templateId) {
+      try {
+        const templatesApi = new docusign.TemplatesApi(apiClient);
+        const tpl = await templatesApi.get(accountId, templateId);
+        const tplRoles = (tpl?.roles || []).map((r: any) => r?.roleName || r?.name).filter(Boolean);
+        const missing: string[] = [];
+        if (!tplRoles.includes(sellerRoleName)) missing.push(sellerRoleName);
+        if (!tplRoles.includes(buyerRoleName)) missing.push(buyerRoleName);
+        if (missing.length) {
+          return NextResponse.json(
+            {
+              error: "Template role mismatch",
+              hint: "Update DOCUSIGN_ROLE_SELLER / DOCUSIGN_ROLE_BUYER to match the template’s role names.",
+              details: { templateId, templateRoles: tplRoles, missing },
+            },
+            { status: 422 }
+          );
+        }
+      } catch (e: any) {
+        const { status, text } = parseErr(e);
+        return NextResponse.json(
+          { error: "Template not found in selected account", status, details: text, templateId },
+          { status: 404 }
+        );
+      }
+    }
 
     /* -------- custom fields (tabs) -------- */
     const customPairs: Record<string, string> = {
@@ -368,26 +378,22 @@ export async function GET(req: NextRequest) {
     envelopeDefinition.emailBlurb = "Please review and sign the Water Traders agreement.";
 
     if (templateId) {
-      // With template
       const toTextTabs = (pairs: Record<string, string>) =>
         Object.entries(pairs).map(([label, value]) => {
-          const t = new docusign.Text();
-          t.tabLabel = label; // must match Template Data Label exactly
-          t.value = value ?? "";
-          return t;
+          const t = new docusign.Text(); t.tabLabel = label; t.value = value ?? ""; return t;
         });
 
       const sellerRole = new docusign.TemplateRole();
       sellerRole.roleName = sellerRoleName;
       sellerRole.name = seller.name;
       sellerRole.email = seller.email;
-      sellerRole.clientUserId = sellerRoleName; // REQUIRED for embedded view
+      sellerRole.clientUserId = sellerRoleName; // embedded
 
       const buyerRole = new docusign.TemplateRole();
       buyerRole.roleName = buyerRoleName;
       buyerRole.name = buyer.name;
       buyerRole.email = buyer.email;
-      buyerRole.clientUserId = buyerRoleName; // REQUIRED for embedded view
+      buyerRole.clientUserId = buyerRoleName; // embedded
 
       sellerRole.tabs = new docusign.Tabs();
       buyerRole.tabs = new docusign.Tabs();
@@ -397,7 +403,6 @@ export async function GET(req: NextRequest) {
       envelopeDefinition.templateId = templateId;
       envelopeDefinition.templateRoles = [sellerRole, buyerRole];
     } else if (fileUrl) {
-      // From a file URL (download and attach)
       const { name, data } = await fetchAsBase64(fileUrl);
       const doc = new docusign.Document();
       doc.documentBase64 = data;
@@ -407,7 +412,6 @@ export async function GET(req: NextRequest) {
 
       envelopeDefinition.documents = [doc];
 
-      // Recipients: two signers; set clientUserId for embedded
       const sellerSigner = new docusign.Signer();
       sellerSigner.email = seller.email;
       sellerSigner.name = seller.name;
@@ -437,18 +441,50 @@ export async function GET(req: NextRequest) {
       envelopeSummary = await envelopesApi.createEnvelope(accountId, { envelopeDefinition });
     } catch (e: any) {
       const { status, text } = parseErr(e);
-      return NextResponse.json(
-        { error: "DocuSign createEnvelope failed", status, details: text },
-        { status: 502 }
-      );
+      return NextResponse.json({ error: "DocuSign createEnvelope failed", status, details: text }, { status: 502 });
     }
 
     const envelopeId = envelopeSummary?.envelopeId;
     if (!envelopeId) {
-      return NextResponse.json(
-        { error: "DocuSign did not return an envelopeId", raw: envelopeSummary || null },
-        { status: 502 }
+      return NextResponse.json({ error: "DocuSign did not return an envelopeId", raw: envelopeSummary || null }, { status: 502 });
+    }
+
+    /* -------- verify recipients before creating view (prevents 404) -------- */
+    try {
+      const recips = await envelopesApi.listRecipients(accountId, envelopeId);
+      const allSigners: any[] = recips?.signers || [];
+      const wantClientUserId = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
+      const wantEmail = (effectiveRole === "seller" ? seller.email : buyer.email).toLowerCase();
+      const wantName = (effectiveRole === "seller" ? seller.name : buyer.name);
+
+      const match = allSigners.find(s =>
+        (s.clientUserId || s.clientUserID) === wantClientUserId &&
+        (s.email || "").toLowerCase() === wantEmail
       );
+
+      if (!match) {
+        return NextResponse.json(
+          {
+            error: "Embedded recipient not found on envelope (clientUserId/email mismatch).",
+            hint:
+              "Ensure clientUserId on template role or signer matches the one used for createRecipientView, and emails/names are identical.",
+            details: {
+              target: { clientUserId: wantClientUserId, email: wantEmail, name: wantName },
+              presentRecipients: allSigners.map(s => ({
+                email: s.email,
+                name: s.name,
+                clientUserId: s.clientUserId || s.clientUserID || null,
+                roleName: s.roleName || null,
+                status: s.status,
+              })),
+            },
+          },
+          { status: 422 }
+        );
+      }
+    } catch (e: any) {
+      const { status, text } = parseErr(e);
+      return NextResponse.json({ error: "listRecipients failed", status, details: text }, { status: 502 });
     }
 
     /* -------- recipient view (embedded sign URL) -------- */
@@ -461,12 +497,12 @@ export async function GET(req: NextRequest) {
     viewRequest.returnUrl = returnUrl;
     if (pingUrl) {
       viewRequest.pingUrl = pingUrl;
-      viewRequest.pingFrequency = 600; // seconds
+      viewRequest.pingFrequency = 600;
     }
     viewRequest.authenticationMethod = "none";
     viewRequest.email = signerEmail;
     viewRequest.userName = signerName;
-    viewRequest.clientUserId = clientUserId; // must match the one set on recipient
+    viewRequest.clientUserId = clientUserId;
 
     let recipientView;
     try {
@@ -474,17 +510,20 @@ export async function GET(req: NextRequest) {
     } catch (e: any) {
       const { status, text } = parseErr(e);
       return NextResponse.json(
-        { error: "DocuSign createRecipientView failed", status, details: text },
+        {
+          error: "DocuSign createRecipientView failed",
+          status,
+          details: text,
+          hint:
+            "Double-check the name/email/clientUserId triple matches a recipient on this envelope. Recipient view URLs are single-use and expire quickly; generate right before redirect.",
+        },
         { status: 502 }
       );
     }
 
     const signUrl = recipientView?.url;
     if (!signUrl) {
-      return NextResponse.json(
-        { error: "Failed to get embedded signing URL from DocuSign", raw: recipientView || null },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Failed to get embedded signing URL", raw: recipientView || null }, { status: 500 });
     }
 
     /* -------- debug short-circuit -------- */
@@ -500,10 +539,7 @@ export async function GET(req: NextRequest) {
           userIdMasked: mask(process.env.DOCUSIGN_USER_ID || ""),
           templateId: templateId || null,
           fileUrlPresent: !!fileUrl,
-          viewer: {
-            role: (viewer as any)?.role ?? null,
-            authedEmailsMasked: authedEmails.map(maskEmail),
-          },
+          viewer: { role: (viewer as any)?.role ?? null, authedEmailsMasked: authedEmails.map(maskEmail) },
           inferredRole,
           requestedRole,
           effectiveRole,
