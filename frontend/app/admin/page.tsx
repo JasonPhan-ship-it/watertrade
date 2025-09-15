@@ -71,7 +71,7 @@ const currency = (n: number) =>
   }).format(n);
 
 const GrowthPill = ({ value }: { value: string }) => (
-  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
     <TrendingUp className="h-3 w-3" />
     {value}
   </span>
@@ -96,9 +96,9 @@ export default function AdminHome() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold">Admin Overview</h1>
-        <p className="mt-2 text-sm text-slate-600">
+      <div className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
+        <h1 className="text-xl font-semibold text-emerald-900">Admin Overview</h1>
+        <p className="mt-2 text-sm text-emerald-700/80">
           Welcome to your admin panel.
         </p>
       </div>
@@ -108,17 +108,15 @@ export default function AdminHome() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-500">
-                Total Revenue
-              </CardTitle>
+              <CardTitle className="text-sm text-emerald-700">Total Revenue</CardTitle>
               <GrowthPill value="+12.5%" />
             </div>
-            <div className="text-3xl font-semibold">
+            <div className="text-3xl font-semibold text-emerald-900">
               {currency(totals.revenue)}
             </div>
           </CardHeader>
-          <CardContent className="pt-0 text-sm text-slate-600">
-            <div className="flex items-center gap-1 font-medium text-slate-800">
+          <CardContent className="pt-0 text-sm text-emerald-700/90">
+            <div className="flex items-center gap-1 font-medium text-emerald-800">
               Trending up this month <ArrowUpRight className="h-4 w-4" />
             </div>
             <CardDescription>Visitors for the last 6 months</CardDescription>
@@ -128,19 +126,17 @@ export default function AdminHome() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-500">
-                New Customers
-              </CardTitle>
+              <CardTitle className="text-sm text-emerald-700">New Customers</CardTitle>
               <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">
                 <ArrowDownRight className="h-3 w-3" />-20%
               </span>
             </div>
-            <div className="text-3xl font-semibold">
+            <div className="text-3xl font-semibold text-emerald-900">
               {totals.newCustomers.toLocaleString()}
             </div>
           </CardHeader>
-          <CardContent className="pt-0 text-sm text-slate-600">
-            <div className="flex items-center gap-1 font-medium text-slate-800">
+          <CardContent className="pt-0 text-sm text-emerald-700/90">
+            <div className="flex items-center gap-1 font-medium text-emerald-800">
               Down 20% this period <ArrowDownRight className="h-4 w-4" />
             </div>
             <CardDescription>Acquisition needs attention</CardDescription>
@@ -150,17 +146,15 @@ export default function AdminHome() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-500">
-                Active Accounts
-              </CardTitle>
+              <CardTitle className="text-sm text-emerald-700">Active Accounts</CardTitle>
               <GrowthPill value="+12.5%" />
             </div>
-            <div className="text-3xl font-semibold">
+            <div className="text-3xl font-semibold text-emerald-900">
               {totals.active.toLocaleString()}
             </div>
           </CardHeader>
-          <CardContent className="pt-0 text-sm text-slate-600">
-            <div className="flex items-center gap-1 font-medium text-slate-800">
+          <CardContent className="pt-0 text-sm text-emerald-700/90">
+            <div className="flex items-center gap-1 font-medium text-emerald-800">
               Strong user retention <ArrowUpRight className="h-4 w-4" />
             </div>
             <CardDescription>Engagement exceeds targets</CardDescription>
@@ -170,15 +164,13 @@ export default function AdminHome() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-500">
-                Growth Rate
-              </CardTitle>
+              <CardTitle className="text-sm text-emerald-700">Growth Rate</CardTitle>
               <GrowthPill value="+4.5%" />
             </div>
-            <div className="text-3xl font-semibold">{totals.growth}%</div>
+            <div className="text-3xl font-semibold text-emerald-900">{totals.growth}%</div>
           </CardHeader>
-          <CardContent className="pt-0 text-sm text-slate-600">
-            <div className="flex items-center gap-1 font-medium text-slate-800">
+          <CardContent className="pt-0 text-sm text-emerald-700/90">
+            <div className="flex items-center gap-1 font-medium text-emerald-800">
               Steady performance increase <ArrowUpRight className="h-4 w-4" />
             </div>
             <CardDescription>Meets growth projections</CardDescription>
@@ -191,24 +183,33 @@ export default function AdminHome() {
         <CardHeader className="pb-0">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Total Visitors</CardTitle>
+              <CardTitle className="text-emerald-900">Total Visitors</CardTitle>
               <CardDescription>Total for the selected range</CardDescription>
             </div>
             <div className="flex gap-2">
               <Button
                 variant={range === "90d" ? "default" : "outline"}
+                className={range === "90d"
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                  : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"}
                 onClick={() => setRange("90d")}
               >
                 Last 3 months
               </Button>
               <Button
                 variant={range === "30d" ? "default" : "outline"}
+                className={range === "30d"
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                  : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"}
                 onClick={() => setRange("30d")}
               >
                 Last 30 days
               </Button>
               <Button
                 variant={range === "7d" ? "default" : "outline"}
+                className={range === "7d"
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                  : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"}
                 onClick={() => setRange("7d")}
               >
                 Last 7 days
@@ -217,66 +218,36 @@ export default function AdminHome() {
           </div>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="h-[300px] w-full">
+          <div className="h-[300px] w-full text-emerald-600">
+            {/* ^ currentColor for the line/area will be emerald via this wrapper */}
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={series} margin={{ left: 8, right: 8 }}>
                 <defs>
-                  <linearGradient
-                    id="visitorsGradient"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop
-                      offset="0%"
-                      stopColor="currentColor"
-                      stopOpacity={0.25}
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor="currentColor"
-                      stopOpacity={0.03}
-                    />
+                  <linearGradient id="visitorsGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="currentColor" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="currentColor" stopOpacity={0.03} />
                   </linearGradient>
                 </defs>
                 <XAxis
                   dataKey="date"
                   tickFormatter={(d) =>
-                    new Date(d).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    })
+                    new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" })
                   }
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={{ stroke: "#e2e8f0" }}
+                  tick={{ fontSize: 12, fill: "#047857" }}          // emerald-700
+                  axisLine={{ stroke: "#A7F3D0" }}                  // emerald-200
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={{ stroke: "#e2e8f0" }}
+                  tick={{ fontSize: 12, fill: "#047857" }}          // emerald-700
+                  axisLine={{ stroke: "#A7F3D0" }}                  // emerald-200
                   tickLine={false}
                 />
                 <Tooltip
-                  contentStyle={{
-                    borderRadius: 12,
-                    borderColor: "#e2e8f0",
-                  }}
-                  labelFormatter={(d) =>
-                    new Date(d as string).toLocaleDateString()
-                  }
-                  formatter={(value: number) => [
-                    value.toLocaleString(),
-                    "Visitors",
-                  ]}
+                  contentStyle={{ borderRadius: 12, borderColor: "#A7F3D0" }} // emerald-200
+                  labelFormatter={(d) => new Date(d as string).toLocaleDateString()}
+                  formatter={(value: number) => [value.toLocaleString(), "Visitors"]}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="visitors"
-                  strokeWidth={2}
-                  stroke="currentColor"
-                  fill="url(#visitorsGradient)"
-                />
+                <Area type="monotone" dataKey="visitors" strokeWidth={2} stroke="currentColor" fill="url(#visitorsGradient)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -286,29 +257,29 @@ export default function AdminHome() {
       {/* Data Table */}
       <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Recent Metrics</CardTitle>
+          <CardTitle className="text-emerald-900">Recent Metrics</CardTitle>
           <CardDescription>Key stats from the last 14 days</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead className="w-[160px]">Date</TableHead>
-                <TableHead>Metric</TableHead>
-                <TableHead className="text-right">Value</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-[160px] text-emerald-700">Date</TableHead>
+                <TableHead className="text-emerald-700">Metric</TableHead>
+                <TableHead className="text-right text-emerald-700">Value</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rawVisitors.slice(-14).map((row) => (
-                <TableRow key={row.date}>
-                  <TableCell className="text-slate-700">
+                <TableRow key={row.date} className="hover:bg-emerald-50/60">
+                  <TableCell className="text-emerald-900">
                     {new Date(row.date).toLocaleDateString(undefined, {
                       month: "short",
                       day: "numeric",
                     })}
                   </TableCell>
-                  <TableCell className="text-slate-600">Visitors</TableCell>
-                  <TableCell className="text-right font-medium">
+                  <TableCell className="text-emerald-800">Visitors</TableCell>
+                  <TableCell className="text-right font-medium text-emerald-900">
                     {row.visitors.toLocaleString()}
                   </TableCell>
                 </TableRow>
