@@ -13,9 +13,8 @@ type Props = {
   pricePerAf: number;          // dollars (already converted from cents)
   isAuction?: boolean;
   reservePrice?: number | null; // dollars, if applicable
-
-  /** Optional override for where Cancel should go (e.g. "/dashboard?tab=listings") */
-  cancelHref?: string;          // default: "/dashboard"
+  /** Where Cancel should land. Update if your listings tab is different. */
+  cancelHref?: string;          // default: "/dashboard?tab=listings"
 };
 
 export default function ListingActions({
@@ -24,7 +23,7 @@ export default function ListingActions({
   pricePerAf,
   isAuction = false,
   reservePrice = null,
-  cancelHref = "/dashboard",
+  cancelHref = "/dashboard?tab=listings",
 }: Props) {
   const router = useRouter();
 
@@ -125,9 +124,18 @@ export default function ListingActions({
   }
 
   const onCancel = React.useCallback(() => {
-    // Prefer a deterministic return to the dashboard listings tab/page
-    router.push(cancelHref);
-    // If you'd rather mimic browser back behavior, use: router.back();
+    // If we navigated from create page, skip going back there.
+    const ref = typeof document !== "undefined" ? document.referrer : "";
+    const fromCreate = ref.includes("/listings/create");
+
+    // If there is history and we didn't come from create, go back.
+    if (typeof window !== "undefined" && window.history.length > 1 && !fromCreate) {
+      router.back();
+      return;
+    }
+
+    // Otherwise, force a deterministic dashboard listings URL.
+    router.replace(cancelHref);
   }, [router, cancelHref]);
 
   const canBuyNow = kind === "SELL";
@@ -163,7 +171,7 @@ export default function ListingActions({
 
       {/* Form */}
       <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {/* BUY/SELL NOW: price only (note removed) */}
+        {/* BUY/SELL NOW: price only */}
         {isFixed && (
           <div className="sm:col-span-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-end">
@@ -228,9 +236,10 @@ export default function ListingActions({
             {submitting ? actionText(mode) + "…" : actionText(mode)}
           </button>
 
-          {/* Cancel -> go to dashboard/listings */}
+          {/* Cancel -> go back OR force dashboard listings */}
           <button
             type="button"
+            formNoValidate
             onClick={onCancel}
             className="inline-flex h-10 items-center justify-center rounded-xl border border-emerald-300 px-5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
             aria-label="Cancel and go back to Your Listing dashboard"
