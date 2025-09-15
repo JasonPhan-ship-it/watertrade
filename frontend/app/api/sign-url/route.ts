@@ -28,71 +28,53 @@ function maskEmail(e?: string | null) {
   return `${local[0] ?? ""}…@${domain}`;
 }
 
-/* ---------------- Dropbox Sign SDK (lazy) ---------------- */
-let SignatureRequestApi: any;
-let EmbeddedApi: any;
-let TemplateApi: any;
-let ApiAppApi: any;
-let AccountApi: any;
-let dropboxApiKey = "";
+/* ---------------- DocuSign SDK (lazy) ---------------- */
+let docusign: any = null;
+let jwtApiClient: any = null;
 
-async function loadDropbox() {
-  if (SignatureRequestApi && EmbeddedApi && TemplateApi && ApiAppApi && AccountApi) return;
-  const mod = await import("@dropbox/sign").catch(() => null);
+async function loadDocuSign() {
+  if (docusign && jwtApiClient) return;
+  const mod = await import("docusign-esign").catch(() => null);
   if (!mod) return;
+  docusign = mod;
 
-  SignatureRequestApi = new mod.SignatureRequestApi();
-  EmbeddedApi = new mod.EmbeddedApi();
-  TemplateApi = new mod.TemplateApi();
-  ApiAppApi = new mod.ApiAppApi();
-  AccountApi = new mod.AccountApi();
+  const basePath = process.env.DOCUSIGN_BASE_PATH || "https://account-d.docusign.com";
+  const integrationKey = process.env.DOCUSIGN_INTEGRATION_KEY || "";
+  const userId = process.env.DOCUSIGN_USER_ID || "";
+  const privateKeyB64 = process.env.DOCUSIGN_PRIVATE_KEY_B64 || "";
+  const privateKey = privateKeyB64 ? Buffer.from(privateKeyB64, "base64").toString("utf8") : "";
 
-  dropboxApiKey = process.env.DROPBOX_SIGN_API_KEY || "";
-  if (dropboxApiKey) {
-    SignatureRequestApi.username = dropboxApiKey;
-    EmbeddedApi.username = dropboxApiKey;
-    TemplateApi.username = dropboxApiKey;
-    ApiAppApi.username = dropboxApiKey;
-    AccountApi.username = dropboxApiKey;
-  }
+  const apiClient = new docusign.ApiClient();
+  apiClient.setOAuthBasePath(new URL(basePath).hostname);
+  jwtApiClient = {
+    apiClient,
+    basePath,
+    integrationKey,
+    userId,
+    privateKey,
+    scopes: ["signature", "impersonation"],
+  };
 }
 
-/* ---------------- REST config (template create) ---------------- */
-const DBX_BASE = process.env.DROPBOX_SIGN_BASE_URL || "https://api.hellosign.com/v3";
-function dbxAuthHeader(apiKey: string) {
-  return `Basic ${Buffer.from(`${apiKey}:`, "utf8").toString("base64")}`;
-}
-
-/* ---------------- error normalizer ---------------- */
-function parseDropboxError(e: any) {
-  const status =
-    e?.status ?? e?.response?.status ?? e?.response?.statusCode ?? e?.statusCode ?? 500;
-
-  const texts = [
-    e?.response?.text,
-    e?.response?.res?.text,
-    e?.response?.error?.text,
-    e?.text,
-    e?.message,
-  ].filter((x) => typeof x === "string" && x);
-
-  let body = e?.response?.body ?? null;
-  for (const t of texts) {
-    if (!body) {
-      try {
-        body = JSON.parse(t as string);
-      } catch {}
-    }
+async function getAccessToken(): Promise<{ accessToken: string; expiresAt: number }> {
+  if (!docusign || !jwtApiClient) await loadDocuSign();
+  if (!jwtApiClient?.privateKey || !jwtApiClient?.integrationKey || !jwtApiClient?.userId) {
+    throw new Error("DocuSign credentials missing: check DOCUSIGN_INTEGRATION_KEY, DOCUSIGN_USER_ID, DOCUSIGN_PRIVATE_KEY_B64");
   }
 
-  const err = body?.error || body?.errors?.[0] || body || {};
-  const name =
-    err?.error_name ||
-    err?.type ||
-    (status === 401 || status === 403 ? "unauthorized" : "dropbox_sign_error");
-  const message = err?.error_msg || err?.message || texts.find(Boolean) || "HTTP request failed";
-
-  return { status, name, message, raw: body || texts[0] || e?.message || e };
+  const dsApi = jwtApiClient.apiClient;
+  // 10 minutes before expiry safety margin
+  const targetLifetime = 60 * 60; // 1 hour
+  const results = await dsApi.requestJWTUserToken(
+    jwtApiClient.integrationKey,
+    jwtApiClient.userId,
+    jwtApiClient.scopes,
+    jwtApiClient.privateKey,
+    targetLifetime
+  );
+  const accessToken = results.body.access_token;
+  const expiresAt = Math.floor(Date.now() / 1000) + (results.body.expires_in ?? targetLifetime) - 600;
+  return { accessToken, expiresAt };
 }
 
 /* ---------------- resolve signer ---------------- */
@@ -150,42 +132,22 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
   return { email: email ?? null, name: name || "Signer" };
 }
 
-/* ---------------- template metadata ---------------- */
-async function getTemplateMeta(templateId: string): Promise<{
-  signerRoles: string[];
-  ccRoles: string[];
-  mergeFields: Array<{ name: string; required?: boolean }>;
-} | null> {
-  if (!TemplateApi || !dropboxApiKey || !templateId) return null;
-  try {
-    const res = await TemplateApi.templateGet(templateId);
-    const tpl: any = res?.body?.template ?? null;
-    const signerRoles =
-      tpl?.signerRoles?.map((r: any) => r?.name).filter(Boolean) ??
-      tpl?.signer_roles?.map((r: any) => r?.name).filter(Boolean) ??
-      [];
-    const ccRoles =
-      tpl?.ccRoles?.map((r: any) => r?.role).filter(Boolean) ??
-      tpl?.cc_roles?.map((r: any) => r?.role).filter(Boolean) ??
-      [];
-    const mergeFields =
-      tpl?.mergeFields
-        ?.map((f: any) => ({ name: f?.name, required: f?.required }))
-        ?.filter((f: any) => !!f.name) ??
-      tpl?.merge_fields
-        ?.map((f: any) => ({ name: f?.name, required: f?.required }))
-        ?.filter((f: any) => !!f.name) ??
-      [];
-    return { signerRoles, ccRoles, mergeFields };
-  } catch {
-    return null;
-  }
+/* ---------------- helpers: fetch & base64 ---------------- */
+async function fetchAsBase64(url: string): Promise<{ name: string; data: string }> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch file: ${res.status} ${res.statusText}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const contentDisp = res.headers.get("content-disposition") || "";
+  const fromDisp = /filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i.exec(contentDisp);
+  const rawName = decodeURIComponent(fromDisp?.[1] || fromDisp?.[2] || "");
+  const guessedName = rawName || new URL(url).pathname.split("/").pop() || "document.pdf";
+  return { name: guessedName, data: buf.toString("base64") };
 }
 
 /* ---------------- route handler ---------------- */
 export async function GET(req: NextRequest) {
   try {
-    await loadDropbox();
+    await loadDocuSign();
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
@@ -217,7 +179,7 @@ export async function GET(req: NextRequest) {
     const fallbackEmail = `no-email+${trade.id}@example.com`;
     const seller = { email: sellerResolved.email || fallbackEmail, name: sellerResolved.name || "Seller" };
     const buyer  = { email: buyerResolved.email  || fallbackEmail, name: buyerResolved.name  || "Buyer"  };
-    if (seller.email.toLowerCase() === buyer.email.toLowerCase()) {
+    if ((seller.email || "").toLowerCase() === (buyer.email || "").toLowerCase()) {
       buyer.email = plusAlias(buyer.email, `buyer.${trade.id.slice(-6)}`);
     }
 
@@ -273,186 +235,191 @@ export async function GET(req: NextRequest) {
     }
 
     /* -------- config -------- */
-    const clientId = process.env.DROPBOX_SIGN_CLIENT_ID || "";
-    const browserClientId = process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID || "";
-    const templateId = process.env.DROPBOX_SIGN_TEMPLATE_ID || "";
-    const fileUrl = process.env.DROPBOX_SIGN_FILE_URL || "";
+    const accountId = process.env.DOCUSIGN_ACCOUNT_ID || "";
+    const templateId = process.env.DOCUSIGN_TEMPLATE_ID || "";
+    const fileUrl = process.env.DOCUSIGN_FILE_URL || "";
+    const ENV_SELLER = process.env.DOCUSIGN_ROLE_SELLER || "seller";
+    const ENV_BUYER = process.env.DOCUSIGN_ROLE_BUYER || "buyer";
+    const returnUrl = process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return";
+    const pingUrl = process.env.DOCUSIGN_PING_URL || "";
 
-    const ENV_SELLER = process.env.DROPBOX_SIGN_ROLE_SELLER || "seller";
-    const ENV_BUYER = process.env.DROPBOX_SIGN_ROLE_BUYER || "buyer";
-
-    const testMode =
-      process.env.DROPBOX_SIGN_TEST_MODE === "1"
-        ? 1
-        : process.env.NODE_ENV !== "production"
-        ? 1
-        : 0;
-
-    /* ---- sanity: ids present ---- */
-    if (!clientId) {
+    if (!accountId) {
       return NextResponse.json(
-        { error: "Dropbox Sign client_id missing on server (DROPBOX_SIGN_CLIENT_ID)" },
-        { status: 500 }
-      );
-    }
-    if (!dropboxApiKey) {
-      return NextResponse.json(
-        { error: "Dropbox Sign API key missing (DROPBOX_SIGN_API_KEY)" },
+        { error: "DocuSign accountId missing (DOCUSIGN_ACCOUNT_ID)" },
         { status: 500 }
       );
     }
 
-    /* ---- very common cause: server vs browser clientId mismatch ---- */
-    const serverVsBrowserClientIdMismatch =
-      !!browserClientId && browserClientId !== clientId;
-    if (serverVsBrowserClientIdMismatch) {
-      return NextResponse.json(
-        {
-          error: "Server and browser client IDs differ",
-          reason:
-            "DROPBOX_SIGN_CLIENT_ID (server) must equal NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID (browser) for embedded signing.",
-          details: {
-            serverClientIdMasked: mask(clientId),
-            browserClientIdMasked: mask(browserClientId),
-          },
-        },
-        { status: 422 }
-      );
-    }
-
-    /* -------- diagnostics: try to fetch owner info, but don't block if unavailable -------- */
-    let whoami: { account_id?: string; email_address?: string } | null = null;
-    let whoamiError: any = null;
+    // OAuth
+    let access: { accessToken: string; expiresAt: number };
     try {
-      const acctRes = await AccountApi.accountGet();
-      whoami = {
-        account_id: acctRes?.body?.account?.account_id,
-        email_address: acctRes?.body?.account?.email_address,
-      };
+      access = await getAccessToken();
     } catch (e: any) {
-      whoamiError = parseDropboxError(e);
-    }
-
-    let appInfo:
-      | {
-          client_id?: string;
-          name?: string;
-          owner_account_id?: string;
-          is_embedded?: boolean;
-          domains?: string[];
-        }
-      | null = null;
-    let appInfoError: any = null;
-    try {
-      if (clientId) {
-        const appRes = await ApiAppApi.apiAppGet(clientId);
-        appInfo = {
-          client_id: appRes?.body?.api_app?.client_id,
-          name: appRes?.body?.api_app?.name,
-          owner_account_id: appRes?.body?.api_app?.owner_account_id,
-          is_embedded: !!appRes?.body?.api_app?.options?.can_use_embedded_signing,
-          domains: (appRes?.body?.api_app?.domains || [])
-            .map((d: any) => d?.value)
-            .filter(Boolean),
-        };
-      }
-    } catch (e: any) {
-      appInfoError = parseDropboxError(e);
-    }
-
-    const haveOwnershipData = !!(whoami?.account_id && appInfo?.owner_account_id);
-    const sameOwner = haveOwnershipData && whoami!.account_id === appInfo!.owner_account_id;
-
-    if (haveOwnershipData && !sameOwner) {
       return NextResponse.json(
-        {
-          error: "Invalid client_id / API key pairing",
-          reason:
-            "The API key's account is not the owner of the Dropbox Sign app (client_id). Use an API key from the same account that owns the app.",
-          details: {
-            clientIdMasked: mask(clientId),
-            apiKeyAccountId: whoami?.account_id || null,
-            apiKeyEmail: whoami?.email_address || null,
-            appOwnerAccountId: appInfo?.owner_account_id || null,
-          },
-        },
-        { status: 422 }
-      );
-    }
-    if (appInfo && haveOwnershipData && !appInfo.is_embedded) {
-      return NextResponse.json(
-        {
-          error: "Embedded Signing is not enabled for this Dropbox Sign app",
-          details: {
-            clientIdMasked: mask(clientId),
-            appName: appInfo?.name || null,
-            domains: appInfo?.domains || [],
-          },
-          hint:
-            "Enable Embedded Signing for this app in the Dropbox Sign dashboard and add your allowed domains.",
-        },
-        { status: 422 }
+        { error: e?.message || "Failed to obtain DocuSign access token" },
+        { status: 500 }
       );
     }
 
-    /* -------- template meta / roles -------- */
-    const meta = templateId ? await getTemplateMeta(templateId) : null;
-    const tplRoles: string[] = meta?.signerRoles ?? [];
-    const mapRole = (want: "seller" | "buyer") => {
-      const desired = want === "seller" ? ENV_SELLER : ENV_BUYER;
-      if (!tplRoles.length) return desired;
-      const exact = tplRoles.find((r: string) => r === desired);
-      if (exact) return exact;
-      const ci = tplRoles.find((r: string) => r.toLowerCase() === want);
-      if (ci) return ci;
-      const sub = tplRoles.find((r: string) => r.toLowerCase().includes(want));
-      return sub || desired;
-    };
-    const sellerRoleName = mapRole("seller");
-    const buyerRoleName = mapRole("buyer");
+    // API clients
+    const apiClient = new docusign.ApiClient();
+    apiClient.setBasePath(process.env.DOCUSIGN_BASE_PATH ? new URL(process.env.DOCUSIGN_BASE_PATH).origin.replace("account", "demo").replace("account-d", "demo") : "https://demo.docusign.net/restapi");
+    apiClient.addDefaultHeader("Authorization", "Bearer " + access.accessToken);
+
+    const envelopesApi = new docusign.EnvelopesApi(apiClient);
+
+    /* -------- map roles -------- */
+    const sellerRoleName = ENV_SELLER;
+    const buyerRoleName = ENV_BUYER;
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
-    const signersPayload = [
-      { role: sellerRoleName, email_address: seller.email, name: seller.name },
-      { role: buyerRoleName, email_address: buyer.email, name: buyer.name },
-    ];
+    /* -------- custom fields (tabs) -------- */
+    // Note: For template-based flows, prefill via "templateRoles[x].tabs.textTabs".
+    const customPairs: Record<string, string> = {
+      trade_id: trade.id || "",
+      transaction_id: trade.transactionId || "",
+      listing_id: trade.listingId || "",
+      district: trade.district || "",
+      water_type: trade.waterType || "",
+      price_per_af: typeof trade.pricePerAf === "number" ? (trade.pricePerAf / 100).toFixed(2) : "",
+      volume_af: typeof trade.volumeAf === "number" ? String(trade.volumeAf) : "",
+      seller_name: seller.name || "",
+      seller_email: seller.email || "",
+      buyer_name: buyer.name || "",
+      buyer_email: buyer.email || "",
+    };
 
-    const ccRoles: string[] = meta?.ccRoles ?? [];
-    const ccEmailsByRole = Object.fromEntries(
-      ccRoles.map((role) => {
-        const key = `DROPBOX_SIGN_CC_${role.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}`;
-        const email = process.env[key] || process.env.DROPBOX_SIGN_CC_DEFAULT || "";
-        return [role, email];
-      })
-    );
-    const ccsPayload = Object.entries(ccEmailsByRole)
-      .filter(([, email]) => !!email)
-      .map(([role, email]) => ({ role, email_address: email as string }));
+    /* -------- build envelope -------- */
+    let envelopeDefinition: any = new docusign.EnvelopeDefinition();
+    envelopeDefinition.emailSubject = `Water Traders – Trade ${trade.id}`;
+    envelopeDefinition.emailBlurb = "Please review and sign the Water Traders agreement.";
 
-    const customFields: Array<{ name: string; value: string }> = [];
-    if (meta?.mergeFields?.length) {
-      const valFor = (name: string) => {
-        const n = name.toLowerCase();
-        if (n === "trade_id" || n === "tradeid") return trade.id || "";
-        if (n === "transaction_id" || n === "transactionid") return trade.transactionId || "";
-        if (n === "listing_id" || n === "listingid") return trade.listingId || "";
-        if (n === "district") return trade.district || "";
-        if (n === "water_type" || n === "watertype") return trade.waterType || "";
-        if (n === "price_per_af" || n === "price" || n === "price_usd_af") {
-          return typeof trade.pricePerAf === "number" ? (trade.pricePerAf / 100).toFixed(2) : "";
-        }
-        if (n === "volume_af" || n === "volume" || n === "acre_feet") {
-          return typeof trade.volumeAf === "number" ? String(trade.volumeAf) : "";
-        }
-        if (n === "seller_name") return seller.name || "";
-        if (n === "seller_email") return seller.email || "";
-        if (n === "buyer_name") return buyer.name || "";
-        if (n === "buyer_email") return buyer.email || "";
-        return "";
-      };
-      for (const f of meta.mergeFields) {
-        customFields.push({ name: f.name, value: String(valFor(f.name) || "") || "-" });
-      }
+    if (templateId) {
+      // With template
+      const sellerRole = new docusign.TemplateRole();
+      sellerRole.roleName = sellerRoleName;
+      sellerRole.name = seller.name;
+      sellerRole.email = seller.email;
+
+      const buyerRole = new docusign.TemplateRole();
+      buyerRole.roleName = buyerRoleName;
+      buyerRole.name = buyer.name;
+      buyerRole.email = buyer.email;
+
+      // Prefill text fields if your template has matching data labels
+      const toTextTabs = (pairs: Record<string, string>) =>
+        Object.entries(pairs).map(([label, value]) => {
+          const t = new docusign.Text();
+          t.tabLabel = label; // must match the Template's Data Label exactly
+          t.value = value ?? "";
+          return t;
+        });
+
+      sellerRole.tabs = new docusign.Tabs();
+      buyerRole.tabs = new docusign.Tabs();
+      sellerRole.tabs.textTabs = toTextTabs(customPairs);
+      buyerRole.tabs.textTabs = toTextTabs(customPairs);
+
+      envelopeDefinition.templateId = templateId;
+      envelopeDefinition.templateRoles = [sellerRole, buyerRole];
+
+    } else if (fileUrl) {
+      // From a file URL (download and attach)
+      const { name, data } = await fetchAsBase64(fileUrl);
+      const doc = new docusign.Document();
+      doc.documentBase64 = data;
+      doc.name = name;
+      doc.fileExtension = (name.split(".").pop() || "pdf").toLowerCase();
+      doc.documentId = "1";
+
+      envelopeDefinition.documents = [doc];
+
+      // Recipients: create two signers; your routing order can be enforced if desired
+      const sellerSigner = new docusign.Signer();
+      sellerSigner.email = seller.email;
+      sellerSigner.name = seller.name;
+      sellerSigner.recipientId = "1";
+      sellerSigner.clientUserId = sellerRoleName; // required for embedded
+
+      const buyerSigner = new docusign.Signer();
+      buyerSigner.email = buyer.email;
+      buyerSigner.name = buyer.name;
+      buyerSigner.recipientId = "2";
+      buyerSigner.clientUserId = buyerRoleName;
+
+      envelopeDefinition.recipients = new docusign.Recipients();
+      envelopeDefinition.recipients.signers = [sellerSigner, buyerSigner];
+    } else {
+      return NextResponse.json(
+        { error: "No template or file configured. Set DOCUSIGN_TEMPLATE_ID or DOCUSIGN_FILE_URL." },
+        { status: 422 }
+      );
+    }
+
+    envelopeDefinition.status = "sent";
+
+    /* -------- create envelope -------- */
+    let envelopeSummary;
+    try {
+      envelopeSummary = await envelopesApi.createEnvelope(accountId, { envelopeDefinition });
+    } catch (e: any) {
+      return NextResponse.json(
+        {
+          error: "DocuSign createEnvelope failed",
+          details: e?.response?.text || e?.message || String(e),
+        },
+        { status: 502 }
+      );
+    }
+
+    const envelopeId = envelopeSummary?.envelopeId;
+    if (!envelopeId) {
+      return NextResponse.json(
+        { error: "DocuSign did not return an envelopeId", raw: envelopeSummary || null },
+        { status: 502 }
+      );
+    }
+
+    /* -------- recipient view (embedded sign URL) -------- */
+    // For embedded signing with templates, we must specify the role's recipient.
+    // We use clientUserId to force embedded signer.
+    const isSeller = effectiveRole === "seller";
+    const signerEmail = isSeller ? seller.email : buyer.email;
+    const signerName = isSeller ? seller.name : buyer.name;
+    const clientUserId = isSeller ? sellerRoleName : buyerRoleName;
+
+    // If using a template, ensure the TemplateRole's roleName matches your template,
+    // and that you used the same clientUserId above (DocuSign uses name+email+clientUserId triple).
+    const viewRequest = new docusign.RecipientViewRequest();
+    viewRequest.returnUrl = returnUrl;
+    if (pingUrl) {
+      viewRequest.pingUrl = pingUrl;
+      viewRequest.pingFrequency = 600; // seconds
+    }
+    viewRequest.authenticationMethod = "none";
+    viewRequest.email = signerEmail;
+    viewRequest.userName = signerName;
+    viewRequest.clientUserId = clientUserId;
+
+    let recipientView;
+    try {
+      recipientView = await envelopesApi.createRecipientView(accountId, envelopeId, { recipientViewRequest: viewRequest });
+    } catch (e: any) {
+      return NextResponse.json(
+        {
+          error: "DocuSign createRecipientView failed",
+          details: e?.response?.text || e?.message || String(e),
+        },
+        { status: 502 }
+      );
+    }
+
+    const signUrl = recipientView?.url;
+    if (!signUrl) {
+      return NextResponse.json(
+        { error: "Failed to get embedded signing URL from DocuSign", raw: recipientView || null },
+        { status: 500 }
+      );
     }
 
     /* -------- debug short-circuit -------- */
@@ -460,16 +427,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         debug: {
-          hasSdk: Boolean(SignatureRequestApi && EmbeddedApi),
-          hasTemplateApi: Boolean(TemplateApi),
-          apiKeyPresent: Boolean(dropboxApiKey),
-          clientIdPresent: Boolean(clientId),
-          clientIdMasked: mask(clientId),
-          templateId,
-          fileUrlPresent: Boolean(fileUrl),
-          templateRoles: tplRoles.length ? tplRoles : null,
-          ccRoles,
-          mergeFields: meta?.mergeFields ?? [],
+          provider: "docusign",
+          accountIdMasked: mask(process.env.DOCUSIGN_ACCOUNT_ID || ""),
+          integrationKeyMasked: mask(process.env.DOCUSIGN_INTEGRATION_KEY || ""),
+          userIdMasked: mask(process.env.DOCUSIGN_USER_ID || ""),
+          templateId: templateId || null,
+          fileUrlPresent: !!fileUrl,
           viewer: {
             role: (viewer as any)?.role ?? null,
             authedEmailsMasked: authedEmails.map(maskEmail),
@@ -478,223 +441,16 @@ export async function GET(req: NextRequest) {
           requestedRole,
           effectiveRole,
           targetRole,
-          signersPayload,
-          emailsDistinct: seller.email.toLowerCase() !== buyer.email.toLowerCase(),
-          ccsPayload,
-          customFields,
-          signerForViewer:
-            targetRole === sellerRoleName
-              ? { email: seller.email, name: seller.name }
-              : { email: buyer.email, name: buyer.name },
-          testMode,
-          tradeId: trade.id,
-          tradeStatus: trade.status,
-
-          // Ownership / app diagnostics
-          whoami,
-          whoamiError,
-          appInfo,
-          appInfoError,
-          haveOwnershipData,
-          sameOwner,
-
-          // Server vs Browser
-          browserClientIdMasked: mask(browserClientId),
-          serverVsBrowserClientIdMismatch,
+          seller,
+          buyer,
+          envelopeId,
+          returnUrl,
+          pingUrl,
         },
       });
     }
 
-    /* -------- create embedded request -------- */
-    let signatureId: string | undefined;
-
-    if (templateId) {
-      if (tplRoles.length && !tplRoles.includes(targetRole)) {
-        return NextResponse.json(
-          {
-            error: "Template role mismatch",
-            details: `Template expects roles: ${tplRoles.join(", ")}, got "${targetRole}".`,
-            hint:
-              "Update DROPBOX_SIGN_ROLE_SELLER / DROPBOX_SIGN_ROLE_BUYER to match the template, or rename roles in the template.",
-          },
-          { status: 422 }
-        );
-      }
-
-      try {
-        const form = new URLSearchParams();
-        form.set("client_id", clientId);
-        form.set("test_mode", String(testMode ? 1 : 0));
-        form.append("template_ids[]", templateId);
-
-        signersPayload.forEach((s, i) => {
-          form.set(`signers[${i}][role]`, s.role);
-          form.set(`signers[${i}][email_address]`, s.email_address);
-          form.set(`signers[${i}][name]`, s.name);
-        });
-
-        ccsPayload.forEach((c, j) => {
-          form.set(`ccs[${j}][role]`, c.role);
-          form.set(`ccs[${j}][email_address]`, c.email_address);
-        });
-
-        if (customFields.length) {
-          form.set("custom_fields", JSON.stringify(customFields));
-        }
-
-        const createResp = await fetch(
-          `${DBX_BASE}/signature_request/create_embedded_with_template`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: dbxAuthHeader(dropboxApiKey),
-              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-              Accept: "application/json",
-            },
-            body: form.toString(),
-          }
-        );
-
-        const createText = await createResp.text();
-        let createBody: any = null;
-        try {
-          createBody = createText ? JSON.parse(createText) : null;
-        } catch {}
-
-        if (!createResp.ok) {
-          const errName =
-            createBody?.error?.error_name || createResp.statusText || "dropbox_sign_error";
-          const errMsg = createBody?.error?.error_msg || "HTTP request failed";
-          return NextResponse.json(
-            {
-              error: errMsg,
-              provider: "dropbox_sign",
-              code: errName,
-              status: createResp.status,
-              raw: createBody ?? createText ?? null,
-            },
-            { status: createResp.status || 502 }
-          );
-        }
-
-        const signatures: any[] =
-          createBody?.signature_request?.signatures ||
-          createBody?.signatureRequest?.signatures ||
-          [];
-
-        signatureId =
-          signatures.find(
-            (s: any) =>
-              ((s?.signer_role || s?.role || "") as string).toLowerCase() ===
-              targetRole.toLowerCase()
-          )?.signature_id ||
-          signatures[0]?.signature_id ||
-          signatures[0]?.signatureId;
-
-        if (!signatureId) {
-          return NextResponse.json(
-            { error: "No signature_id returned by Dropbox Sign", raw: createBody ?? createText },
-            { status: 502 }
-          );
-        }
-      } catch (e: any) {
-        const info = parseDropboxError(e);
-        console.error("[sign-url] create-with-template (REST) failed", info);
-        return NextResponse.json(
-          {
-            error: info.message,
-            provider: "dropbox_sign",
-            code: info.name,
-            status: info.status,
-            raw: info.raw ?? null,
-          },
-          { status: info.status || 502 }
-        );
-      }
-    } else if (fileUrl) {
-      try {
-        const created = await SignatureRequestApi.signatureRequestCreateEmbedded({
-          client_id: clientId,
-          title: `Water Traders – Trade ${trade.id}`,
-          subject: "Sign the Water Traders agreement",
-          message: "Please review and sign.",
-          signers: [
-            {
-              email_address: effectiveRole === "seller" ? seller.email : buyer.email,
-              name: effectiveRole === "seller" ? seller.name : buyer.name,
-              role: "signer",
-            },
-          ],
-          file_urls: [fileUrl],
-          test_mode: testMode,
-        } as any);
-
-        const sr =
-          created?.body?.signature_request || created?.body?.signatureRequest || created?.signatureRequest;
-        const sigs: any[] = sr?.signatures || [];
-        signatureId = sigs[0]?.signature_id || sigs[0]?.signatureId;
-        if (!signatureId) {
-          return NextResponse.json(
-            { error: "No signature_id returned by Dropbox Sign", raw: created?.body ?? null },
-            { status: 502 }
-          );
-        }
-      } catch (e: any) {
-        const info = parseDropboxError(e);
-        console.error("[sign-url] create-embedded (file) failed", info);
-        return NextResponse.json(
-          {
-            error: info.message,
-            provider: "dropbox_sign",
-            code: info.name,
-            status: info.status,
-            raw: info.raw ?? null,
-          },
-          { status: info.status || 502 }
-        );
-      }
-    } else {
-      return NextResponse.json(
-        {
-          error:
-            "No template or fileUrl configured. Set DROPBOX_SIGN_TEMPLATE_ID or DROPBOX_SIGN_FILE_URL.",
-        },
-        { status: 422 }
-      );
-    }
-
-    /* -------- embedded sign URL -------- */
-    try {
-      const embeddedResp = await EmbeddedApi.embeddedSignUrl(signatureId!);
-      const embeddedBody = embeddedResp?.body || embeddedResp;
-      const embeddedObj =
-        embeddedBody?.embedded ||
-        embeddedBody?.Embedded ||
-        embeddedBody?.data?.embedded ||
-        embeddedBody;
-      const signUrl = embeddedObj?.sign_url || embeddedObj?.signUrl;
-
-      if (!signUrl) {
-        return NextResponse.json(
-          { error: "Failed to get embedded URL", raw: embeddedBody ?? null },
-          { status: 500 }
-        );
-      }
-      return NextResponse.json({ url: signUrl, testMode });
-    } catch (e: any) {
-      const info = parseDropboxError(e);
-      console.error("[sign-url] embeddedSignUrl failed", info);
-      return NextResponse.json(
-        {
-          error: info.message,
-          provider: "dropbox_sign",
-          code: info.name,
-          status: info.status,
-          raw: info.raw ?? null,
-        },
-        { status: info.status || 502 }
-      );
-    }
+    return NextResponse.json({ url: signUrl });
   } catch (e: any) {
     console.error("[sign-url] error", e);
     return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
