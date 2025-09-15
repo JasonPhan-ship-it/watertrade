@@ -41,7 +41,7 @@ function json(data: any, init?: ResponseInit) {
   return noCacheHeaders(NextResponse.json(data, init));
 }
 
-/* ---- DOCUSIGN OAUTH BASE NORMALIZER (prevents 404 at JWT) ---- */
+/* ---- DOCUSIGN OAUTH BASE NORMALIZER ---- */
 function normalizeOAuthBase(input?: string) {
   const raw = (input || "").trim() || "https://account-d.docusign.com";
   let url: URL;
@@ -56,7 +56,7 @@ function normalizeOAuthBase(input?: string) {
   if (!allowed.has(host)) {
     throw new Error(
       `DOCUSIGN_BASE_PATH host must be "account-d.docusign.com" (demo) or "account.docusign.com" (prod). ` +
-      `Do not use "demo.docusign.net" and do not append "/restapi". Got host "${host}".`
+      `Do not use "demo.docusign.net" or append "/restapi". Got host "${host}".`
     );
   }
   return { oauthBase: `https://${host}`, oauthHost: host };
@@ -98,13 +98,12 @@ async function loadDocuSign() {
   const privateKey = readDocuSignPrivateKey();
 
   const apiClient = new docusign.ApiClient();
-  // SDK expects only host (no protocol) for OAuth
-  apiClient.setOAuthBasePath(oauthHost);
+  apiClient.setOAuthBasePath(oauthHost); // host only
 
   jwtApiClient = {
     apiClient,
-    oauthBase,   // e.g., https://account-d.docusign.com
-    oauthHost,   // e.g., account-d.docusign.com
+    oauthBase,   // full https://account(-d).docusign.com
+    oauthHost,   // account(-d).docusign.com
     integrationKey,
     userId,
     privateKey,
@@ -119,7 +118,14 @@ function parseErr(e: any) {
   return { status, text, body };
 }
 
-async function getAccessToken(): Promise<{ accessToken: string; expiresAt: number }> {
+function buildConsentUrl(oauthBase: string, clientId: string, returnUrl?: string) {
+  const redirect = returnUrl || "https://example.com/docusign/return";
+  return `${oauthBase}/oauth/auth?response_type=code&scope=signature%20impersonation&client_id=${encodeURIComponent(
+    clientId
+  )}&redirect_uri=${encodeURIComponent(redirect)}`;
+}
+
+async function getAccessToken(): Promise<{ accessToken: string; expiresAt: number, diag?: any }> {
   if (!docusign || !jwtApiClient) await loadDocuSign();
 
   const { integrationKey, userId, privateKey, apiClient, oauthBase, oauthHost } = jwtApiClient || {};
@@ -144,22 +150,34 @@ async function getAccessToken(): Promise<{ accessToken: string; expiresAt: numbe
     return { accessToken, expiresAt };
   } catch (e: any) {
     const status = e?.response?.status ?? e?.status ?? null;
-    const body = e?.response?.body || e?.body || null;
+    const body = e?.response?.body || e?.body || {};
     const text = e?.response?.text || e?.message || String(e);
+    const error = body?.error || null;
+    const description = body?.error_description || text || null;
 
-    const consentUrl =
-      `${oauthBase}/oauth/auth?response_type=code&scope=signature%20impersonation&client_id=${encodeURIComponent(
-        integrationKey
-      )}&redirect_uri=${encodeURIComponent(process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return")}`;
+    // Build targeted hint + consentUrl when applicable
+    let hint = "Check that your Integration Key, User GUID, and RSA key belong to the same environment (demo vs prod).";
+    const consentUrl = buildConsentUrl(oauthBase, integrationKey, process.env.DOCUSIGN_RETURN_URL);
 
-    const hint =
-      status === 404
-        ? `Your DOCUSIGN_BASE_PATH is not an OAuth host. Use ${oauthBase} (host: ${oauthHost}).`
-        : body?.error === "consent_required"
-        ? `Consent required. Open once (logged in as the API user): ${consentUrl}`
-        : "Check that Integration Key and API User GUID belong to the same environment (demo vs prod).";
+    if (status === 404) {
+      hint = `OAuth host must be ${oauthBase} (host: ${oauthHost}). Do not use demo.docusign.net.`;
+    } else if (error === "consent_required") {
+      hint = `Consent required. Open this in a browser while logged in as the API user: ${consentUrl}`;
+    } else if (error === "invalid_grant") {
+      // Common invalid_grant causes for DocuSign JWT:
+      // - wrong userId (must be the API Username GUID)
+      // - user not in the app's account
+      // - RSA key doesn't match the public key on the app
+      // - clock skew
+      hint = "invalid_grant: Verify USER_ID (API Username GUID), user is in the app's account, RSA keypair matches the app, and server clock is accurate.";
+    } else if (error === "unauthorized_client") {
+      hint = "unauthorized_client: Ensure JWT is enabled on your Integration Key and RSA public key is added to the app.";
+    }
 
-    throw new Error(`JWT token request failed (${status ?? "?"}). ${hint}\nDetails: ${text}`);
+    const diag = { status, error, description, oauthBase, oauthHost, consentUrl };
+    const err = new Error(`JWT token request failed (${status ?? "?"}): ${error || ""} ${description || ""} ${hint}`);
+    (err as any).diag = diag;
+    throw err;
   }
 }
 
@@ -277,7 +295,16 @@ export async function GET(req: NextRequest) {
     const id = searchParams.get("id") || "";
     const debug = searchParams.get("debug") === "1";
     const jsonMode = searchParams.get("json") === "1";
+    const wantConsent = searchParams.get("consent") === "1";
     const roleParam = (searchParams.get("role") || "").toLowerCase();
+
+    // Utility: return consent URL on demand
+    if (wantConsent) {
+      const { oauthBase } = jwtApiClient || {};
+      const clientId = process.env.DOCUSIGN_INTEGRATION_KEY || "";
+      const consentUrl = buildConsentUrl(oauthBase, clientId, process.env.DOCUSIGN_RETURN_URL);
+      return json({ ok: true, consentUrl });
+    }
 
     if (!id) return fail(400, "Missing id");
 
@@ -353,11 +380,22 @@ export async function GET(req: NextRequest) {
 
     /* -------- OAuth -------- */
     PHASE = "jwt.token";
-    let access: { accessToken: string; expiresAt: number };
+    let access: { accessToken: string; expiresAt: number, diag?: any };
     try {
       access = await getAccessToken();
     } catch (e: any) {
-      return fail(500, "Failed to obtain DocuSign access token", e?.message || parseErr(e));
+      // surface diagnostics (error, description, consentUrl) if present
+      const diag = (e as any)?.diag || null;
+      return fail(500, "Failed to obtain DocuSign access token", {
+        message: e?.message || String(e),
+        ...diag,
+        env: {
+          basePath: process.env.DOCUSIGN_BASE_PATH || "",
+          hasPrivateKey: !!(process.env.DOCUSIGN_PRIVATE_KEY || process.env.DOCUSIGN_PRIVATE_KEY_B64),
+          integrationKeyMasked: mask(process.env.DOCUSIGN_INTEGRATION_KEY || ""),
+          userIdMasked: mask(process.env.DOCUSIGN_USER_ID || ""),
+        },
+      });
     }
 
     /* -------- account + REST base -------- */
