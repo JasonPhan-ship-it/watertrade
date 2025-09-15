@@ -18,8 +18,10 @@ function plusAlias(email: string, tag: string) {
   const base = local.split("+")[0];
   return `${base}+${tag}@${domain}`;
 }
-function mask(s: string) {
-  return s ? `${s.slice(0, 6)}…${s.slice(-6)}` : "";
+function mask(s?: string | null, keep = 6) {
+  if (!s) return "";
+  const v = String(s);
+  return v.length <= keep ? `${v.slice(0, 2)}…` : `${v.slice(0, keep)}…${v.slice(-keep)}`;
 }
 function maskEmail(e?: string | null) {
   if (!e) return "";
@@ -32,23 +34,50 @@ function maskEmail(e?: string | null) {
 let docusign: any = null;
 let jwtApiClient: any = null;
 
+/** Accept raw PEM (DOCUSIGN_PRIVATE_KEY), base64-of-PEM (DOCUSIGN_PRIVATE_KEY_B64),
+ *  or base64-of-DER (we'll wrap as PKCS#8 PEM). */
+function readDocuSignPrivateKey(): string {
+  const raw = process.env.DOCUSIGN_PRIVATE_KEY || "";
+  const b64 = process.env.DOCUSIGN_PRIVATE_KEY_B64 || "";
+
+  if (raw) {
+    if (raw.includes("BEGIN") && raw.includes("PRIVATE KEY")) return raw;
+    // raw provided but not a PEM — treat as invalid
+  }
+
+  if (b64) {
+    // Try base64 → utf8: if PEM headers appear, it's base64-of-PEM.
+    try {
+      const asUtf8 = Buffer.from(b64, "base64").toString("utf8");
+      if (asUtf8.includes("BEGIN") && asUtf8.includes("PRIVATE KEY")) return asUtf8;
+    } catch {}
+    // Otherwise assume it's raw DER bytes (or a different base64) and wrap as PEM:
+    try {
+      const der = Buffer.from(b64, "base64");
+      const wrapped = der.toString("base64").match(/.{1,64}/g)?.join("\n") || der.toString("base64");
+      return `-----BEGIN PRIVATE KEY-----\n${wrapped}\n-----END PRIVATE KEY-----\n`;
+    } catch {}
+  }
+
+  return "";
+}
+
 async function loadDocuSign() {
   if (docusign && jwtApiClient) return;
   const mod = await import("docusign-esign").catch(() => null);
   if (!mod) return;
   docusign = mod;
 
-  const basePath = process.env.DOCUSIGN_BASE_PATH || "https://account-d.docusign.com";
+  const oauthBase = process.env.DOCUSIGN_BASE_PATH || "https://account-d.docusign.com";
   const integrationKey = process.env.DOCUSIGN_INTEGRATION_KEY || "";
   const userId = process.env.DOCUSIGN_USER_ID || "";
-  const privateKeyB64 = process.env.DOCUSIGN_PRIVATE_KEY_B64 || "";
-  const privateKey = privateKeyB64 ? Buffer.from(privateKeyB64, "base64").toString("utf8") : "";
+  const privateKey = readDocuSignPrivateKey();
 
   const apiClient = new docusign.ApiClient();
-  apiClient.setOAuthBasePath(new URL(basePath).hostname);
+  apiClient.setOAuthBasePath(new URL(oauthBase).hostname);
   jwtApiClient = {
     apiClient,
-    basePath,
+    oauthBase,
     integrationKey,
     userId,
     privateKey,
@@ -56,25 +85,70 @@ async function loadDocuSign() {
   };
 }
 
+function parseErr(e: any) {
+  const status = e?.response?.status || e?.status || null;
+  const text = e?.response?.text || e?.message || String(e);
+  return { status, text };
+}
+
 async function getAccessToken(): Promise<{ accessToken: string; expiresAt: number }> {
   if (!docusign || !jwtApiClient) await loadDocuSign();
-  if (!jwtApiClient?.privateKey || !jwtApiClient?.integrationKey || !jwtApiClient?.userId) {
-    throw new Error("DocuSign credentials missing: check DOCUSIGN_INTEGRATION_KEY, DOCUSIGN_USER_ID, DOCUSIGN_PRIVATE_KEY_B64");
+
+  if (!jwtApiClient?.privateKey?.includes("PRIVATE KEY")) {
+    throw new Error(
+      "DocuSign private key missing/invalid. Set DOCUSIGN_PRIVATE_KEY (raw PEM) or DOCUSIGN_PRIVATE_KEY_B64 (base64 of PEM/DER)."
+    );
+  }
+  if (!jwtApiClient?.integrationKey || !jwtApiClient?.userId) {
+    throw new Error("Missing DOCUSIGN_INTEGRATION_KEY or DOCUSIGN_USER_ID");
   }
 
-  const dsApi = jwtApiClient.apiClient;
-  // 10 minutes before expiry safety margin
-  const targetLifetime = 60 * 60; // 1 hour
-  const results = await dsApi.requestJWTUserToken(
+  const targetLifetime = 60 * 60; // 1h
+  const res = await jwtApiClient.apiClient.requestJWTUserToken(
     jwtApiClient.integrationKey,
     jwtApiClient.userId,
     jwtApiClient.scopes,
     jwtApiClient.privateKey,
     targetLifetime
   );
-  const accessToken = results.body.access_token;
-  const expiresAt = Math.floor(Date.now() / 1000) + (results.body.expires_in ?? targetLifetime) - 600;
+  const accessToken = res.body.access_token;
+  const expiresAt = Math.floor(Date.now() / 1000) + (res.body.expires_in ?? targetLifetime) - 600;
   return { accessToken, expiresAt };
+}
+
+/** Use /oauth/userinfo to select the correct account and REST base (prevents 404s). */
+async function getUserInfoAndRestBase(accessToken: string) {
+  if (!jwtApiClient) await loadDocuSign();
+  const oauthBase = jwtApiClient.oauthBase || "https://account-d.docusign.com";
+  const resp = await fetch(`${oauthBase}/oauth/userinfo`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const bodyText = await resp.text();
+  let info: any = null;
+  try { info = bodyText ? JSON.parse(bodyText) : null; } catch {}
+
+  if (!resp.ok) {
+    throw new Error(`userinfo failed ${resp.status}: ${bodyText || ""}`);
+  }
+
+  const envAcct = (process.env.DOCUSIGN_ACCOUNT_ID || "").trim();
+  const accounts: any[] = info?.accounts || [];
+  const byEnv = envAcct ? accounts.find(a => a?.account_id === envAcct) : null;
+  const byDefault = accounts.find(a => a?.is_default) || accounts[0];
+  const account = byEnv || byDefault;
+
+  if (!account) throw new Error("No DocuSign account available on /oauth/userinfo");
+
+  if (envAcct && account.account_id !== envAcct) {
+    const available = accounts.map(a => a?.account_id).filter(Boolean).join(", ");
+    throw new Error(`DOCUSIGN_ACCOUNT_ID (${envAcct}) not found on token. Available: ${available}`);
+  }
+
+  const baseUri = (account.base_uri || account.baseUri || info?.base_uri || "").replace(/\/+$/, "");
+  if (!baseUri) throw new Error("No base_uri in /oauth/userinfo response");
+
+  const restBase = `${baseUri}/restapi`;
+  return { accountId: account.account_id, restBase, info, oauthBase };
 }
 
 /* ---------------- resolve signer ---------------- */
@@ -107,8 +181,7 @@ async function resolveSigner(trade: any, role: "seller" | "buyer") {
     try {
       const cl = await clerkClient.users.getUser(u.clerkId);
       name = name || cl.firstName || cl.username || name;
-      const primary = cl.emailAddresses?.find((e) => e.id === cl.primaryEmailAddressId)
-        ?.emailAddress;
+      const primary = cl.emailAddresses?.find((e) => e.id === cl.primaryEmailAddressId)?.emailAddress;
       const firstAny = cl.emailAddresses?.[0]?.emailAddress;
       email = email || primary || firstAny || null;
     } catch {}
@@ -189,9 +262,7 @@ export async function GET(req: NextRequest) {
     if (userId) {
       try {
         const u = await clerkClient.users.getUser(userId);
-        authedEmails =
-          u?.emailAddresses?.map((e) => (e?.emailAddress || "").toLowerCase()).filter(Boolean) ||
-          [];
+        authedEmails = u?.emailAddresses?.map((e) => (e?.emailAddress || "").toLowerCase()).filter(Boolean) || [];
       } catch {}
     }
     const sellerEmailLc = (seller.email || "").toLowerCase();
@@ -235,20 +306,12 @@ export async function GET(req: NextRequest) {
     }
 
     /* -------- config -------- */
-    const accountId = process.env.DOCUSIGN_ACCOUNT_ID || "";
     const templateId = process.env.DOCUSIGN_TEMPLATE_ID || "";
     const fileUrl = process.env.DOCUSIGN_FILE_URL || "";
     const ENV_SELLER = process.env.DOCUSIGN_ROLE_SELLER || "seller";
     const ENV_BUYER = process.env.DOCUSIGN_ROLE_BUYER || "buyer";
     const returnUrl = process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return";
     const pingUrl = process.env.DOCUSIGN_PING_URL || "";
-
-    if (!accountId) {
-      return NextResponse.json(
-        { error: "DocuSign accountId missing (DOCUSIGN_ACCOUNT_ID)" },
-        { status: 500 }
-      );
-    }
 
     // OAuth
     let access: { accessToken: string; expiresAt: number };
@@ -261,11 +324,22 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // API clients
-    const apiClient = new docusign.ApiClient();
-    apiClient.setBasePath(process.env.DOCUSIGN_BASE_PATH ? new URL(process.env.DOCUSIGN_BASE_PATH).origin.replace("account", "demo").replace("account-d", "demo") : "https://demo.docusign.net/restapi");
-    apiClient.addDefaultHeader("Authorization", "Bearer " + access.accessToken);
+    // Account + REST base from userinfo (prevents 404s)
+    let accountId: string, restBase: string, userinfo: any, oauthBase: string;
+    try {
+      const u = await getUserInfoAndRestBase(access.accessToken);
+      accountId = u.accountId;
+      restBase = u.restBase;
+      userinfo = u.info;
+      oauthBase = u.oauthBase;
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || "Failed to resolve DocuSign account/base" }, { status: 500 });
+    }
 
+    // API client bound to the correct cluster
+    const apiClient = new docusign.ApiClient();
+    apiClient.setBasePath(restBase);
+    apiClient.addDefaultHeader("Authorization", "Bearer " + access.accessToken);
     const envelopesApi = new docusign.EnvelopesApi(apiClient);
 
     /* -------- map roles -------- */
@@ -274,7 +348,6 @@ export async function GET(req: NextRequest) {
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
     /* -------- custom fields (tabs) -------- */
-    // Note: For template-based flows, prefill via "templateRoles[x].tabs.textTabs".
     const customPairs: Record<string, string> = {
       trade_id: trade.id || "",
       transaction_id: trade.transactionId || "",
@@ -290,30 +363,31 @@ export async function GET(req: NextRequest) {
     };
 
     /* -------- build envelope -------- */
-    let envelopeDefinition: any = new docusign.EnvelopeDefinition();
+    const envelopeDefinition: any = new docusign.EnvelopeDefinition();
     envelopeDefinition.emailSubject = `Water Traders – Trade ${trade.id}`;
     envelopeDefinition.emailBlurb = "Please review and sign the Water Traders agreement.";
 
     if (templateId) {
       // With template
+      const toTextTabs = (pairs: Record<string, string>) =>
+        Object.entries(pairs).map(([label, value]) => {
+          const t = new docusign.Text();
+          t.tabLabel = label; // must match Template Data Label exactly
+          t.value = value ?? "";
+          return t;
+        });
+
       const sellerRole = new docusign.TemplateRole();
       sellerRole.roleName = sellerRoleName;
       sellerRole.name = seller.name;
       sellerRole.email = seller.email;
+      sellerRole.clientUserId = sellerRoleName; // REQUIRED for embedded view
 
       const buyerRole = new docusign.TemplateRole();
       buyerRole.roleName = buyerRoleName;
       buyerRole.name = buyer.name;
       buyerRole.email = buyer.email;
-
-      // Prefill text fields if your template has matching data labels
-      const toTextTabs = (pairs: Record<string, string>) =>
-        Object.entries(pairs).map(([label, value]) => {
-          const t = new docusign.Text();
-          t.tabLabel = label; // must match the Template's Data Label exactly
-          t.value = value ?? "";
-          return t;
-        });
+      buyerRole.clientUserId = buyerRoleName; // REQUIRED for embedded view
 
       sellerRole.tabs = new docusign.Tabs();
       buyerRole.tabs = new docusign.Tabs();
@@ -322,7 +396,6 @@ export async function GET(req: NextRequest) {
 
       envelopeDefinition.templateId = templateId;
       envelopeDefinition.templateRoles = [sellerRole, buyerRole];
-
     } else if (fileUrl) {
       // From a file URL (download and attach)
       const { name, data } = await fetchAsBase64(fileUrl);
@@ -334,12 +407,12 @@ export async function GET(req: NextRequest) {
 
       envelopeDefinition.documents = [doc];
 
-      // Recipients: create two signers; your routing order can be enforced if desired
+      // Recipients: two signers; set clientUserId for embedded
       const sellerSigner = new docusign.Signer();
       sellerSigner.email = seller.email;
       sellerSigner.name = seller.name;
       sellerSigner.recipientId = "1";
-      sellerSigner.clientUserId = sellerRoleName; // required for embedded
+      sellerSigner.clientUserId = sellerRoleName;
 
       const buyerSigner = new docusign.Signer();
       buyerSigner.email = buyer.email;
@@ -363,11 +436,9 @@ export async function GET(req: NextRequest) {
     try {
       envelopeSummary = await envelopesApi.createEnvelope(accountId, { envelopeDefinition });
     } catch (e: any) {
+      const { status, text } = parseErr(e);
       return NextResponse.json(
-        {
-          error: "DocuSign createEnvelope failed",
-          details: e?.response?.text || e?.message || String(e),
-        },
+        { error: "DocuSign createEnvelope failed", status, details: text },
         { status: 502 }
       );
     }
@@ -381,15 +452,11 @@ export async function GET(req: NextRequest) {
     }
 
     /* -------- recipient view (embedded sign URL) -------- */
-    // For embedded signing with templates, we must specify the role's recipient.
-    // We use clientUserId to force embedded signer.
     const isSeller = effectiveRole === "seller";
     const signerEmail = isSeller ? seller.email : buyer.email;
     const signerName = isSeller ? seller.name : buyer.name;
     const clientUserId = isSeller ? sellerRoleName : buyerRoleName;
 
-    // If using a template, ensure the TemplateRole's roleName matches your template,
-    // and that you used the same clientUserId above (DocuSign uses name+email+clientUserId triple).
     const viewRequest = new docusign.RecipientViewRequest();
     viewRequest.returnUrl = returnUrl;
     if (pingUrl) {
@@ -399,17 +466,15 @@ export async function GET(req: NextRequest) {
     viewRequest.authenticationMethod = "none";
     viewRequest.email = signerEmail;
     viewRequest.userName = signerName;
-    viewRequest.clientUserId = clientUserId;
+    viewRequest.clientUserId = clientUserId; // must match the one set on recipient
 
     let recipientView;
     try {
       recipientView = await envelopesApi.createRecipientView(accountId, envelopeId, { recipientViewRequest: viewRequest });
     } catch (e: any) {
+      const { status, text } = parseErr(e);
       return NextResponse.json(
-        {
-          error: "DocuSign createRecipientView failed",
-          details: e?.response?.text || e?.message || String(e),
-        },
+        { error: "DocuSign createRecipientView failed", status, details: text },
         { status: 502 }
       );
     }
@@ -428,7 +493,9 @@ export async function GET(req: NextRequest) {
         ok: true,
         debug: {
           provider: "docusign",
-          accountIdMasked: mask(process.env.DOCUSIGN_ACCOUNT_ID || ""),
+          oauthBase,
+          restBase,
+          accountIdMasked: mask(accountId),
           integrationKeyMasked: mask(process.env.DOCUSIGN_INTEGRATION_KEY || ""),
           userIdMasked: mask(process.env.DOCUSIGN_USER_ID || ""),
           templateId: templateId || null,
@@ -446,6 +513,12 @@ export async function GET(req: NextRequest) {
           envelopeId,
           returnUrl,
           pingUrl,
+          userinfoAccounts: (userinfo?.accounts || []).map((a: any) => ({
+            name: a?.account_name,
+            idMasked: mask(a?.account_id || ""),
+            baseUri: a?.base_uri || a?.baseUri || null,
+            isDefault: !!a?.is_default,
+          })),
         },
       });
     }
