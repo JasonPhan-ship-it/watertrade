@@ -13,8 +13,8 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
       district: true,
       waterType: true,
       availability: true,
-      availabilityStart: true,
-      availabilityEnd: true,
+      // availabilityStart: true,
+      // availabilityEnd: true,
       acreFeet: true,
       pricePerAF: true,
       kind: true,
@@ -31,8 +31,8 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     ...row,
     pricePerAf: Math.round((row.pricePerAF / 100) * 100) / 100,
     pricePerAF: undefined, // hide raw cents field
-    availabilityStart: row.availabilityStart.toISOString(),
-    availabilityEnd: row.availabilityEnd.toISOString(),
+    // availabilityStart: row.availabilityStart.toISOString(),
+    // availabilityEnd: row.availabilityEnd.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
