@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import { ArrowUpRight, ArrowDownRight, TrendingUp } from "lucide-react";
 import {
   Card,
@@ -19,17 +18,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-// Dynamically load recharts pieces on the client only
-const ResponsiveContainer = dynamic(
-  () => import("recharts").then((m) => m.ResponsiveContainer),
-  { ssr: false }
-);
-const AreaChart = dynamic(() => import("recharts").then((m) => m.AreaChart), { ssr: false });
-const Area = dynamic(() => import("recharts").then((m) => m.Area), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 
 export const runtime = "nodejs";
 
@@ -69,7 +65,10 @@ const rawVisitors = [
 ];
 
 const currency = (n: number) =>
-  new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(n);
+  new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+  }).format(n);
 
 const GrowthPill = ({ value }: { value: string }) => (
   <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600">
@@ -109,10 +108,14 @@ export default function AdminHome() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-500">Total Revenue</CardTitle>
+              <CardTitle className="text-sm text-slate-500">
+                Total Revenue
+              </CardTitle>
               <GrowthPill value="+12.5%" />
             </div>
-            <div className="text-3xl font-semibold">{currency(totals.revenue)}</div>
+            <div className="text-3xl font-semibold">
+              {currency(totals.revenue)}
+            </div>
           </CardHeader>
           <CardContent className="pt-0 text-sm text-slate-600">
             <div className="flex items-center gap-1 font-medium text-slate-800">
@@ -125,12 +128,16 @@ export default function AdminHome() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-500">New Customers</CardTitle>
+              <CardTitle className="text-sm text-slate-500">
+                New Customers
+              </CardTitle>
               <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">
                 <ArrowDownRight className="h-3 w-3" />-20%
               </span>
             </div>
-            <div className="text-3xl font-semibold">{totals.newCustomers.toLocaleString()}</div>
+            <div className="text-3xl font-semibold">
+              {totals.newCustomers.toLocaleString()}
+            </div>
           </CardHeader>
           <CardContent className="pt-0 text-sm text-slate-600">
             <div className="flex items-center gap-1 font-medium text-slate-800">
@@ -143,10 +150,14 @@ export default function AdminHome() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-500">Active Accounts</CardTitle>
+              <CardTitle className="text-sm text-slate-500">
+                Active Accounts
+              </CardTitle>
               <GrowthPill value="+12.5%" />
             </div>
-            <div className="text-3xl font-semibold">{totals.active.toLocaleString()}</div>
+            <div className="text-3xl font-semibold">
+              {totals.active.toLocaleString()}
+            </div>
           </CardHeader>
           <CardContent className="pt-0 text-sm text-slate-600">
             <div className="flex items-center gap-1 font-medium text-slate-800">
@@ -159,7 +170,9 @@ export default function AdminHome() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-500">Growth Rate</CardTitle>
+              <CardTitle className="text-sm text-slate-500">
+                Growth Rate
+              </CardTitle>
               <GrowthPill value="+4.5%" />
             </div>
             <div className="text-3xl font-semibold">{totals.growth}%</div>
@@ -208,9 +221,23 @@ export default function AdminHome() {
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={series} margin={{ left: 8, right: 8 }}>
                 <defs>
-                  <linearGradient id="visitorsGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="currentColor" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="currentColor" stopOpacity={0.03} />
+                  <linearGradient
+                    id="visitorsGradient"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="0%"
+                      stopColor="currentColor"
+                      stopOpacity={0.25}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor="currentColor"
+                      stopOpacity={0.03}
+                    />
                   </linearGradient>
                 </defs>
                 <XAxis
@@ -231,9 +258,17 @@ export default function AdminHome() {
                   tickLine={false}
                 />
                 <Tooltip
-                  contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
-                  labelFormatter={(d) => new Date(d as string).toLocaleDateString()}
-                  formatter={(value: number) => [value.toLocaleString(), "Visitors"]}
+                  contentStyle={{
+                    borderRadius: 12,
+                    borderColor: "#e2e8f0",
+                  }}
+                  labelFormatter={(d) =>
+                    new Date(d as string).toLocaleDateString()
+                  }
+                  formatter={(value: number) => [
+                    value.toLocaleString(),
+                    "Visitors",
+                  ]}
                 />
                 <Area
                   type="monotone"
