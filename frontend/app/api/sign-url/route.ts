@@ -41,6 +41,27 @@ function json(data: any, init?: ResponseInit) {
   return noCacheHeaders(NextResponse.json(data, init));
 }
 
+/* ---- DOCUSIGN OAUTH BASE NORMALIZER (prevents 404 at JWT) ---- */
+function normalizeOAuthBase(input?: string) {
+  const raw = (input || "").trim() || "https://account-d.docusign.com";
+  let url: URL;
+  try { url = new URL(raw); }
+  catch {
+    throw new Error(
+      `DOCUSIGN_BASE_PATH must be a full https URL. Use "https://account-d.docusign.com" (demo) or "https://account.docusign.com" (prod). Got: "${raw}"`
+    );
+  }
+  const host = url.hostname.toLowerCase();
+  const allowed = new Set(["account-d.docusign.com", "account.docusign.com"]);
+  if (!allowed.has(host)) {
+    throw new Error(
+      `DOCUSIGN_BASE_PATH host must be "account-d.docusign.com" (demo) or "account.docusign.com" (prod). ` +
+      `Do not use "demo.docusign.net" and do not append "/restapi". Got host "${host}".`
+    );
+  }
+  return { oauthBase: `https://${host}`, oauthHost: host };
+}
+
 /* ---------------- DocuSign SDK (lazy) ---------------- */
 let docusign: any = null;
 let jwtApiClient: any = null;
@@ -71,16 +92,19 @@ async function loadDocuSign() {
   if (!mod) return;
   docusign = mod;
 
-  const oauthBase = process.env.DOCUSIGN_BASE_PATH || "https://account-d.docusign.com";
+  const { oauthBase, oauthHost } = normalizeOAuthBase(process.env.DOCUSIGN_BASE_PATH);
   const integrationKey = process.env.DOCUSIGN_INTEGRATION_KEY || "";
   const userId = process.env.DOCUSIGN_USER_ID || "";
   const privateKey = readDocuSignPrivateKey();
 
   const apiClient = new docusign.ApiClient();
-  apiClient.setOAuthBasePath(new URL(oauthBase).hostname);
+  // SDK expects only host (no protocol) for OAuth
+  apiClient.setOAuthBasePath(oauthHost);
+
   jwtApiClient = {
     apiClient,
-    oauthBase,
+    oauthBase,   // e.g., https://account-d.docusign.com
+    oauthHost,   // e.g., account-d.docusign.com
     integrationKey,
     userId,
     privateKey,
@@ -98,27 +122,48 @@ function parseErr(e: any) {
 async function getAccessToken(): Promise<{ accessToken: string; expiresAt: number }> {
   if (!docusign || !jwtApiClient) await loadDocuSign();
 
-  if (!jwtApiClient?.privateKey?.includes("PRIVATE KEY")) {
-    throw new Error("Invalid/missing DocuSign private key");
+  const { integrationKey, userId, privateKey, apiClient, oauthBase, oauthHost } = jwtApiClient || {};
+  if (!privateKey?.includes("PRIVATE KEY")) {
+    throw new Error("Invalid/missing DocuSign private key (set DOCUSIGN_PRIVATE_KEY or DOCUSIGN_PRIVATE_KEY_B64).");
   }
-  if (!jwtApiClient?.integrationKey || !jwtApiClient?.userId) {
-    throw new Error("Missing DOCUSIGN_INTEGRATION_KEY or DOCUSIGN_USER_ID");
+  if (!integrationKey || !userId) {
+    throw new Error("Missing DOCUSIGN_INTEGRATION_KEY or DOCUSIGN_USER_ID.");
   }
 
-  const targetLifetime = 60 * 60; // 1h
-  const res = await jwtApiClient.apiClient.requestJWTUserToken(
-    jwtApiClient.integrationKey,
-    jwtApiClient.userId,
-    jwtApiClient.scopes,
-    jwtApiClient.privateKey,
-    targetLifetime
-  );
-  const accessToken = res.body.access_token;
-  const expiresAt = Math.floor(Date.now() / 1000) + (res.body.expires_in ?? targetLifetime) - 600;
-  return { accessToken, expiresAt };
+  try {
+    const targetLifetime = 60 * 60; // 1h
+    const res = await apiClient.requestJWTUserToken(
+      integrationKey,
+      userId,
+      ["signature", "impersonation"],
+      privateKey,
+      targetLifetime
+    );
+    const accessToken = res.body.access_token;
+    const expiresAt = Math.floor(Date.now() / 1000) + (res.body.expires_in ?? targetLifetime) - 600;
+    return { accessToken, expiresAt };
+  } catch (e: any) {
+    const status = e?.response?.status ?? e?.status ?? null;
+    const body = e?.response?.body || e?.body || null;
+    const text = e?.response?.text || e?.message || String(e);
+
+    const consentUrl =
+      `${oauthBase}/oauth/auth?response_type=code&scope=signature%20impersonation&client_id=${encodeURIComponent(
+        integrationKey
+      )}&redirect_uri=${encodeURIComponent(process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return")}`;
+
+    const hint =
+      status === 404
+        ? `Your DOCUSIGN_BASE_PATH is not an OAuth host. Use ${oauthBase} (host: ${oauthHost}).`
+        : body?.error === "consent_required"
+        ? `Consent required. Open once (logged in as the API user): ${consentUrl}`
+        : "Check that Integration Key and API User GUID belong to the same environment (demo vs prod).";
+
+    throw new Error(`JWT token request failed (${status ?? "?"}). ${hint}\nDetails: ${text}`);
+  }
 }
 
-/** Build account + REST base from /oauth/userinfo (prevents 404s) */
+/** Build account + REST base from /oauth/userinfo (prevents wrong-cluster 404s) */
 async function getUserInfoAndRestBase(accessToken: string) {
   if (!jwtApiClient) await loadDocuSign();
   const oauthBase = jwtApiClient.oauthBase || "https://account-d.docusign.com";
@@ -225,6 +270,7 @@ export async function GET(req: NextRequest) {
     json({ ok: false, error, status, phase: PHASE, details }, { status });
 
   try {
+    PHASE = "sdk.load";
     await loadDocuSign();
 
     const { searchParams } = new URL(req.url);
@@ -501,7 +547,6 @@ export async function GET(req: NextRequest) {
       recipientView = await envelopesApi.createRecipientView(accountId, envelopeId, { recipientViewRequest: viewRequest });
     } catch (e: any) {
       const { status, text, body } = parseErr(e);
-      // 404s often happen here if the triple doesn't match or URL got pre-consumed
       return fail(404, "DocuSign createRecipientView failed", { status, text, body });
     }
 
