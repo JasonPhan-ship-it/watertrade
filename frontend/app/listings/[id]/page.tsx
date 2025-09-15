@@ -4,12 +4,25 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import ListingActions from "@/components/ListingActions";
 import { Info } from "lucide-react";
+import { auth } from "@clerk/nextjs/server";
 
 export const revalidate = 0; // always fresh
 
 type PageProps = { params: { id: string } };
 
 export default async function ListingDetailPage({ params }: PageProps) {
+  // who is viewing?
+  const { userId: clerkUserId } = auth();
+  let viewerDbUserId: string | null = null;
+  if (clerkUserId) {
+    const viewer = await prisma.user.findUnique({
+      where: { clerkId: clerkUserId },
+      select: { id: true },
+    });
+    viewerDbUserId = viewer?.id ?? null;
+  }
+
+  // fetch listing + OWNER FIELDS (adjust these to match your schema if needed)
   const row = await prisma.listing.findUnique({
     where: { id: params.id },
     select: {
@@ -29,10 +42,24 @@ export default async function ListingDetailPage({ params }: PageProps) {
       status: true,
       createdAt: true,
       updatedAt: true,
+
+      // --- OWNER FIELDS: add/remove to fit your schema ---
+      sellerUserId: true as any,     // common when kind === "SELL"
+      userId: true as any,           // common simple ownership
+      createdByUserId: true as any,  // sometimes used
     },
-  });
+  } as any);
 
   if (!row) return notFound();
+
+  // determine ownership (any of these matching means "you own it")
+  const ownerIds = [
+    (row as any).sellerUserId,
+    (row as any).userId,
+    (row as any).createdByUserId,
+  ].filter(Boolean) as string[];
+
+  const isOwner = !!viewerDbUserId && ownerIds.includes(viewerDbUserId);
 
   const pricePerAfDollars = row.pricePerAF / 100;
   const reservePriceDollars = row.reservePrice != null ? row.reservePrice / 100 : null;
@@ -82,25 +109,49 @@ export default async function ListingDetailPage({ params }: PageProps) {
           )}
         </section>
 
-        {/* Right: Actions (SELL listings only) */}
+        {/* Right: Actions (SELL listings only), hidden if you own it */}
         {row.kind === "SELL" && (
           <aside className="sticky top-4 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3">
-              <div className="text-sm font-semibold text-slate-900">Buy Now / Offer</div>
-              <div className="mt-1 text-xs text-slate-500">
-                {row.isAuction
-                  ? "Auction available — place a bid or submit an offer."
-                  : "Buy it now or send an offer to the seller."}
+            {isOwner ? (
+              <div>
+                <div className="mb-2 text-sm font-semibold text-slate-900">
+                  This is your listing
+                </div>
+                <p className="text-xs text-slate-600">
+                  You can’t trade against your own water. To make changes, edit or remove the listing from your dashboard.
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <Link
+                    href="/dashboard"
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50"
+                  >
+                    Go to Dashboard
+                  </Link>
+                  {/* Optional: if you have an edit page for listings */}
+                  {/* <Link href={`/listings/${row.id}/edit`} className="rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
+                    Edit Listing
+                  </Link> */}
+                </div>
               </div>
-            </div>
-
-            <ListingActions
-              listingId={row.id}
-              kind="SELL"
-              pricePerAf={pricePerAfDollars}
-              isAuction={!!row.isAuction}
-              reservePrice={reservePriceDollars}
-            />
+            ) : (
+              <>
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-slate-900">Buy Now / Offer</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {row.isAuction
+                      ? "Auction available — place a bid or submit an offer."
+                      : "Buy it now or send an offer to the seller."}
+                  </div>
+                </div>
+                <ListingActions
+                  listingId={row.id}
+                  kind="SELL"
+                  pricePerAf={pricePerAfDollars}
+                  isAuction={!!row.isAuction}
+                  reservePrice={reservePriceDollars}
+                />
+              </>
+            )}
           </aside>
         )}
       </div>
@@ -119,7 +170,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
 }
 
 /* ---------- UI bits ---------- */
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="text-xs text-slate-500">{label}</div>
