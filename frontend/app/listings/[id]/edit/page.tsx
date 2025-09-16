@@ -1,10 +1,10 @@
-// app/listings/[id]/edit/page.tsx
+// frontend/app/listings/[id]/edit/page.tsx
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import EditListingForm from "./EditListingForm";
-import DeleteListingButton from "@/components/DeleteListingButton"; // ⬅️ new
+import DeleteListingButton from "@/components/DeleteListingButton"; // keep if you created it
 
 export default async function EditListingPage({ params }: { params: { id: string } }) {
   const { userId } = auth();
@@ -34,8 +34,8 @@ export default async function EditListingPage({ params }: { params: { id: string
       description: true,
       district: true,
       waterType: true,
-      availabilityStart: true,
-      availabilityEnd: true,
+      // availabilityStart: true, // removed from payload/props
+      // availabilityEnd: true,   // removed from payload/props
       acreFeet: true,
       pricePerAF: true, // cents
       isAuction: true,
@@ -46,7 +46,7 @@ export default async function EditListingPage({ params }: { params: { id: string
 
   if (!listing) redirect("/dashboard?scope=mine&nocreate=1");
   if (listing.sellerId !== me.id) {
-    // not owner → view page (no accidental create-listing redirect)
+    // not owner → view page
     redirect(`/listings/${listing.id}`);
   }
 
@@ -56,8 +56,6 @@ export default async function EditListingPage({ params }: { params: { id: string
     description: listing.description || "",
     district: listing.district || "",
     waterType: listing.waterType || "",
-    availabilityStartISO: listing.availabilityStart?.toISOString() ?? "",
-    availabilityEndISO: listing.availabilityEnd?.toISOString() ?? "",
     acreFeet: listing.acreFeet,
     pricePerAF: listing.pricePerAF ?? 0,
     isAuction: !!listing.isAuction,
