@@ -4,8 +4,14 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 
-const DISTRICTS = ["Westlands Water District","San Luis Water District","Panoche Water District","Arvin Edison Water District"] as const;
-const WATER_TYPES = ["CVP Allocation","Pumping Credits","Supplemental Water"] as const;
+const DISTRICTS = [
+  "Westlands Water District",
+  "San Luis Water District",
+  "Panoche Water District",
+  "Arvin Edison Water District",
+] as const;
+
+const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] as const;
 
 type ListingForm = {
   id: string;
@@ -13,8 +19,8 @@ type ListingForm = {
   description: string;
   district: string;
   waterType: string;
-  // availabilityStartISO: string;
-  // availabilityEndISO: string;
+  availabilityStartISO: string; // ✅ add back for type safety
+  availabilityEndISO: string;   // ✅ add back for type safety
   acreFeet: number;
   pricePerAF: number; // cents
   isAuction: boolean;
@@ -78,8 +84,10 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
         waterType,
       };
 
-     // if (startStr) payload.availabilityStart = new Date(startStr).toISOString();
-     // if (endStr) payload.availabilityEnd = new Date(endStr).toISOString();
+      // Keeping these commented since your API currently doesn't expect them:
+      // if (startStr) payload.availabilityStart = new Date(startStr).toISOString();
+      // if (endStr) payload.availabilityEnd = new Date(endStr).toISOString();
+
       if (acreFeetStr) payload.acreFeet = Number(acreFeetStr);
       if (priceStr) payload.pricePerAF = Number(priceStr); // dollars -> server converts
 
@@ -104,7 +112,7 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
         throw new Error(msg);
       }
 
-      // Go to listing detail after save (fix from /create-listing/...)
+      // Go to listing detail after save (fixed from /create-listing/…)
       router.replace(`/listings/${listing.id}`);
       router.refresh();
     } catch (e: any) {
@@ -120,37 +128,72 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="text-sm">
           Title
-          <input className="mt-1 w-full rounded-lg border px-3 py-2" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
         </label>
         <label className="text-sm">
           District
-          <select className="mt-1 w-full rounded-lg border px-3 py-2" value={district} onChange={(e) => setDistrict(e.target.value)}>
+          <select
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+            value={district}
+            onChange={(e) => setDistrict(e.target.value)}
+          >
             <option value="">Select…</option>
-            {DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+            {DISTRICTS.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
           </select>
         </label>
       </div>
 
-      <label className="text-sm block">
+      <label className="block text-sm">
         Description
-        <textarea className="mt-1 w-full rounded-lg border px-3 py-2" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+        <textarea
+          className="mt-1 w-full rounded-lg border px-3 py-2"
+          rows={4}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
       </label>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <label className="text-sm">
           Water Type
-          <select className="mt-1 w-full rounded-lg border px-3 py-2" value={waterType} onChange={(e) => setWaterType(e.target.value)}>
+          <select
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+            value={waterType}
+            onChange={(e) => setWaterType(e.target.value)}
+          >
             <option value="">Select…</option>
-            {WATER_TYPES.map(w => <option key={w} value={w}>{w}</option>)}
+            {WATER_TYPES.map((w) => (
+              <option key={w} value={w}>
+                {w}
+              </option>
+            ))}
           </select>
         </label>
         <label className="text-sm">
           Availability Start
-          <input type="date" className="mt-1 w-full rounded-lg border px-3 py-2" value={startStr} onChange={(e) => setStartStr(e.target.value)} />
+          <input
+            type="date"
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+            value={startStr}
+            onChange={(e) => setStartStr(e.target.value)}
+          />
         </label>
         <label className="text-sm">
           Availability End
-          <input type="date" className="mt-1 w-full rounded-lg border px-3 py-2" value={endStr} onChange={(e) => setEndStr(e.target.value)} />
+          <input
+            type="date"
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+            value={endStr}
+            onChange={(e) => setEndStr(e.target.value)}
+          />
         </label>
       </div>
 
@@ -183,16 +226,22 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
             <span className="font-medium">
               $
               {Number(acreFeetStr || 0) * Number(priceStr || 0) > 0
-                ? (Number(acreFeetStr) * Number(priceStr)).toLocaleString(undefined, { minimumFractionDigits: 2 })
+                ? (Number(acreFeetStr) * Number(priceStr)).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                  })
                 : "0.00"}
             </span>
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border p-3 space-y-3">
+      <div className="space-y-3 rounded-xl border p-3">
         <label className="inline-flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={isAuction} onChange={(e) => setIsAuction(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={isAuction}
+            onChange={(e) => setIsAuction(e.target.checked)}
+          />
           <span>Run as auction</span>
         </label>
 
