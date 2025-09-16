@@ -63,9 +63,8 @@ export async function GET(req: NextRequest) {
         return noCache(NextResponse.json({ listings: [], total: 0, limited: !q.premium }));
       }
       whereAND.push({ sellerId: viewerDbUserId });
-      // If you only want ACTIVE here, add: whereAND.push({ status: "ACTIVE" });
     } else {
-      // Marketplace: show only ACTIVE and exclude my own (OPEN was causing enum error)
+      // Marketplace: only ACTIVE & exclude my own
       whereAND.push({ status: "ACTIVE" });
       if (viewerDbUserId) whereAND.push({ NOT: { sellerId: viewerDbUserId } });
     }
@@ -124,19 +123,37 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { userId: clerkId } = auth();
+    if (!clerkId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const me = await prisma.user.findUnique({ where: { clerkId } });
+    if (!me) return NextResponse.json({ error: "Account not provisioned" }, { status: 403 });
+
     const body = await req.json();
 
     const title = String(body.title || "").trim();
     if (!title) return NextResponse.json({ error: "Missing title" }, { status: 400 });
 
+    // kind/type – accept both
     const kind: "SELL" | "BUY" =
-      String(body.type || "sell").toLowerCase() === "buy" ? "BUY" : "SELL";
+      String((body.kind ?? body.type ?? "sell")).toLowerCase() === "buy" ? "BUY" : "SELL";
 
     const district = String(body.district || "Unknown District");
     const waterType = String(body.waterType || "Surface");
-    const acreFeet = Math.max(0, Math.floor(Number(body.volumeAF ?? 0)));
-    const pricePerAfCents = Math.max(0, Math.round(Number(body.pricePerAF ?? 0) * 100));
 
+    // acre-feet – accept acreFeet or volumeAF
+    const acreFeet = Math.max(
+      0,
+      Math.floor(Number(body.acreFeet ?? body.volumeAF ?? 0))
+    );
+
+    // price per AF – dollars (required, > 0)
+    const rawPrice = Number(body.pricePerAF);
+    if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
+      return NextResponse.json({ error: "Price per AF must be greater than 0" }, { status: 400 });
+    }
+    const pricePerAfCents = Math.round(rawPrice * 100);
+
+    // availabilityEnd (optional) -> default 60 days out
     const availabilityEnd = body.availabilityEnd
       ? new Date(body.availabilityEnd)
       : new Date(Date.now() + 60 * 24 * 3600 * 1000);
@@ -144,31 +161,26 @@ export async function POST(req: NextRequest) {
     const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
     const availability = `Through ${mm(availabilityEnd)} ${availabilityEnd.getFullYear()}`;
 
-    let sellerId: string | null = null;
-    if (clerkId) {
-      const user = await prisma.user.findUnique({ where: { clerkId } });
-      sellerId = user?.id ?? null;
-    }
-
     const created = await prisma.listing.create({
       data: {
         title,
-        description: body.description ? String(body.description) : null,
+        description: body.description ? String(body.description) : null, // optional
         district,
         waterType,
         availability,
         availabilityEnd,
         acreFeet,
-        pricePerAF: pricePerAfCents,
+        pricePerAF: pricePerAfCents, // cents
         kind,
         status: "ACTIVE",
-        sellerId,
+        sellerId: me.id,
       },
       select: { id: true },
     });
 
     return NextResponse.json({ ok: true, id: created.id }, { status: 201 });
   } catch (err: any) {
+    console.error("POST /api/listings error", err);
     return NextResponse.json({ error: err?.message || "Unknown error" }, { status: 500 });
   }
 }
