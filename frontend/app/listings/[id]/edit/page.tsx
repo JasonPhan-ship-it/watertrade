@@ -2,7 +2,9 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import EditListingForm from "./EditListingForm";
+import DeleteListingButton from "@/components/DeleteListingButton"; // ⬅️ new
 
 export default async function EditListingPage({ params }: { params: { id: string } }) {
   const { userId } = auth();
@@ -42,8 +44,11 @@ export default async function EditListingPage({ params }: { params: { id: string
     },
   });
 
-  if (!listing) redirect("/dashboard");
-  if (listing.sellerId !== me.id) redirect(`/create-listing/${listing.id}`); // not owner
+  if (!listing) redirect("/dashboard?scope=mine&nocreate=1");
+  if (listing.sellerId !== me.id) {
+    // not owner → view page (no accidental create-listing redirect)
+    redirect(`/listings/${listing.id}`);
+  }
 
   const props = {
     id: listing.id,
@@ -62,10 +67,26 @@ export default async function EditListingPage({ params }: { params: { id: string
 
   return (
     <div className="mx-auto max-w-3xl p-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Edit Listing</h1>
-      <p className="mt-1 text-sm text-slate-600">Only the listing owner can edit.</p>
+      {/* Header + actions */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Edit Listing</h1>
+          <p className="mt-1 text-sm text-slate-600">Only the listing owner can edit.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard?scope=mine&nocreate=1"
+            className="rounded-xl border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Cancel
+          </Link>
+          <DeleteListingButton listingId={listing.id} />
+        </div>
+      </div>
 
-      <EditListingForm listing={props} />
+      <div className="mt-6">
+        <EditListingForm listing={props} />
+      </div>
     </div>
   );
 }
