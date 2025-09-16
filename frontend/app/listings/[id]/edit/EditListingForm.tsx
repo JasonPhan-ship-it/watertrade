@@ -13,8 +13,8 @@ type ListingForm = {
   description: string;
   district: string;
   waterType: string;
-  availabilityStartISO: string;
-  availabilityEndISO: string;
+  // availabilityStartISO: string;
+  // availabilityEndISO: string;
   acreFeet: number;
   pricePerAF: number; // cents
   isAuction: boolean;
@@ -78,8 +78,8 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
         waterType,
       };
 
-      if (startStr) payload.availabilityStart = new Date(startStr).toISOString();
-      if (endStr) payload.availabilityEnd = new Date(endStr).toISOString();
+     // if (startStr) payload.availabilityStart = new Date(startStr).toISOString();
+     // if (endStr) payload.availabilityEnd = new Date(endStr).toISOString();
       if (acreFeetStr) payload.acreFeet = Number(acreFeetStr);
       if (priceStr) payload.pricePerAF = Number(priceStr); // dollars -> server converts
 
