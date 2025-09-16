@@ -35,7 +35,6 @@ function toDateInput(iso: string) {
 export default function EditListingForm({ listing }: { listing: ListingForm }) {
   const router = useRouter();
 
-  // string states so users can clear inputs
   const [title, setTitle] = React.useState(listing.title);
   const [description, setDescription] = React.useState(listing.description);
   const [district, setDistrict] = React.useState(listing.district);
@@ -105,8 +104,8 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
         throw new Error(msg);
       }
 
-      // Back to detail page
-      router.replace(`/create-listing/${listing.id}`);
+      // Go to listing detail after save (fix from /create-listing/...)
+      router.replace(`/listings/${listing.id}`);
       router.refresh();
     } catch (e: any) {
       setErr(e?.message || "Failed to update listing");
@@ -225,20 +224,14 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
 
       {err && <div className="text-sm text-red-600">{err}</div>}
 
-      <div className="flex gap-3">
+      {/* Actions: Save only (Cancel removed) */}
+      <div>
         <button
           type="submit"
           disabled={submitting}
           className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50"
         >
           {submitting ? "Saving…" : "Save Changes"}
-        </button>
-        <button
-          type="button"
-          onClick={() => router.push(`/create-listing/${listing.id}`)}
-          className="rounded-xl border px-5 py-2"
-        >
-          Cancel
         </button>
       </div>
     </form>
