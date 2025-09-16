@@ -19,8 +19,6 @@ type ListingForm = {
   description: string;
   district: string;
   waterType: string;
-  availabilityStartISO: string; // ✅ add back for type safety
-  availabilityEndISO: string;   // ✅ add back for type safety
   acreFeet: number;
   pricePerAF: number; // cents
   isAuction: boolean;
@@ -45,8 +43,7 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
   const [description, setDescription] = React.useState(listing.description);
   const [district, setDistrict] = React.useState(listing.district);
   const [waterType, setWaterType] = React.useState(listing.waterType);
-  const [startStr, setStartStr] = React.useState(toDateInput(listing.availabilityStartISO));
-  const [endStr, setEndStr] = React.useState(toDateInput(listing.availabilityEndISO));
+
   const [acreFeetStr, setAcreFeetStr] = React.useState(String(listing.acreFeet));
   const [priceStr, setPriceStr] = React.useState((listing.pricePerAF / 100).toFixed(2)); // dollars
   const [isAuction, setIsAuction] = React.useState(listing.isAuction);
@@ -84,10 +81,6 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
         waterType,
       };
 
-      // Keeping these commented since your API currently doesn't expect them:
-      // if (startStr) payload.availabilityStart = new Date(startStr).toISOString();
-      // if (endStr) payload.availabilityEnd = new Date(endStr).toISOString();
-
       if (acreFeetStr) payload.acreFeet = Number(acreFeetStr);
       if (priceStr) payload.pricePerAF = Number(priceStr); // dollars -> server converts
 
@@ -112,7 +105,7 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
         throw new Error(msg);
       }
 
-      // Go to listing detail after save (fixed from /create-listing/…)
+      // Go to listing detail after save (no /create-listing redirect)
       router.replace(`/listings/${listing.id}`);
       router.refresh();
     } catch (e: any) {
@@ -177,27 +170,7 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
             ))}
           </select>
         </label>
-        <label className="text-sm">
-          Availability Start
-          <input
-            type="date"
-            className="mt-1 w-full rounded-lg border px-3 py-2"
-            value={startStr}
-            onChange={(e) => setStartStr(e.target.value)}
-          />
-        </label>
-        <label className="text-sm">
-          Availability End
-          <input
-            type="date"
-            className="mt-1 w-full rounded-lg border px-3 py-2"
-            value={endStr}
-            onChange={(e) => setEndStr(e.target.value)}
-          />
-        </label>
-      </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <label className="text-sm">
           Acre-Feet
           <input
@@ -209,6 +182,7 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
             placeholder="e.g. 250"
           />
         </label>
+
         <label className="text-sm">
           Price / AF (USD)
           <input
@@ -220,21 +194,9 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
             placeholder="e.g. 650.00"
           />
         </label>
-        <div className="flex items-end">
-          <div className="text-sm text-slate-600">
-            Total:{" "}
-            <span className="font-medium">
-              $
-              {Number(acreFeetStr || 0) * Number(priceStr || 0) > 0
-                ? (Number(acreFeetStr) * Number(priceStr)).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })
-                : "0.00"}
-            </span>
-          </div>
-        </div>
       </div>
 
+      {/* Auction options */}
       <div className="space-y-3 rounded-xl border p-3">
         <label className="inline-flex items-center gap-2 text-sm">
           <input
@@ -273,7 +235,7 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
 
       {err && <div className="text-sm text-red-600">{err}</div>}
 
-      {/* Actions: Save only (Cancel removed) */}
+      {/* Actions: Save only (Cancel removed here) */}
       <div>
         <button
           type="submit"
