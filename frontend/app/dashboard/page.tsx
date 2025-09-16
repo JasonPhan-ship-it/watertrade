@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 /* ---------------- Onboarding Gate (client-only, stable hooks) ---------------- */
 function useOnboardedGate() {
@@ -117,16 +117,12 @@ export default function DashboardPage() {
   const checking = useOnboardedGate();
   const { user } = useUser();
   const router = useRouter();
-  const searchParams = useSearchParams();
 
-  // Read URL params once for initial state
-  const initialScope: Scope =
-    (searchParams.get("scope") === "mine" || searchParams.get("tab") === "listings")
-      ? "mine"
-      : "market";
-  const nocreate = searchParams.get("nocreate") === "1";
+  // URL-controlled UI state
+  const [scope, setScope] = useState<Scope>("market");
+  const [nocreate, setNoCreate] = useState<boolean>(false);
 
-  const [scope, setScope] = useState<Scope>(initialScope);
+  // Other UI state
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
   const [waterType, setWaterType] = useState<string>(WATER_TYPES[0]);
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
@@ -138,15 +134,30 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Initialize from current URL on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const scopeParam = params.get("scope");
+    const tabParam = params.get("tab");
+    const nocreateParam = params.get("nocreate") === "1";
+
+    // scope: prefer explicit "scope", fallback to legacy "tab=listings"
+    const initialScope: Scope =
+      scopeParam === "mine" || tabParam === "listings" ? "mine" : "market";
+
+    setScope(initialScope);
+    setNoCreate(nocreateParam);
+  }, []);
+
   // Keep scope + nocreate reflected in the URL for deep-linking (Cancel button, etc.)
   useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString());
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
     params.set("scope", scope);
     if (nocreate) params.set("nocreate", "1");
-    // don't spam history
+    else params.delete("nocreate");
     router.replace(`/dashboard?${params.toString()}`, { scroll: false });
-    // Only react to scope or nocreate changes; avoid feedback with searchParams changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, nocreate, router]);
 
   const qs = useMemo(() => {
@@ -229,10 +240,13 @@ export default function DashboardPage() {
   // Change scope AND keep nocreate flag in the URL so middleware won’t redirect to create-listing
   const handleScopeChange = (next: Scope) => {
     setScope(next);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("scope", next);
-    if (nocreate) params.set("nocreate", "1");
-    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      params.set("scope", next);
+      if (nocreate) params.set("nocreate", "1");
+      else params.delete("nocreate");
+      router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+    }
   };
 
   const pageTitle = scope === "market" ? "Active Water Sales" : "Your Listings";
