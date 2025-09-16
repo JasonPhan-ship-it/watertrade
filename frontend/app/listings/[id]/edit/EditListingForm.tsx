@@ -19,8 +19,8 @@ type ListingForm = {
   description: string;
   district: string;
   waterType: string;
-  availabilityStartISO: string; // ✅ add back for type safety
-  availabilityEndISO: string;   // ✅ add back for type safety
+  // availabilityStartISO: string; // ✅ add back for type safety
+  // availabilityEndISO: string;   // ✅ add back for type safety
   acreFeet: number;
   pricePerAF: number; // cents
   isAuction: boolean;
