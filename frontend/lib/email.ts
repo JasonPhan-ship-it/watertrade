@@ -472,3 +472,42 @@ export function renderBuyerDeclinedEmail(params: {
   });
   return { html, preheader: "Offer declined—browse similar opportunities." };
 }
+
+/** Branded email for doc/signature kickoff (generic) */
+export function renderDocsKickoffEmail(params: {
+  title: string;
+  subtitle?: string;
+  intro?: string;
+  offer: {
+    listingTitle: string;
+    district: string;
+    waterType?: string | null;
+    volumeAf: number;
+    pricePerAf: number;          // cents
+    priceLabel?: string;         // optional override
+  };
+  ctas: { label: string; href: string; primary?: boolean }[];
+  footerNote?: string;
+}) {
+  const { title, subtitle, intro, offer, ctas, footerNote } = params;
+
+  const keyValues: { label: string; value: string }[] = [
+    { label: "Listing", value: offer.listingTitle },
+    { label: "District", value: offer.district },
+    ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+    { label: "Volume (AF)", value: new Intl.NumberFormat("en-US").format(offer.volumeAf) },
+    { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+  ];
+
+  const html = renderEmailLayout({
+    title,
+    subtitle,
+    intro,
+    keyValues,
+    ctas,
+    footerNote,
+    logoUrl: DEFAULT_LOGO,
+  });
+
+  return { html, preheader: subtitle || intro || title };
+}
