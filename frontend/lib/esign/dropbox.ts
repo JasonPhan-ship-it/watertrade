@@ -1,10 +1,26 @@
 // lib/esign/dropbox.ts
 import { prisma } from "@/lib/prisma";
 
+/**
+ * Dropbox Sign (HelloSign) minimal client helpers
+ * - Email delivery: sendTradeForSignatureUsingTemplate(...)
+ * - Embedded signing: createEmbeddedWithTemplate(...), getEmbeddedSignUrl(...),
+ *   and a convenience wrapper: sendTradeForEmbeddedSignatureUsingTemplate(...)
+ */
+
 const API_BASE = "https://api.hellosign.com/v3";
 
-function authHeader() {
+/* ---------------------------- Auth & Config ---------------------------- */
+
+function getApiKey(): string {
   const key = process.env.DROPBOX_SIGN_API_KEY || "";
+  if (!key) throw new Error("DROPBOX_SIGN_API_KEY is required for Dropbox Sign API calls.");
+  return key;
+}
+
+function authHeader() {
+  const key = getApiKey();
+  // Basic auth: base64("apiKey:")
   const token = Buffer.from(`${key}:`).toString("base64");
   return { Authorization: `Basic ${token}` };
 }
@@ -14,7 +30,16 @@ function isTestMode() {
   return String(process.env.DROPBOX_SIGN_TEST_MODE ?? "true") === "true";
 }
 
-// Minimal helper to POST JSON to Dropbox Sign
+/** Prefer server var but allow the public var as a fallback (useful for local dev). */
+function getClientId(): string | undefined {
+  const fromServer = (process.env.DROPBOX_SIGN_CLIENT_ID || "").trim();
+  const fromPublic = (process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID || "").trim();
+  const id = fromServer || fromPublic;
+  return id || undefined;
+}
+
+/* ------------------------------ HTTP core ------------------------------ */
+
 async function hsPostJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -24,80 +49,65 @@ async function hsPostJson<T>(path: string, body: unknown): Promise<T> {
     },
     body: JSON.stringify(body),
   });
+
+  const text = await res.text().catch(() => "");
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Dropbox Sign ${path} failed: ${res.status} ${text}`);
+    // Dropbox Sign often returns JSON bodies with useful info
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+    const error = json?.error || json?.message || text || res.statusText;
+    throw new Error(`Dropbox Sign ${path} failed: ${res.status} ${typeof error === "string" ? error : JSON.stringify(error)}`);
   }
-  return res.json() as Promise<T>;
+  try {
+    return (text ? JSON.parse(text) : {}) as T;
+  } catch {
+    throw new Error(`Dropbox Sign ${path} returned non-JSON response`);
+  }
 }
 
-/**
- * Create and send a Signature Request using a Template.
- * - Assumes your template has roles "Buyer" and "Seller"
- * - Auto-fills custom fields from Trade
- * - Lets Dropbox send signing emails to both parties
- */
-export async function sendTradeForSignatureUsingTemplate(tradeId: string, args: {
-  templateId: string; // your Dropbox Sign template id
-}) {
+async function hsGetJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "GET",
+    headers: {
+      ...authHeader(),
+    },
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+    const error = json?.error || json?.message || text || res.statusText;
+    throw new Error(`Dropbox Sign GET ${path} failed: ${res.status} ${typeof error === "string" ? error : JSON.stringify(error)}`);
+  }
+  try {
+    return (text ? JSON.parse(text) : {}) as T;
+  } catch {
+    throw new Error(`Dropbox Sign GET ${path} returned non-JSON response`);
+  }
+}
+
+/* --------------------------- Domain utilities -------------------------- */
+
+function usdPerAf(cents?: number | null) {
+  const dollars = (cents ?? 0) / 100;
+  return `$${dollars.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/AF`;
+}
+
+/** Safely get (name, email) for buyer & seller based on trade record. */
+async function loadBuyerSellerForTrade(tradeId: string) {
   const trade = await prisma.trade.findUnique({ where: { id: tradeId } });
   if (!trade) throw new Error("Trade not found");
 
   const [buyer, seller] = await Promise.all([
-    prisma.user.findUnique({ where: { id: trade.buyerUserId || "" } }),
-    prisma.user.findUnique({ where: { id: trade.sellerUserId || "" } }),
+    trade.buyerUserId ? prisma.user.findUnique({ where: { id: trade.buyerUserId } }) : null,
+    trade.sellerUserId ? prisma.user.findUnique({ where: { id: trade.sellerUserId } }) : null,
   ]);
-  if (!buyer?.email || !seller?.email) {
-    throw new Error("Buyer/Seller must have emails on file");
-  }
 
-  const priceLabel = `$${(trade.pricePerAf / 100).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}/AF`;
+  const buyerEmail = buyer?.email || (trade as any).buyerEmail || (trade as any).buyer_user_email || null;
+  const sellerEmail = seller?.email || (trade as any).sellerEmail || (trade as any).seller_user_email || null;
 
-  const body = {
-    template_ids: [args.templateId],
-    subject: "Water Transfer Agreement",
-    message: "Please review and sign the agreement.",
-    test_mode: isTestMode(),
-    // If you created an API App and want app-level callbacks/branding
-    client_id: process.env.DROPBOX_SIGN_CLIENT_ID || undefined,
-    signers: [
-      { role: "Buyer",  name: buyer.name || "Buyer",  email_address: buyer.email },
-      { role: "Seller", name: seller.name || "Seller", email_address: seller.email },
-    ],
-    // These names must match your template's custom field names
-    custom_fields: [
-      { name: "listing_title", value: trade.windowLabel || "Offer Terms" },
-      { name: "district",      value: trade.district || "" },
-      { name: "water_type",    value: trade.waterType || "" },
-      { name: "volume_af",     value: String(trade.volumeAf ?? "") },
-      { name: "price_per_af",  value: priceLabel },
-      { name: "window_label",  value: trade.windowLabel || "" },
-    ],
-    // Attach metadata so your webhook can locate the Trade later
-    metadata: {
-      tradeId: trade.id,
-    },
-  };
+  if (!buyerEmail || !sellerEmail) throw new Error("Buyer/Seller must have emails on file");
 
-  type SendResp = {
-    signature_request: {
-      signature_request_id: string;
-      signatures: Array<{
-        signature_id: string;
-        signer_role: string;
-        signer_email_address: string;
-        status_code: string;
-      }>;
-    };
-  };
-
-  const resp = await hsPostJson<SendResp>("/signature_request/send_with_template", body);
-
-  return {
-    requestId: resp.signature_request.signature_request_id,
-    signatures: resp.signature_request.signatures,
-  };
-}
+  const buyerName = buyer?.name || (trade as any).buyerName || (trade as any).buyer_user_name || "Buyer";
+  const sellerName = seller?.name || (trade as any).s
