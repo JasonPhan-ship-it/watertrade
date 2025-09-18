@@ -4,8 +4,9 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendEmail, appUrl } from "@/lib/email";
 import {
+  sendEmail,
+  appUrl,
   renderSellerNeedsSignatureEmail,
   renderBuyerSignedAckEmail,
   renderFullyExecutedEmail,
@@ -13,7 +14,7 @@ import {
 
 let docusign: any = null;
 
-/* ---------------- DocuSign auth + REST base ---------------- */
+/* ---------------- DocuSign auth + base ---------------- */
 function normalizeOAuthBase(input?: string) {
   const raw = (input || "").trim() || "https://account-d.docusign.com";
   const url = new URL(raw);
@@ -70,56 +71,46 @@ async function getAccess() {
   return { accessToken, accountId: acct.account_id as string, restBase };
 }
 
-async function fetchCombinedPdf(
+async function mkEnvelopesApi(restBase: string, accessToken: string) {
+  await loadDS();
+  const api = new docusign.ApiClient();
+  api.setBasePath(restBase);
+  api.addDefaultHeader("Authorization", "Bearer " + accessToken);
+  return new docusign.EnvelopesApi(api);
+}
+
+async function fetchCombinedPdfBase64(
   accountId: string,
   restBase: string,
   accessToken: string,
   envelopeId: string
 ) {
-  await loadDS();
-  const api = new docusign.ApiClient();
-  api.setBasePath(restBase);
-  api.addDefaultHeader("Authorization", "Bearer " + accessToken);
-  const envelopesApi = new docusign.EnvelopesApi(api);
-  // "combined" returns the current state (works after a single signer, and after fully executed)
+  const envelopesApi = await mkEnvelopesApi(restBase, accessToken);
   const file: any = await envelopesApi.getDocument(accountId, envelopeId, "combined", null);
   const buf: Buffer = Buffer.isBuffer(file) ? file : Buffer.from(file, "binary");
   return buf.toString("base64");
 }
 
-/* ---------------- Connect security (optional HMAC) ---------------- */
-async function verifyHmac(req: NextRequest) {
+/* ---------------- Connect security: HMAC ---------------- */
+async function verifyHmacFromBody(body: Buffer, headers: Headers) {
   const secret = (process.env.DOCUSIGN_CONNECT_HMAC_SECRET || "").trim();
-  if (!secret) return true; // skip if not configured
-  const sig = req.headers.get("x-docusign-signature-1");
+  if (!secret) return true; // not configured → skip
+  const sig = headers.get("x-docusign-signature-1");
   if (!sig) return false;
-  const body = Buffer.from(await req.arrayBuffer());
   const { createHmac } = await import("crypto");
-  const key = Buffer.from(secret, "base64"); // DocuSign provides base64 key
+  const key = Buffer.from(secret, "base64"); // DocuSign gives base64 key
   const h = createHmac("sha256", key).update(body).digest("base64");
   return h === sig;
 }
 
 /* ---------------- Payload helpers ---------------- */
-function eventType(payload: any): string {
-  return (
-    payload?.event?.eventType ||         // Connect v2
-    payload?.eventType ||                // some variants
-    payload?.envelopeStatus?.status ||   // legacy JSON
-    ""
-  )
-    .toString()
-    .toLowerCase();
-}
-
-function extractEnvelopeId(payload: any): string | null {
-  return (
-    payload?.envelopeId ||
-    payload?.envelopeSummary?.envelopeId ||
-    payload?.data?.envelopeId ||
-    payload?.envelopeStatus?.envelopeID ||
-    null
-  );
+function readEventType(payload: any): string {
+  const raw =
+    payload?.event?.eventType ||        // Connect v2
+    payload?.eventType ||               // some variants
+    payload?.envelopeStatus?.status ||  // legacy JSON path
+    "";
+  return String(raw).toLowerCase();     // e.g., "recipientcompleted" or "completed"
 }
 
 function extractRecipient(payload: any) {
@@ -135,6 +126,20 @@ function extractRecipient(payload: any) {
   return { email, name, role };
 }
 
+function tryExtractEnvelopeId(payload: any, rawText: string): string | null {
+  const fromJson =
+    payload?.envelopeId ||
+    payload?.envelopeSummary?.envelopeId ||
+    payload?.data?.envelopeId ||
+    payload?.envelopeStatus?.envelopeID ||
+    null;
+  if (fromJson) return String(fromJson);
+  const m =
+    rawText.match(/<EnvelopeID>([^<]+)<\/EnvelopeID>/i) ||
+    rawText.match(/<envelopeId>([^<]+)<\/envelopeId>/i);
+  return m?.[1] || null;
+}
+
 /* ---------------- Trade/offer formatting ---------------- */
 function toOfferSummary(trade: any) {
   return {
@@ -143,166 +148,205 @@ function toOfferSummary(trade: any) {
     waterType: trade.waterType || null,
     volumeAf: trade.volumeAf || 0,
     pricePerAf: trade.pricePerAf || 0,
+    // branded templates will render /AF
     priceLabel: undefined,
     windowLabel: (trade as any).windowLabel || undefined,
   };
 }
 
+/* ---------------- Resolve trade_id if payload omitted it ---------------- */
+async function resolveTradeByEnvelopeCustomField(
+  accountId: string,
+  restBase: string,
+  accessToken: string,
+  envelopeId: string
+) {
+  const envelopesApi = await mkEnvelopesApi(restBase, accessToken);
+  try {
+    const fields = await envelopesApi.listCustomFields(accountId, envelopeId);
+    const tcf: any[] = fields?.textCustomFields || [];
+    const tradeId = (tcf.find(f => (f.name || "").toLowerCase() === "trade_id")?.value || "").trim();
+    return tradeId || null;
+  } catch {
+    return null;
+  }
+}
+
 /* ---------------- Route handlers ---------------- */
 export async function POST(req: NextRequest) {
   try {
-    if (!(await verifyHmac(req))) {
+    // Read once (for HMAC + parsing)
+    const bodyBuf = Buffer.from(await req.arrayBuffer());
+    if (!(await verifyHmacFromBody(bodyBuf, req.headers))) {
       return NextResponse.json({ ok: false, error: "invalid signature" }, { status: 401 });
     }
+    const rawText = bodyBuf.toString("utf8");
+    let payload: any = {};
+    try { payload = rawText ? JSON.parse(rawText) : {}; } catch {}
 
-    // DocuSign Connect JSON (ensure your Connect/EventNotification sends JSON)
-    const payload = await req.json().catch(() => ({}));
-    const type = eventType(payload); // e.g., 'recipientcompleted', 'completed'
-    const envelopeId = extractEnvelopeId(payload);
+    const type = readEventType(payload); // 'recipientcompleted' or 'completed' etc.
+    const envelopeId = tryExtractEnvelopeId(payload, rawText);
     if (!envelopeId) return NextResponse.json({ ok: true, ignored: "no envelopeId" });
 
-    // Correlate back to your Trade (we set a text tab named 'trade_id')
-    const tradeId =
-      payload?.customFields?.textCustomFields?.find((f: any) => f?.name === "trade_id")?.value ||
+    // Correlate Trade
+    let tradeId: string | null =
+      payload?.customFields?.textCustomFields?.find?.((f: any) => f?.name === "trade_id")?.value ||
       payload?.data?.customFields?.find?.((f: any) => f?.name === "trade_id")?.value ||
       payload?.tradeId ||
       null;
 
-    // Pull trade, including related buyer/seller + listing title
-    const trade = tradeId
-      ? await prisma.trade.findUnique({
-          where: { id: tradeId },
+    // Pull trade record if we already have id
+    let trade =
+      tradeId
+        ? await prisma.trade.findUnique({
+            where: { id: tradeId },
+            include: {
+              listing: { select: { title: true } },
+              buyer:   { select: { email: true, name: true } },
+              seller:  { select: { email: true, name: true } },
+            },
+          })
+        : null;
+
+    // Fallback: ask DocuSign for custom fields
+    if (!trade) {
+      const { accessToken, accountId, restBase } = await getAccess();
+      const cfTradeId = await resolveTradeByEnvelopeCustomField(accountId, restBase, accessToken, envelopeId);
+      if (cfTradeId) {
+        trade = await prisma.trade.findUnique({
+          where: { id: cfTradeId },
           include: {
             listing: { select: { title: true } },
-            buyer: { select: { email: true, name: true } },
-            seller: { select: { email: true, name: true } },
+            buyer:   { select: { email: true, name: true } },
+            seller:  { select: { email: true, name: true } },
           },
-        })
-      : null;
+        });
+        tradeId = cfTradeId;
+      }
+    }
 
-    /* ---- Recipient completed: email Seller to sign + email Buyer ack (+ attach buyer's signed copy) ---- */
+    // If still no trade, acknowledge quietly (avoid DS retries)
+    if (!trade) {
+      console.warn("[docsign webhook] no trade found for envelope", { envelopeId });
+      return NextResponse.json({ ok: true, envelopeId, ignored: "no trade" });
+    }
+
+    /* ================== recipient completed ================== */
     if (type.includes("recipient") && type.includes("completed")) {
       const r = extractRecipient(payload);
+      const role = (r?.role || "").toLowerCase();
+      const offer = toOfferSummary(trade);
 
-      if (trade) {
-        const offer = toOfferSummary(trade);
-
-        // We need an access token to fetch the current (partially signed) PDF
+      // Only act when the BUYER finishes: notify SELLER to sign + ACK BUYER with current PDF
+      if (role.includes("buyer")) {
         const { accessToken, accountId, restBase } = await getAccess();
+        const base64 = await fetchCombinedPdfBase64(accountId, restBase, accessToken, envelopeId);
 
-        const role = (r?.role || "").toLowerCase();
+        // Seller → please sign
+        if (trade.seller?.email) {
+          const { html, preheader } = renderSellerNeedsSignatureEmail({
+            sellerName: trade.seller?.name,
+            buyerName: trade.buyer?.name,
+            offer,
+            signLink: appUrl(`/sign/${trade.id}?role=seller`),
+            viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
+          });
+          await sendEmail({
+            to: trade.seller.email,
+            subject: "Please review & sign",
+            html,
+            preheader,
+            idempotencyKey: `ds:${envelopeId}:notify-seller`,
+          });
+        }
 
-        // If BUYER finished → email SELLER to sign + send BUYER a copy of what they signed
-        if (role.includes("buyer")) {
-          // 1) Seller: "Please review & sign"
-          if (trade.seller?.email) {
-            const signLink = appUrl(`/sign/${trade.id}?role=seller`);
-            const { html, preheader } = renderSellerNeedsSignatureEmail({
-              sellerName: trade.seller?.name,
-              buyerName: trade.buyer?.name,
-              offer,
-              signLink,
-              viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
-            });
-            await sendEmail({
-              to: trade.seller.email,
-              subject: "Please review & sign",
-              html,
-              preheader,
-            });
-          }
-
-          // 2) Buyer: "We’ve recorded your signature" WITH the current combined PDF attached
-          if (trade.buyer?.email) {
-            const base64 = await fetchCombinedPdf(accountId, restBase, accessToken, envelopeId);
-            const { html, preheader } = renderBuyerSignedAckEmail({
-              buyerName: trade.buyer?.name,
-              sellerName: trade.seller?.name,
-              offer,
-              viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
-            });
-            await sendEmail({
-              to: trade.buyer.email,
-              subject: "We’ve recorded your signature — copy attached",
-              html,
-              preheader,
-              attachments: [
-                {
-                  filename: `WaterTraders_Agreement_${trade.id}_buyer_signed.pdf`,
-                  content: base64,
-                  contentType: "application/pdf",
-                },
-              ],
-            });
-          }
+        // Buyer → ack + their current signed copy
+        if (trade.buyer?.email) {
+          const { html, preheader } = renderBuyerSignedAckEmail({
+            buyerName: trade.buyer?.name,
+            sellerName: trade.seller?.name,
+            offer,
+            viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
+          });
+          await sendEmail({
+            to: trade.buyer.email,
+            subject: "We’ve recorded your signature — copy attached",
+            html,
+            preheader,
+            attachments: [
+              {
+                filename: `WaterTraders_Agreement_${trade.id}_buyer_signed.pdf`,
+                content: base64,
+                contentType: "application/pdf",
+              },
+            ],
+            idempotencyKey: `ds:${envelopeId}:ack-buyer`,
+          });
         }
       }
 
       return NextResponse.json({ ok: true, handled: "recipientCompleted", envelopeId });
     }
 
-    /* ---- Envelope completed: send fully executed PDF to both parties ---- */
+    /* ================== envelope completed (fully executed) ================== */
     if (type.includes("completed")) {
       const { accessToken, accountId, restBase } = await getAccess();
-      const base64Pdf = await fetchCombinedPdf(accountId, restBase, accessToken, envelopeId);
+      const base64Pdf = await fetchCombinedPdfBase64(accountId, restBase, accessToken, envelopeId);
+      const offer = toOfferSummary(trade);
 
-      if (trade) {
-        const offer = toOfferSummary(trade);
-        const attachments = [
-          {
-            filename: `WaterTraders_Agreement_${trade.id}.pdf`,
-            content: base64Pdf,
-            contentType: "application/pdf",
-          },
-        ];
+      // Seller
+      if (trade.seller?.email) {
+        const { html, preheader } = renderFullyExecutedEmail({
+          recipientName: trade.seller?.name,
+          counterpartName: trade.buyer?.name,
+          offer,
+          viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
+        });
+        await sendEmail({
+          to: trade.seller.email,
+          subject: "Fully executed agreement",
+          html,
+          preheader,
+          attachments: [
+            { filename: `WaterTraders_Agreement_${trade.id}.pdf`, content: base64Pdf, contentType: "application/pdf" },
+          ],
+          idempotencyKey: `ds:${envelopeId}:final-seller`,
+        });
+      }
 
-        // Seller
-        if (trade.seller?.email) {
-          const { html, preheader } = renderFullyExecutedEmail({
-            recipientName: trade.seller?.name,
-            counterpartName: trade.buyer?.name,
-            offer,
-            viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
-          });
-          await sendEmail({
-            to: trade.seller.email,
-            subject: "Fully executed agreement",
-            html,
-            preheader,
-            attachments,
-          });
-        }
-
-        // Buyer
-        if (trade.buyer?.email) {
-          const { html, preheader } = renderFullyExecutedEmail({
-            recipientName: trade.buyer?.name,
-            counterpartName: trade.seller?.name,
-            offer,
-            viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
-          });
-          await sendEmail({
-            to: trade.buyer.email,
-            subject: "Fully executed agreement",
-            html,
-            preheader,
-            attachments,
-          });
-        }
+      // Buyer
+      if (trade.buyer?.email) {
+        const { html, preheader } = renderFullyExecutedEmail({
+          recipientName: trade.buyer?.name,
+          counterpartName: trade.seller?.name,
+          offer,
+          viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
+        });
+        await sendEmail({
+          to: trade.buyer.email,
+          subject: "Fully executed agreement",
+          html,
+          preheader,
+          attachments: [
+            { filename: `WaterTraders_Agreement_${trade.id}.pdf`, content: base64Pdf, contentType: "application/pdf" },
+          ],
+          idempotencyKey: `ds:${envelopeId}:final-buyer`,
+        });
       }
 
       return NextResponse.json({ ok: true, handled: "envelopeCompleted", envelopeId });
     }
 
-    // ignore other events
-    return NextResponse.json({ ok: true, ignored: type || "unknown", envelopeId });
+    // ignore other events (delivered/sent/etc.)
+    return NextResponse.json({ ok: true, ignored: readEventType(payload) || "unknown", envelopeId });
   } catch (e: any) {
     console.error("[docsign webhook] error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "webhook error" }, { status: 500 });
+    // Return 200 so Connect doesn't retry forever; logs carry the details
+    return NextResponse.json({ ok: true, ignored: "error" });
   }
 }
 
-// DocuSign validates a 200 on HEAD/GET for availability checks
+// DocuSign availability checks
 export async function GET() {
   return NextResponse.json({ ok: true });
 }
