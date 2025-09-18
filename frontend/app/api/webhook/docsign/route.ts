@@ -81,6 +81,7 @@ async function fetchCombinedPdf(
   api.setBasePath(restBase);
   api.addDefaultHeader("Authorization", "Bearer " + accessToken);
   const envelopesApi = new docusign.EnvelopesApi(api);
+  // "combined" returns the current state (works after a single signer, and after fully executed)
   const file: any = await envelopesApi.getDocument(accountId, envelopeId, "combined", null);
   const buf: Buffer = Buffer.isBuffer(file) ? file : Buffer.from(file, "binary");
   return buf.toString("base64");
@@ -102,9 +103,9 @@ async function verifyHmac(req: NextRequest) {
 /* ---------------- Payload helpers ---------------- */
 function eventType(payload: any): string {
   return (
-    payload?.event?.eventType ||
-    payload?.eventType ||
-    payload?.envelopeStatus?.status ||
+    payload?.event?.eventType ||         // Connect v2
+    payload?.eventType ||                // some variants
+    payload?.envelopeStatus?.status ||   // legacy JSON
     ""
   )
     .toString()
@@ -137,7 +138,7 @@ function extractRecipient(payload: any) {
 /* ---------------- Trade/offer formatting ---------------- */
 function toOfferSummary(trade: any) {
   return {
-    listingTitle: trade.listingTitle || (trade as any).windowLabel || `Trade ${trade.id}`,
+    listingTitle: trade.listing?.title || trade.listingTitle || (trade as any).windowLabel || `Trade ${trade.id}`,
     district: trade.district || "—",
     waterType: trade.waterType || null,
     volumeAf: trade.volumeAf || 0,
@@ -160,80 +161,80 @@ export async function POST(req: NextRequest) {
     const envelopeId = extractEnvelopeId(payload);
     if (!envelopeId) return NextResponse.json({ ok: true, ignored: "no envelopeId" });
 
-    // Try to recover trade id from custom fields in the event
+    // Correlate back to your Trade (we set a text tab named 'trade_id')
     const tradeId =
       payload?.customFields?.textCustomFields?.find((f: any) => f?.name === "trade_id")?.value ||
       payload?.data?.customFields?.find?.((f: any) => f?.name === "trade_id")?.value ||
       payload?.tradeId ||
       null;
 
-    let trade:
-      | (Awaited<ReturnType<typeof prisma.trade.findUnique>> & {
-          buyer?: { email: string | null; name: string | null } | null;
-          seller?: { email: string | null; name: string | null } | null;
-          listing?: { title: string } | null;
+    // Pull trade, including related buyer/seller + listing title
+    const trade = tradeId
+      ? await prisma.trade.findUnique({
+          where: { id: tradeId },
+          include: {
+            listing: { select: { title: true } },
+            buyer: { select: { email: true, name: true } },
+            seller: { select: { email: true, name: true } },
+          },
         })
-      | null = null;
+      : null;
 
-    if (tradeId) {
-      trade = await prisma.trade.findUnique({
-        where: { id: tradeId },
-        include: {
-          listing: { select: { title: true } },
-          buyer: { select: { email: true, name: true } },
-          seller: { select: { email: true, name: true } },
-        },
-      });
-    }
-
-    /* ---- Recipient completed: nudge the other party, ack the signer ---- */
+    /* ---- Recipient completed: email Seller to sign + email Buyer ack (+ attach buyer's signed copy) ---- */
     if (type.includes("recipient") && type.includes("completed")) {
       const r = extractRecipient(payload);
+
       if (trade) {
-        const offer = toOfferSummary({
-          id: trade.id,
-          listingTitle: trade.listing?.title,
-          windowLabel: (trade as any).windowLabel,
-          district: trade.district,
-          waterType: trade.waterType,
-          volumeAf: trade.volumeAf,
-          pricePerAf: trade.pricePerAf,
-        });
+        const offer = toOfferSummary(trade);
+
+        // We need an access token to fetch the current (partially signed) PDF
+        const { accessToken, accountId, restBase } = await getAccess();
 
         const role = (r?.role || "").toLowerCase();
 
-        // If buyer finished → email seller to sign
-        if (role.includes("buyer") && trade.seller?.email) {
-          const signLink = appUrl(`/sign/${trade.id}?role=seller`);
-          const { html, preheader } = renderSellerNeedsSignatureEmail({
-            sellerName: trade.seller?.name,
-            buyerName: trade.buyer?.name,
-            offer,
-            signLink,
-            viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
-          });
-          await sendEmail({
-            to: trade.seller.email,
-            subject: "Please review & sign",
-            html,
-            preheader,
-          });
-        }
+        // If BUYER finished → email SELLER to sign + send BUYER a copy of what they signed
+        if (role.includes("buyer")) {
+          // 1) Seller: "Please review & sign"
+          if (trade.seller?.email) {
+            const signLink = appUrl(`/sign/${trade.id}?role=seller`);
+            const { html, preheader } = renderSellerNeedsSignatureEmail({
+              sellerName: trade.seller?.name,
+              buyerName: trade.buyer?.name,
+              offer,
+              signLink,
+              viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
+            });
+            await sendEmail({
+              to: trade.seller.email,
+              subject: "Please review & sign",
+              html,
+              preheader,
+            });
+          }
 
-        // Ack the buyer who just signed
-        if (role.includes("buyer") && trade.buyer?.email) {
-          const { html, preheader } = renderBuyerSignedAckEmail({
-            buyerName: trade.buyer?.name,
-            sellerName: trade.seller?.name,
-            offer,
-            viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
-          });
-          await sendEmail({
-            to: trade.buyer.email,
-            subject: "We’ve recorded your signature",
-            html,
-            preheader,
-          });
+          // 2) Buyer: "We’ve recorded your signature" WITH the current combined PDF attached
+          if (trade.buyer?.email) {
+            const base64 = await fetchCombinedPdf(accountId, restBase, accessToken, envelopeId);
+            const { html, preheader } = renderBuyerSignedAckEmail({
+              buyerName: trade.buyer?.name,
+              sellerName: trade.seller?.name,
+              offer,
+              viewLink: appUrl(`/transactions/${trade.transactionId || trade.id}`),
+            });
+            await sendEmail({
+              to: trade.buyer.email,
+              subject: "We’ve recorded your signature — copy attached",
+              html,
+              preheader,
+              attachments: [
+                {
+                  filename: `WaterTraders_Agreement_${trade.id}_buyer_signed.pdf`,
+                  content: base64,
+                  contentType: "application/pdf",
+                },
+              ],
+            });
+          }
         }
       }
 
@@ -246,16 +247,7 @@ export async function POST(req: NextRequest) {
       const base64Pdf = await fetchCombinedPdf(accountId, restBase, accessToken, envelopeId);
 
       if (trade) {
-        const offer = toOfferSummary({
-          id: trade.id,
-          listingTitle: trade.listing?.title,
-          windowLabel: (trade as any).windowLabel,
-          district: trade.district,
-          waterType: trade.waterType,
-          volumeAf: trade.volumeAf,
-          pricePerAf: trade.pricePerAf,
-        });
-
+        const offer = toOfferSummary(trade);
         const attachments = [
           {
             filename: `WaterTraders_Agreement_${trade.id}.pdf`,
