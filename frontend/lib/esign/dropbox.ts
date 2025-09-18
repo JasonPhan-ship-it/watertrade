@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
  * Dropbox Sign (HelloSign) minimal client helpers
  * - Email delivery: sendTradeForSignatureUsingTemplate(...)
  * - Embedded signing: createEmbeddedWithTemplate(...), getEmbeddedSignUrl(...),
- *   and a convenience wrapper: sendTradeForEmbeddedSignatureUsingTemplate(...)
+ *   and convenience: sendTradeForEmbeddedSignatureUsingTemplate(...)
  */
 
 const API_BASE = "https://api.hellosign.com/v3";
@@ -94,28 +94,56 @@ function usdPerAf(cents?: number | null) {
   return `$${dollars.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/AF`;
 }
 
-/** Safely get (name, email) for buyer & seller based on trade record. */
-async function loadBuyerSellerForTrade(tradeId: string) {
+/** Load trade, buyers/sellers, and resolve a safe listing title. */
+async function loadTradeContext(tradeId: string) {
   const trade = await prisma.trade.findUnique({ where: { id: tradeId } });
   if (!trade) throw new Error("Trade not found");
 
-  const [buyer, seller] = await Promise.all([
+  const [buyer, seller, listing] = await Promise.all([
     trade.buyerUserId ? prisma.user.findUnique({ where: { id: trade.buyerUserId } }) : null,
     trade.sellerUserId ? prisma.user.findUnique({ where: { id: trade.sellerUserId } }) : null,
+    trade.listingId ? prisma.listing.findUnique({ where: { id: trade.listingId }, select: { title: true } }) : null,
   ]);
 
-  const buyerEmail = buyer?.email || (trade as any).buyerEmail || (trade as any).buyer_user_email || null;
-  const sellerEmail = seller?.email || (trade as any).sellerEmail || (trade as any).seller_user_email || null;
+  const buyerEmail =
+    buyer?.email ||
+    (trade as any).buyerEmail ||
+    (trade as any).buyer_user_email ||
+    null;
 
-  if (!buyerEmail || !sellerEmail) throw new Error("Buyer/Seller must have emails on file");
+  const sellerEmail =
+    seller?.email ||
+    (trade as any).sellerEmail ||
+    (trade as any).seller_user_email ||
+    null;
 
-  const buyerName = buyer?.name || (trade as any).buyerName || (trade as any).buyer_user_name || "Buyer";
-  const sellerName = seller?.name || (trade as any).sellerName || (trade as any).seller_user_name || "Seller";
+  if (!buyerEmail || !sellerEmail) {
+    throw new Error("Buyer/Seller must have emails on file");
+  }
+
+  const buyerName =
+    buyer?.name ||
+    (trade as any).buyerName ||
+    (trade as any).buyer_user_name ||
+    "Buyer";
+
+  const sellerName =
+    seller?.name ||
+    (trade as any).sellerName ||
+    (trade as any).seller_user_name ||
+    "Seller";
+
+  // Prefer an explicit window label title, then the Listing title, then a fallback.
+  const listingTitle =
+    (trade as any).windowLabel ||
+    listing?.title ||
+    `Trade ${trade.id}`;
 
   return {
     trade,
     buyer: { name: buyerName, email: buyerEmail },
     seller: { name: sellerName, email: sellerEmail },
+    listingTitle,
   };
 }
 
@@ -130,7 +158,8 @@ export async function sendTradeForSignatureUsingTemplate(
   tradeId: string,
   args: { templateId: string }
 ) {
-  const { trade, buyer, seller } = await loadBuyerSellerForTrade(tradeId);
+  const ctx = await loadTradeContext(tradeId);
+  const { trade, buyer, seller, listingTitle } = ctx;
 
   const priceLabel = usdPerAf(trade.pricePerAf);
 
@@ -147,12 +176,12 @@ export async function sendTradeForSignatureUsingTemplate(
     ],
     // These names must match your template's custom field names
     custom_fields: [
-      { name: "listing_title", value: trade.windowLabel || trade.listingTitle || "Offer Terms" },
+      { name: "listing_title", value: listingTitle },
       { name: "district",      value: trade.district || "" },
       { name: "water_type",    value: trade.waterType || "" },
       { name: "volume_af",     value: String(trade.volumeAf ?? "") },
       { name: "price_per_af",  value: priceLabel },
-      { name: "window_label",  value: trade.windowLabel || "" },
+      { name: "window_label",  value: (trade as any).windowLabel || "" },
     ],
     metadata: {
       tradeId: trade.id,
@@ -188,12 +217,17 @@ export async function sendTradeForSignatureUsingTemplate(
  * Requires a **client_id** (API App) and returns the created request + signatures.
  * Docs: https://developers.hellosign.com/reference/operation/signatureRequestCreateEmbeddedWithTemplate/
  */
-export async function createEmbeddedWithTemplate(tradeId: string, args: {
-  templateId: string;
-}) {
-  const { trade, buyer, seller } = await loadBuyerSellerForTrade(tradeId);
+export async function createEmbeddedWithTemplate(
+  tradeId: string,
+  args: { templateId: string }
+) {
+  const ctx = await loadTradeContext(tradeId);
+  const { trade, buyer, seller, listingTitle } = ctx;
+
   const client_id = getClientId();
-  if (!client_id) throw new Error("DROPBOX_SIGN_CLIENT_ID (or NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID) is required for embedded signing.");
+  if (!client_id) {
+    throw new Error("DROPBOX_SIGN_CLIENT_ID (or NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID) is required for embedded signing.");
+  }
 
   const priceLabel = usdPerAf(trade.pricePerAf);
 
@@ -208,12 +242,12 @@ export async function createEmbeddedWithTemplate(tradeId: string, args: {
       { role: "Seller", name: seller.name, email_address: seller.email },
     ],
     custom_fields: [
-      { name: "listing_title", value: trade.windowLabel || trade.listingTitle || "Offer Terms" },
+      { name: "listing_title", value: listingTitle },
       { name: "district",      value: trade.district || "" },
       { name: "water_type",    value: trade.waterType || "" },
       { name: "volume_af",     value: String(trade.volumeAf ?? "") },
       { name: "price_per_af",  value: priceLabel },
-      { name: "window_label",  value: trade.windowLabel || "" },
+      { name: "window_label",  value: (trade as any).windowLabel || "" },
     ],
     metadata: {
       tradeId: trade.id,
