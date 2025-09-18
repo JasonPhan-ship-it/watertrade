@@ -1,6 +1,6 @@
 // lib/email.ts
 /**
- * Resend sender + brand-styled HTML templates for the negotiation flow.
+ * Resend sender + brand-styled HTML templates for the negotiation & signing flow.
  * Exports:
  *  - sendEmail
  *  - appUrl
@@ -126,7 +126,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ id?: string }
     body.attachments = opts.attachments.map((a) => ({
       filename: a.filename,
       content: a.content, // base64
-      ...(a.contentType ? { "contentType": a.contentType } : {}),
+      ...(a.contentType ? { contentType: a.contentType } : {}),
     }));
   }
 
@@ -489,6 +489,7 @@ export function renderDocsKickoffEmail(params: {
     volumeAf: number;
     pricePerAf: number;          // cents
     priceLabel?: string;         // optional override
+    windowLabel?: string;
   };
   ctas: { label: string; href: string; primary?: boolean }[];
   footerNote?: string;
@@ -501,6 +502,7 @@ export function renderDocsKickoffEmail(params: {
     ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
     { label: "Volume (AF)", value: new Intl.NumberFormat("en-US").format(offer.volumeAf) },
     { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+    ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
   ];
 
   const html = renderEmailLayout({
@@ -518,7 +520,7 @@ export function renderDocsKickoffEmail(params: {
 
 /* ---------------- Additional signing-phase emails ---------------- */
 
-/** Email to SELLER when it's their turn to sign (buyer completed) */
+/** SELLER → needs to sign after the BUYER signs */
 export function renderSellerNeedsSignatureEmail(params: {
   sellerName?: string | null;
   buyerName?: string | null;
@@ -550,7 +552,7 @@ export function renderSellerNeedsSignatureEmail(params: {
   return { html, preheader: "Your signature is requested." };
 }
 
-/** Optional email to BUYER immediately after they sign (no attachment yet) */
+/** BUYER → immediate acknowledgement after signing (your webhook may attach the PDF) */
 export function renderBuyerSignedAckEmail(params: {
   buyerName?: string | null;
   sellerName?: string | null;
@@ -559,11 +561,13 @@ export function renderBuyerSignedAckEmail(params: {
 }) {
   const { buyerName, sellerName, offer, viewLink } = params;
   const html = renderEmailLayout({
-    title: "Thanks — you’re all set",
-    subtitle: buyerName ? `Hi ${buyerName}, we’ve recorded your signature.` : "We’ve recorded your signature.",
+    title: "We’ve recorded your signature",
+    subtitle: buyerName
+      ? `Thanks, ${buyerName}.`
+      : "Thanks for signing.",
     intro: sellerName
-      ? `We’ll notify you once ${sellerName} signs.`
-      : "We’ll notify you once the seller signs.",
+      ? `We’ve notified ${sellerName} to sign next. We’ll email you once the agreement is fully executed.`
+      : "We’ve notified the seller to sign next. We’ll email you once the agreement is fully executed.",
     keyValues: [
       { label: "Listing", value: offer.listingTitle },
       { label: "District", value: offer.district },
@@ -572,13 +576,15 @@ export function renderBuyerSignedAckEmail(params: {
       { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
-    ctas: viewLink ? [{ label: "View Details", href: viewLink, primary: true }] : [],
+    ctas: [
+      ...(viewLink ? [{ label: "View Details", href: viewLink, primary: true }] : []),
+    ],
     logoUrl: DEFAULT_LOGO,
   });
   return { html, preheader: "Your signature has been recorded." };
 }
 
-/** Final email to BOTH parties when envelope is fully executed (attach PDF) */
+/** BOTH PARTIES → final confirmation when envelope is fully executed (attach PDF in caller) */
 export function renderFullyExecutedEmail(params: {
   recipientName?: string | null;
   counterpartName?: string | null;
@@ -587,13 +593,13 @@ export function renderFullyExecutedEmail(params: {
 }) {
   const { recipientName, counterpartName, offer, viewLink } = params;
   const html = renderEmailLayout({
-    title: "Fully executed 🎉",
+    title: "Agreement fully executed 🎉",
     subtitle: recipientName
       ? `Hi ${recipientName}, both parties have signed.`
       : "Both parties have signed.",
     intro: counterpartName
-      ? `You and ${counterpartName} have signed. We’ll coordinate the water transfer next.`
-      : "Both parties have signed. We’ll coordinate the water transfer next.",
+      ? `You and ${counterpartName} have completed the agreement. Our team will follow up regarding the water transfer.`
+      : "The agreement is fully executed. Our team will follow up regarding the water transfer.",
     keyValues: [
       { label: "Listing", value: offer.listingTitle },
       { label: "District", value: offer.district },
@@ -602,7 +608,9 @@ export function renderFullyExecutedEmail(params: {
       { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
-    ctas: viewLink ? [{ label: "View Details", href: viewLink, primary: true }] : [],
+    ctas: [
+      ...(viewLink ? [{ label: "View Agreement", href: viewLink, primary: true }] : []),
+    ],
     footerNote:
       "A copy of the fully executed agreement is attached for your records. We’ll be in touch about conveyance and district steps.",
     logoUrl: DEFAULT_LOGO,
