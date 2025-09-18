@@ -311,6 +311,10 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           </>
         )}
       </div>
+            {/* Disclaimer */}
+      <div className="mt-6 text-xs text-slate-500">
+        Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.
+      </div>
     </div>
   );
 }
