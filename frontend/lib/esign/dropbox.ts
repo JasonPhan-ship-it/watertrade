@@ -110,4 +110,166 @@ async function loadBuyerSellerForTrade(tradeId: string) {
   if (!buyerEmail || !sellerEmail) throw new Error("Buyer/Seller must have emails on file");
 
   const buyerName = buyer?.name || (trade as any).buyerName || (trade as any).buyer_user_name || "Buyer";
-  const sellerName = seller?.name || (trade as any).s
+  const sellerName = seller?.name || (trade as any).sellerName || (trade as any).seller_user_name || "Seller";
+
+  return {
+    trade,
+    buyer: { name: buyerName, email: buyerEmail },
+    seller: { name: sellerName, email: sellerEmail },
+  };
+}
+
+/* ----------------------- Email delivery (existing) ---------------------- */
+/**
+ * Create and send a Signature Request using a Template (Dropbox Sign emails signers).
+ * Assumptions:
+ * - Template roles: "Buyer" and "Seller" (case-sensitive)
+ * - Populates custom fields from Trade
+ */
+export async function sendTradeForSignatureUsingTemplate(
+  tradeId: string,
+  args: { templateId: string }
+) {
+  const { trade, buyer, seller } = await loadBuyerSellerForTrade(tradeId);
+
+  const priceLabel = usdPerAf(trade.pricePerAf);
+
+  const body = {
+    template_ids: [args.templateId],
+    subject: "Water Transfer Agreement",
+    message: "Please review and sign the agreement.",
+    test_mode: isTestMode(),
+    // Optional branding/callbacks (non-embedded flow can still include client_id)
+    client_id: getClientId(),
+    signers: [
+      { role: "Buyer", name: buyer.name, email_address: buyer.email },
+      { role: "Seller", name: seller.name, email_address: seller.email },
+    ],
+    // These names must match your template's custom field names
+    custom_fields: [
+      { name: "listing_title", value: trade.windowLabel || trade.listingTitle || "Offer Terms" },
+      { name: "district",      value: trade.district || "" },
+      { name: "water_type",    value: trade.waterType || "" },
+      { name: "volume_af",     value: String(trade.volumeAf ?? "") },
+      { name: "price_per_af",  value: priceLabel },
+      { name: "window_label",  value: trade.windowLabel || "" },
+    ],
+    metadata: {
+      tradeId: trade.id,
+      transactionId: trade.transactionId || "",
+      listingId: trade.listingId || "",
+    },
+  };
+
+  type SendResp = {
+    signature_request: {
+      signature_request_id: string;
+      signatures: Array<{
+        signature_id: string;
+        signer_role: string;
+        signer_email_address: string;
+        status_code: string;
+      }>;
+    };
+  };
+
+  const resp = await hsPostJson<SendResp>("/signature_request/send_with_template", body);
+
+  return {
+    requestId: resp.signature_request.signature_request_id,
+    signatures: resp.signature_request.signatures,
+  };
+}
+
+/* ----------------------- Embedded signing helpers ----------------------- */
+
+/**
+ * Create an **embedded** Signature Request using a Template.
+ * Requires a **client_id** (API App) and returns the created request + signatures.
+ * Docs: https://developers.hellosign.com/reference/operation/signatureRequestCreateEmbeddedWithTemplate/
+ */
+export async function createEmbeddedWithTemplate(tradeId: string, args: {
+  templateId: string;
+}) {
+  const { trade, buyer, seller } = await loadBuyerSellerForTrade(tradeId);
+  const client_id = getClientId();
+  if (!client_id) throw new Error("DROPBOX_SIGN_CLIENT_ID (or NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID) is required for embedded signing.");
+
+  const priceLabel = usdPerAf(trade.pricePerAf);
+
+  const body = {
+    template_ids: [args.templateId],
+    subject: "Water Transfer Agreement",
+    message: "Please review and sign the agreement.",
+    test_mode: isTestMode(),
+    client_id,
+    signers: [
+      { role: "Buyer",  name: buyer.name,  email_address: buyer.email },
+      { role: "Seller", name: seller.name, email_address: seller.email },
+    ],
+    custom_fields: [
+      { name: "listing_title", value: trade.windowLabel || trade.listingTitle || "Offer Terms" },
+      { name: "district",      value: trade.district || "" },
+      { name: "water_type",    value: trade.waterType || "" },
+      { name: "volume_af",     value: String(trade.volumeAf ?? "") },
+      { name: "price_per_af",  value: priceLabel },
+      { name: "window_label",  value: trade.windowLabel || "" },
+    ],
+    metadata: {
+      tradeId: trade.id,
+      transactionId: trade.transactionId || "",
+      listingId: trade.listingId || "",
+    },
+  };
+
+  type Resp = {
+    signature_request: {
+      signature_request_id: string;
+      signatures: Array<{
+        signature_id: string;
+        signer_role: string;
+        signer_email_address: string;
+        status_code: string;
+      }>;
+    };
+  };
+
+  const resp = await hsPostJson<Resp>("/signature_request/create_embedded_with_template", body);
+  return {
+    requestId: resp.signature_request.signature_request_id,
+    signatures: resp.signature_request.signatures,
+  };
+}
+
+/**
+ * Get a **sign URL** for an embedded signing (one-time URL).
+ * Docs: https://developers.hellosign.com/reference/operation/embeddedSignUrl/
+ */
+export async function getEmbeddedSignUrl(signatureId: string) {
+  type SignUrlResp = {
+    embedded: { sign_url: string; expires_at: number };
+  };
+  const resp = await hsPostJson<SignUrlResp>("/embedded/sign_url", { signature_id: signatureId });
+  return resp.embedded;
+}
+
+/**
+ * Convenience: create an embedded request via template and return the target signer’s sign URL.
+ *
+ * `forRole`: "Buyer" | "Seller"
+ */
+export async function sendTradeForEmbeddedSignatureUsingTemplate(
+  tradeId: string,
+  args: { templateId: string; forRole: "Buyer" | "Seller" }
+) {
+  const { requestId, signatures } = await createEmbeddedWithTemplate(tradeId, { templateId: args.templateId });
+
+  const target = signatures.find(s => s.signer_role === args.forRole);
+  if (!target) {
+    const roles = signatures.map(s => s.signer_role);
+    throw new Error(`Embedded request created (${requestId}) but role "${args.forRole}" not found. Present roles: ${roles.join(", ")}`);
+  }
+
+  const { sign_url, expires_at } = await getEmbeddedSignUrl(target.signature_id);
+  return { requestId, signatureId: target.signature_id, signUrl: sign_url, expiresAt: expires_at };
+}
