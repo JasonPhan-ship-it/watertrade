@@ -174,7 +174,7 @@ export default function ListingActions({
         {/* BUY/SELL NOW: price only */}
         {isFixed && (
           <div className="sm:col-span-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-end">
+            <div className="flex flex-wrap items-end gap-3">
               <div className="min-w-[220px]">
                 <label className="block">
                   <div className="text-xs text-emerald-700/80">Price $/AF</div>
