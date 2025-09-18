@@ -312,15 +312,6 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
         )}
       </div>
 
-      {/* IDs */}
-      <div className="mt-6 text-xs text-slate-500">
-        Tx ID: {tx.id}
-        {tradeIdLinked ? <span className="ml-2">· Trade ID: {tradeIdLinked}</span> : null}
-      </div>
-    </div>
-  );
-}
-
 function uiError(title: string, details: string, tradeId?: string, err?: unknown) {
   const showErr = process.env.NODE_ENV !== "production" || process.env.DEBUG_ERRORS === "1";
   return (
