@@ -2,9 +2,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async headers() {
-    // Scope CSP to the signing pages only
     return [
       {
+        // Scope CSP to the signing pages only
         source: "/sign/:path*",
         headers: [
           {
@@ -14,36 +14,42 @@ const nextConfig = {
               "base-uri 'self'",
               "object-src 'none'",
 
-              // Your app + Clerk + DocuSign endpoints
+              // Network requests from your page (fetch/XHR, SSE, websockets)
               [
                 "connect-src 'self'",
-                "https://account-d.docusign.com",
-                "https://account.docusign.com",
+                // DocuSign (demo + prod + account endpoints)
                 "https://demo.docusign.net",
                 "https://app.docusign.com",
+                "https://account-d.docusign.com",
+                "https://account.docusign.com",
                 "https://*.docusign.net",
                 "https://*.docusign.com",
+                // Clerk
                 "https://*.clerk.com",
                 "https://*.clerk.dev",
                 "https://*.clerk.accounts.dev",
               ].join(" "),
 
-              // Allow DocuSign iframe
+              // If you embed DocuSign in an <iframe>
               [
-                "frame-src",
+                "frame-src 'self'",
                 "https://demo.docusign.net",
                 "https://app.docusign.com",
                 "https://*.docusign.net",
                 "https://*.docusign.com",
               ].join(" "),
 
-              // Images from DocuSign iframe or your app
+              // If DocuSign or your page submits forms/POSTs to DocuSign
+              "form-action 'self' https://*.docusign.net https://*.docusign.com",
+
+              // Images (including those loaded inside the embedded DocuSign UI)
               "img-src 'self' data: blob: https://*.docusign.net https://*.docusign.com",
 
-              // Styles
+              // Fonts/CSS
+              "font-src 'self' data:",
               "style-src 'self' 'unsafe-inline'",
 
-              // Clerk scripts (you do not need DocuSign scripts)
+              // Scripts: your app + Clerk (DocuSign does not require you to host their JS)
               [
                 "script-src 'self' 'unsafe-inline'",
                 "https://*.clerk.com",
@@ -51,19 +57,18 @@ const nextConfig = {
                 "https://*.clerk.accounts.dev",
               ].join(" "),
 
-              // Clerk uses workers from blob:
+              // Workers (Clerk may use blob:)
               "worker-src 'self' blob:",
             ].join("; "),
           },
-          // Ensure you are NOT sending X-Frame-Options: DENY on /sign/*
+          // Do NOT set X-Frame-Options: DENY here; it would block your page from embedding anything.
         ],
       },
     ];
   },
 
   webpack: (config, { isServer }) => {
-    // Do NOT alias docusign-esign to a dist file; versions differ in layout.
-    // Instead, keep it external on the server so webpack doesn’t bundle it.
+    // Keep docusign-esign external on the server to avoid bundling differences.
     if (isServer) {
       config.externals = config.externals || [];
       config.externals.push(({ request }, cb) => {
