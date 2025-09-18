@@ -219,7 +219,7 @@ async function extractTemplateRoleNames(docusign: any, apiClient: any, accountId
     resp?.envelopeTemplate?.recipients?.signers,
     (resp as any)?.template?.recipients?.signers,
     (resp as any)?.templateRecipients?.signers,
-    (resp as any)?.roles,
+    (resp as any)?.roles, // sometimes present, but not standard
   ].filter(Boolean) as any[][];
   const names = new Set<string>();
   for (const arr of buckets) {
@@ -504,6 +504,18 @@ export async function GET(req: NextRequest) {
     envelopeDefinition.emailSubject = `Water Traders – Trade ${trade.id}`;
     envelopeDefinition.emailBlurb = "Please review and sign the Water Traders agreement.";
 
+    // Envelope-level custom field so webhooks can always see trade_id
+    (() => {
+      const tcf = new docusign.TextCustomField();
+      tcf.name = "trade_id";
+      tcf.value = trade.id || "";
+      tcf.required = "false";
+      tcf.show = "false";
+      const cf = new docusign.CustomFields();
+      cf.textCustomFields = [tcf];
+      envelopeDefinition.customFields = cf;
+    })();
+
     if (templateId) {
       const toTextTabs = (pairs: Record<string, string>) =>
         Object.entries(pairs).map(([label, value]) => {
@@ -553,6 +565,25 @@ export async function GET(req: NextRequest) {
 
       envelopeDefinition.recipients = new docusign.Recipients();
       envelopeDefinition.recipients.signers = [sellerSigner, buyerSigner];
+    }
+
+    // 🔔 Event Notification → your webhook
+    {
+      const origin = new URL(req.url).origin;
+      const webhookUrl = process.env.DOCUSIGN_WEBHOOK_URL || `${origin}/api/webhook/docsign`;
+      const en = new docusign.EventNotification();
+      en.url = webhookUrl;
+      en.includeTimeZone = "true";
+      en.loggingEnabled = "true";
+      en.requireAcknowledgment = "true";
+      en.includeDocuments = "false"; // we'll fetch PDFs ourselves
+      en.signMessageWithX509Cert = "false";
+      en.useSoapInterface = "false";
+      en.includeCertificateWithSoap = "false";
+      // Trigger when a recipient completes, and when the whole envelope completes
+      en.recipientEvents = [{ recipientEventStatusCode: "Completed" }];
+      en.envelopeEvents = [{ envelopeEventStatusCode: "completed" }];
+      envelopeDefinition.eventNotification = en;
     }
 
     envelopeDefinition.status = "sent";
@@ -660,13 +691,8 @@ export async function GET(req: NextRequest) {
           envelopeId,
           returnUrl,
           pingUrl,
-          userinfoAccounts: (userinfo?.accounts || []).map((a: any) => ({
-            name: a?.account_name,
-            idMasked: mask(a?.account_id || ""),
-            baseUri: a?.base_uri || a?.baseUri || null,
-            isDefault: !!a?.is_default,
-          })),
           signUrl,
+          webhookUrl: process.env.DOCUSIGN_WEBHOOK_URL || `${new URL(req.url).origin}/api/webhook/docsign`,
         },
       });
     }
