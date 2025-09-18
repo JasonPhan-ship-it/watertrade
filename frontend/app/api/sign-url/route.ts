@@ -219,7 +219,7 @@ async function extractTemplateRoleNames(docusign: any, apiClient: any, accountId
     resp?.envelopeTemplate?.recipients?.signers,
     (resp as any)?.template?.recipients?.signers,
     (resp as any)?.templateRecipients?.signers,
-    (resp as any)?.roles, // sometimes present, but not standard
+    (resp as any)?.roles,
   ].filter(Boolean) as any[][];
   const names = new Set<string>();
   for (const arr of buckets) {
@@ -310,10 +310,11 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
     const debug = searchParams.get("debug") === "1";
-    const jsonMode = searchParams.get("json") === "1";
+    // Option A: always JSON. Redirect only if explicitly requested (?redirect=1).
+    const forceRedirect = searchParams.get("redirect") === "1";
     const wantConsent = searchParams.get("consent") === "1";
-    const wantRolesOnly = searchParams.get("roles") === "1";   // NEW: role inspector
-    const useSample = searchParams.get("sample") === "1";      // NEW: sample doc
+    const wantRolesOnly = searchParams.get("roles") === "1";
+    const useSample = searchParams.get("sample") === "1";
     const roleParam = (searchParams.get("role") || "").toLowerCase();
 
     // Utility: return consent URL on demand
@@ -394,7 +395,7 @@ export async function GET(req: NextRequest) {
     const sampleUrl =
       process.env.DOCUSIGN_SAMPLE_PDF_URL ||
       "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
-    const effectiveFileUrl = !templateId ? (useSample ? sampleUrl : fileUrl) : ""; // NEW
+    const effectiveFileUrl = !templateId ? (useSample ? sampleUrl : fileUrl) : "";
     const ENV_SELLER = process.env.DOCUSIGN_ROLE_SELLER || "seller";
     const ENV_BUYER = process.env.DOCUSIGN_ROLE_BUYER || "buyer";
     const returnUrl = process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return";
@@ -629,14 +630,12 @@ export async function GET(req: NextRequest) {
     const signUrl = recipientView?.url;
     if (!signUrl) return fail(500, "No sign URL returned", recipientView);
 
-    /* -------- redirect vs JSON -------- */
-    const shouldRedirect = !jsonMode && !debug; // default to redirect (safer)
-    if (shouldRedirect) {
+    /* -------- Option A: return JSON; optionally allow redirect with ?redirect=1 -------- */
+    if (forceRedirect && !debug) {
       const res = NextResponse.redirect(signUrl, 302);
       return noCacheHeaders(res);
     }
 
-    /* -------- debug short-circuit / JSON -------- */
     if (debug) {
       return json({
         ok: true,
@@ -667,6 +666,7 @@ export async function GET(req: NextRequest) {
             baseUri: a?.base_uri || a?.baseUri || null,
             isDefault: !!a?.is_default,
           })),
+          signUrl,
         },
       });
     }
