@@ -9,6 +9,10 @@
  *  - renderBuyerCounterEmail
  *  - renderSellerCounterEmail
  *  - renderBuyerDeclinedEmail
+ *  - renderDocsKickoffEmail
+ *  - renderSellerNeedsSignatureEmail
+ *  - renderBuyerSignedAckEmail
+ *  - renderFullyExecutedEmail
  */
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
@@ -510,4 +514,98 @@ export function renderDocsKickoffEmail(params: {
   });
 
   return { html, preheader: subtitle || intro || title };
+}
+
+/* ---------------- Additional signing-phase emails ---------------- */
+
+/** Email to SELLER when it's their turn to sign (buyer completed) */
+export function renderSellerNeedsSignatureEmail(params: {
+  sellerName?: string | null;
+  buyerName?: string | null;
+  offer: OfferSummary;
+  signLink: string;     // /sign/:id?role=seller
+  viewLink?: string;    // optional details link
+}) {
+  const { sellerName, buyerName, offer, signLink, viewLink } = params;
+  const html = renderEmailLayout({
+    title: "Please review & sign",
+    subtitle: sellerName ? `Hi ${sellerName}, it’s your turn to sign.` : "It’s your turn to sign.",
+    intro: buyerName
+      ? `${buyerName} has completed their part. Please review and sign to proceed.`
+      : "The buyer has completed their part. Please review and sign to proceed.",
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: [
+      { label: "Review & Sign", href: signLink, primary: true },
+      ...(viewLink ? [{ label: "View Details", href: viewLink }] : []),
+    ],
+    logoUrl: DEFAULT_LOGO,
+  });
+  return { html, preheader: "Your signature is requested." };
+}
+
+/** Optional email to BUYER immediately after they sign (no attachment yet) */
+export function renderBuyerSignedAckEmail(params: {
+  buyerName?: string | null;
+  sellerName?: string | null;
+  offer: OfferSummary;
+  viewLink?: string;
+}) {
+  const { buyerName, sellerName, offer, viewLink } = params;
+  const html = renderEmailLayout({
+    title: "Thanks — you’re all set",
+    subtitle: buyerName ? `Hi ${buyerName}, we’ve recorded your signature.` : "We’ve recorded your signature.",
+    intro: sellerName
+      ? `We’ll notify you once ${sellerName} signs.`
+      : "We’ll notify you once the seller signs.",
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: viewLink ? [{ label: "View Details", href: viewLink, primary: true }] : [],
+    logoUrl: DEFAULT_LOGO,
+  });
+  return { html, preheader: "Your signature has been recorded." };
+}
+
+/** Final email to BOTH parties when envelope is fully executed (attach PDF) */
+export function renderFullyExecutedEmail(params: {
+  recipientName?: string | null;
+  counterpartName?: string | null;
+  offer: OfferSummary;
+  viewLink?: string;
+}) {
+  const { recipientName, counterpartName, offer, viewLink } = params;
+  const html = renderEmailLayout({
+    title: "Fully executed 🎉",
+    subtitle: recipientName
+      ? `Hi ${recipientName}, both parties have signed.`
+      : "Both parties have signed.",
+    intro: counterpartName
+      ? `You and ${counterpartName} have signed. We’ll coordinate the water transfer next.`
+      : "Both parties have signed. We’ll coordinate the water transfer next.",
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: viewLink ? [{ label: "View Details", href: viewLink, primary: true }] : [],
+    footerNote:
+      "A copy of the fully executed agreement is attached for your records. We’ll be in touch about conveyance and district steps.",
+    logoUrl: DEFAULT_LOGO,
+  });
+  return { html, preheader: "Fully executed agreement attached." };
 }
