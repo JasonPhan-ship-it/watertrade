@@ -45,8 +45,9 @@ function json(data: any, init?: ResponseInit) {
 function normalizeOAuthBase(input?: string) {
   const raw = (input || "").trim() || "https://account-d.docusign.com";
   let url: URL;
-  try { url = new URL(raw); }
-  catch {
+  try {
+    url = new URL(raw);
+  } catch {
     throw new Error(
       `DOCUSIGN_BASE_PATH must be a full https URL. Use "https://account-d.docusign.com" (demo) or "https://account.docusign.com" (prod). Got: "${raw}"`
     );
@@ -56,7 +57,7 @@ function normalizeOAuthBase(input?: string) {
   if (!allowed.has(host)) {
     throw new Error(
       `DOCUSIGN_BASE_PATH host must be "account-d.docusign.com" (demo) or "account.docusign.com" (prod). ` +
-      `Do not use "demo.docusign.net" or append "/restapi". Got host "${host}".`
+        `Do not use "demo.docusign.net" or append "/restapi". Got host "${host}".`
     );
   }
   return { oauthBase: `https://${host}`, oauthHost: host };
@@ -125,7 +126,7 @@ function buildConsentUrl(oauthBase: string, clientId: string, returnUrl?: string
   )}&redirect_uri=${encodeURIComponent(redirect)}`;
 }
 
-async function getAccessToken(): Promise<{ accessToken: string; expiresAt: number, diag?: any }> {
+async function getAccessToken(): Promise<{ accessToken: string; expiresAt: number; diag?: any }> {
   if (!docusign || !jwtApiClient) await loadDocuSign();
 
   const { integrationKey, userId, privateKey, apiClient, oauthBase, oauthHost } = jwtApiClient || {};
@@ -152,7 +153,11 @@ async function getAccessToken(): Promise<{ accessToken: string; expiresAt: numbe
     const status = e?.response?.status ?? e?.status ?? null;
     let body = e?.response?.body || e?.body || null;
     const text = e?.response?.text || e?.message || String(e);
-    if (!body && typeof text === "string") { try { body = JSON.parse(text); } catch {} }
+    if (!body && typeof text === "string") {
+      try {
+        body = JSON.parse(text);
+      } catch {}
+    }
     const error = body?.error || null;
     const description = body?.error_description || text || null;
 
@@ -164,7 +169,8 @@ async function getAccessToken(): Promise<{ accessToken: string; expiresAt: numbe
     } else if (error === "consent_required") {
       hint = `Consent required. Open this while logged in as the API user: ${consentUrl}`;
     } else if (error === "invalid_grant") {
-      hint = "invalid_grant: Verify USER_ID (API Username GUID), user is in the app's account, RSA keypair matches the app, and server clock is accurate.";
+      hint =
+        "invalid_grant: Verify USER_ID (API Username GUID), user is in the app's account, RSA keypair matches the app, and server clock is accurate.";
     } else if (error === "unauthorized_client") {
       hint = "unauthorized_client: Ensure JWT is enabled and the RSA public key is added to the app.";
     }
@@ -186,24 +192,28 @@ async function getUserInfoAndRestBase(accessToken: string) {
   });
   const text = await resp.text();
   let info: any = null;
-  try { info = text ? JSON.parse(text) : null; } catch {}
+  try {
+    info = text ? JSON.parse(text) : null;
+  } catch {}
 
   if (!resp.ok) throw new Error(`userinfo failed ${resp.status}: ${text || ""}`);
 
   const envAcct = (process.env.DOCUSIGN_ACCOUNT_ID || "").trim();
   const accounts: any[] = info?.accounts || [];
-  const byEnv = envAcct ? accounts.find(a => a?.account_id === envAcct) : null;
-  const byDefault = accounts.find(a => a?.is_default) || accounts[0];
+  const byEnv = envAcct ? accounts.find((a) => a?.account_id === envAcct) : null;
+  const byDefault = accounts.find((a) => a?.is_default) || accounts[0];
   const account = byEnv || byDefault;
 
   if (!account) throw new Error("No DocuSign account on token");
 
   if (envAcct && account.account_id !== envAcct) {
-    const available = accounts.map(a => a?.account_id).filter(Boolean).join(", ");
+    const available = accounts.map((a) => a?.account_id).filter(Boolean).join(", ");
     throw new Error(`DOCUSIGN_ACCOUNT_ID (${envAcct}) not on token. Available: ${available}`);
   }
 
   const baseUri = (account.base_uri || account.baseUri || info?.base_uri || "").replace(/\/+$/, "");
+  if (!baseUri) throw new Error("No base_uri in userinfo");
+
   const restBase = `${baseUri}/restapi`;
   return { accountId: account.account_id, restBase, info, oauthBase };
 }
@@ -217,7 +227,7 @@ async function extractTemplateRoleNames(docusign: any, apiClient: any, accountId
     resp?.envelopeTemplate?.recipients?.signers,
     (resp as any)?.template?.recipients?.signers,
     (resp as any)?.templateRecipients?.signers,
-    (resp as any)?.roles,
+    (resp as any)?.roles, // sometimes present, but not standard
   ].filter(Boolean) as any[][];
   const names = new Set<string>();
   for (const arr of buckets) {
@@ -308,7 +318,6 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "";
     const debug = searchParams.get("debug") === "1";
-    // Option A: always JSON. Redirect only if explicitly requested (?redirect=1).
     const forceRedirect = searchParams.get("redirect") === "1";
     const wantConsent = searchParams.get("consent") === "1";
     const wantRolesOnly = searchParams.get("roles") === "1";
@@ -342,7 +351,7 @@ export async function GET(req: NextRequest) {
     const buyerResolved = await resolveSigner(trade, "buyer");
     const fallbackEmail = `no-email+${trade.id}@example.com`;
     const seller = { email: sellerResolved.email || fallbackEmail, name: sellerResolved.name || "Seller" };
-    const buyer  = { email: buyerResolved.email  || fallbackEmail, name: buyerResolved.name  || "Buyer"  };
+    const buyer = { email: buyerResolved.email || fallbackEmail, name: buyerResolved.name || "Buyer" };
     if ((seller.email || "").toLowerCase() === (buyer.email || "").toLowerCase()) {
       buyer.email = plusAlias(buyer.email, `buyer.${trade.id.slice(-6)}`);
     }
@@ -367,7 +376,7 @@ export async function GET(req: NextRequest) {
       roleParam === "seller" ? "seller" : roleParam === "buyer" ? "buyer" : null;
 
     let effectiveRole: "seller" | "buyer" | null =
-      viewer.role === "seller" || viewer.role === "buyer" ? viewer.role : null;
+      (viewer as any).role === "seller" || (viewer as any).role === "buyer" ? (viewer as any).role : null;
     if (!effectiveRole && inferredRole) effectiveRole = inferredRole;
 
     if (requestedRole && effectiveRole && requestedRole !== effectiveRole) {
@@ -401,7 +410,7 @@ export async function GET(req: NextRequest) {
 
     /* -------- OAuth -------- */
     PHASE = "jwt.token";
-    let access: { accessToken: string; expiresAt: number, diag?: any };
+    let access: { accessToken: string; expiresAt: number; diag?: any };
     try {
       access = await getAccessToken();
     } catch (e: any) {
@@ -441,6 +450,7 @@ export async function GET(req: NextRequest) {
     /* -------- map roles -------- */
     const sellerRoleName = ENV_SELLER;
     const buyerRoleName = ENV_BUYER;
+    const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
     /* -------- optional: verify template roles (robust) -------- */
     if (templateId) {
@@ -516,7 +526,10 @@ export async function GET(req: NextRequest) {
     if (templateId) {
       const toTextTabs = (pairs: Record<string, string>) =>
         Object.entries(pairs).map(([label, value]) => {
-          const t = new docusign.Text(); t.tabLabel = label; t.value = value ?? ""; return t;
+          const t = new docusign.Text();
+          t.tabLabel = label;
+          t.value = value ?? "";
+          return t;
         });
 
       const sellerRole = new docusign.TemplateRole();
@@ -524,22 +537,22 @@ export async function GET(req: NextRequest) {
       sellerRole.name = seller.name;
       sellerRole.email = seller.email;
       sellerRole.clientUserId = sellerRoleName; // embedded
-      sellerRole.routingOrder = "2";            // seller second
+      sellerRole.tabs = new docusign.Tabs();
+      sellerRole.tabs.textTabs = toTextTabs(customPairs);
+      // optional sequencing (buyer first, then seller)
+      sellerRole.routingOrder = "2";
 
       const buyerRole = new docusign.TemplateRole();
       buyerRole.roleName = buyerRoleName;
       buyerRole.name = buyer.name;
       buyerRole.email = buyer.email;
-      buyerRole.clientUserId = buyerRoleName;   // embedded
-      buyerRole.routingOrder = "1";            // buyer first
-
-      sellerRole.tabs = new docusign.Tabs();
+      buyerRole.clientUserId = buyerRoleName; // embedded
       buyerRole.tabs = new docusign.Tabs();
-      sellerRole.tabs.textTabs = toTextTabs(customPairs);
       buyerRole.tabs.textTabs = toTextTabs(customPairs);
+      buyerRole.routingOrder = "1";
 
       envelopeDefinition.templateId = templateId;
-      envelopeDefinition.templateRoles = [buyerRole, sellerRole]; // order aligns with routingOrder
+      envelopeDefinition.templateRoles = [buyerRole, sellerRole];
     } else if (effectiveFileUrl) {
       const { name, data } = await fetchAsBase64(effectiveFileUrl);
       const doc = new docusign.Document();
@@ -568,19 +581,12 @@ export async function GET(req: NextRequest) {
       envelopeDefinition.recipients.signers = [buyerSigner, sellerSigner];
     }
 
-    // 🔔 Event Notification → your webhook (JSON + optional HMAC)
+    // 🔔 Event Notification → your webhook
     {
       const origin = new URL(req.url).origin;
       const webhookUrl = process.env.DOCUSIGN_WEBHOOK_URL || `${origin}/api/webhook/docsign`;
       const en = new docusign.EventNotification();
       en.url = webhookUrl;
-
-      // JSON payload (rest v2.1)
-      const ed = new docusign.ConnectEventData();
-      ed.version = "restv2.1";
-      ed.format = "json";
-      en.eventData = ed;
-
       en.includeTimeZone = "true";
       en.loggingEnabled = "true";
       en.requireAcknowledgment = "true";
@@ -588,15 +594,9 @@ export async function GET(req: NextRequest) {
       en.signMessageWithX509Cert = "false";
       en.useSoapInterface = "false";
       en.includeCertificateWithSoap = "false";
-      en.includeHMAC = (process.env.DOCUSIGN_CONNECT_HMAC_SECRET ? "true" : "false");
-
-      // Trigger when a recipient completes, and when the envelope is sent/completed
+      // Trigger when a recipient completes, and when the whole envelope completes
       en.recipientEvents = [{ recipientEventStatusCode: "Completed" }];
-      en.envelopeEvents = [
-        { envelopeEventStatusCode: "Sent" },
-        { envelopeEventStatusCode: "Completed" },
-      ];
-
+      en.envelopeEvents = [{ envelopeEventStatusCode: "Completed" }];
       envelopeDefinition.eventNotification = en;
     }
 
@@ -605,22 +605,6 @@ export async function GET(req: NextRequest) {
     /* -------- create envelope -------- */
     PHASE = "envelopes.create";
     let envelopeSummary;
-    let accountId: string, restBase: string, userinfo: any, oauthBase: string;
-    try {
-      const u = await getUserInfoAndRestBase((await getAccessToken()).accessToken); // lightweight re-use
-      accountId = u.accountId;
-      restBase = u.restBase;
-      userinfo = u.info;
-      oauthBase = u.oauthBase;
-    } catch (e: any) {
-      return fail(500, "Failed to resolve DocuSign account/base", e?.message || parseErr(e));
-    }
-
-    const apiClient = new docusign.ApiClient();
-    apiClient.setBasePath(restBase);
-    apiClient.addDefaultHeader("Authorization", "Bearer " + (await getAccessToken()).accessToken);
-    const envelopesApi = new docusign.EnvelopesApi(apiClient);
-
     try {
       envelopeSummary = await envelopesApi.createEnvelope(accountId, { envelopeDefinition });
     } catch (e: any) {
@@ -636,19 +620,18 @@ export async function GET(req: NextRequest) {
     try {
       const recips = await envelopesApi.listRecipients(accountId, envelopeId);
       const allSigners: any[] = recips?.signers || [];
-      const wantClientUserId = (effectiveRole === "seller" ? sellerRoleName : buyerRoleName);
+      const wantClientUserId = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
       const wantEmail = (effectiveRole === "seller" ? seller.email : buyer.email).toLowerCase();
-      const wantName = (effectiveRole === "seller" ? seller.name : buyer.name);
+      const wantName = effectiveRole === "seller" ? seller.name : buyer.name;
 
-      const match = allSigners.find(s =>
-        (s.clientUserId || s.clientUserID) === wantClientUserId &&
-        (s.email || "").toLowerCase() === wantEmail
+      const match = allSigners.find(
+        (s) => (s.clientUserId || s.clientUserID) === wantClientUserId && (s.email || "").toLowerCase() === wantEmail
       );
 
       if (!match) {
         return fail(422, "Embedded recipient not found on envelope (clientUserId/email mismatch)", {
           target: { clientUserId: wantClientUserId, email: wantEmail, name: wantName },
-          presentRecipients: allSigners.map(s => ({
+          presentRecipients: allSigners.map((s) => ({
             email: s.email,
             name: s.name,
             clientUserId: s.clientUserId || s.clientUserID || null,
@@ -714,6 +697,7 @@ export async function GET(req: NextRequest) {
           inferredRole,
           requestedRole,
           effectiveRole,
+          targetRole,
           envRoles: { seller: ENV_SELLER, buyer: ENV_BUYER },
           seller,
           buyer,
@@ -722,11 +706,7 @@ export async function GET(req: NextRequest) {
           pingUrl,
           signUrl,
           webhookUrl: process.env.DOCUSIGN_WEBHOOK_URL || `${new URL(req.url).origin}/api/webhook/docsign`,
-          eventNotification: {
-            recipientEvents: ["Completed"],
-            envelopeEvents: ["Sent", "Completed"],
-            includeHMAC: !!process.env.DOCUSIGN_CONNECT_HMAC_SECRET,
-          },
+          userinfo,
         },
       });
     }
