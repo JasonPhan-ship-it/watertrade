@@ -30,8 +30,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
       description: true,
       district: true,
       waterType: true,
-      // availability: true,      // keep if column exists
-      // availabilityEnd: true,   // end-only date
       acreFeet: true,
       pricePerAF: true,        // cents
       kind: true,              // SELL | BUY
@@ -59,7 +57,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <p className="mt-1 text-sm text-slate-600">{description}</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* If you later reintroduce auction, add a pill here */}
           <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
             {row.kind === "BUY" ? "Buyer Looking" : "For Sale"}
           </span>
@@ -94,8 +91,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
               </div>
             </div>
 
-            {/* If your ListingActions component expects isAuction/reservePrice,
-               keep passing safe defaults so you don’t need to change that component */}
             <ListingActions
               listingId={row.id}
               kind="SELL"
@@ -107,7 +102,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             {/* Optional helper note */}
             <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
               <div className="flex items-start gap-2">
-                <Info className="mt-0.5 h-4 w-4 text-slate-500" />
+                <Info aria-hidden className="mt-0.5 h-5 w-5 text-emerald-600" />
                 <p>
                   Prices shown are dollars per acre-foot. Final settlement may vary with delivery
                   window, conveyance, and district fees.
@@ -158,6 +153,4 @@ function format2(n: number) {
 }
 
 /* ---------- Lazy import so this file stays a Server Component ---------- */
-// Keep the import at the bottom and only reference the name in JSX to avoid TS complaining
-// (Next will split it because the component has `use client`)
 import ListingActions from "@/components/ListingActions";
