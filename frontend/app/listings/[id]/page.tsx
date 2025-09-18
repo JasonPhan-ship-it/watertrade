@@ -104,8 +104,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
               <div className="flex items-start gap-2">
                 <Info aria-hidden className="mt-0.5 h-5 w-5 text-emerald-600" />
                 <p>
-                  Prices shown are dollars per acre-foot. Final settlement may vary with delivery
-                  window, conveyance, and district fees.
+                  Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.
                 </p>
               </div>
             </div>
