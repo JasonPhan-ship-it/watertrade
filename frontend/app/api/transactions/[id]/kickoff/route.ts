@@ -52,7 +52,7 @@ export async function POST(_req: Request, { params }: Params) {
         to: trx.seller.email,
         subject: "Documents ready – please review",
         html: `<div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;">
-          <h2>Docs are ready</h2>
+          <h2>Documents are ready</h2>
           <p>The transaction moved to the documentation stage.</p>
           ${commonHtml}
         </div>`,
