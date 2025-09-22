@@ -52,28 +52,17 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const description = (row.description || "").trim() || "No description provided.";
 
   // --- Fetch trades/offers for the Offers & Activity Panel ---
-  // Adjust model/field names if they differ in your Prisma schema.
   const trades = await prisma.trade.findMany({
     where: { listingId: row.id },
     orderBy: { createdAt: "desc" },
-    include: {
-      // If you have relations named differently, update these:
-      buyer: true,
-      seller: true,
-    },
+    include: { buyer: true, seller: true },
   });
 
   // Map trades -> panel Offer[] shape
-  type Offer = import("./_components/ListingOffersPanel").Offer;
+  type Offer = import("@/components/listings/ListingOffersPanel").Offer;
   const offers: Offer[] = trades.map((t: any) => {
-    // Normalize fields that may differ across your models
-    const price =
-      Number(t.pricePerAf ?? t.pricePerAF ?? t.totalAmount ?? 0);
-    const createdAt: string = (t.createdAt instanceof Date
-      ? t.createdAt
-      : new Date(t.createdAt)
-    ).toISOString();
-
+    const price = Number(t.pricePerAf ?? t.pricePerAF ?? t.totalAmount ?? 0);
+    const createdAt: string = (t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt)).toISOString();
     const expiresAt: string | undefined = t.expiresAt
       ? (t.expiresAt instanceof Date ? t.expiresAt : new Date(t.expiresAt)).toISOString()
       : undefined;
@@ -89,16 +78,14 @@ export default async function ListingDetailPage({ params }: PageProps) {
       t.status === "ACCEPTED" ? "accepted" :
       t.status === "DECLINED" ? "declined" :
       t.status === "COUNTERED" ? "countered" :
-      // if you store expirations, mark expired here:
       "pending";
 
     return {
       id: String(t.id),
       side,
-      fromParty:
-        side === "received"
-          ? (t.buyer?.name ?? t.buyerName ?? "Buyer")
-          : (t.seller?.name ?? t.sellerName ?? "Seller"),
+      fromParty: side === "received"
+        ? (t.buyer?.name ?? t.buyerName ?? "Buyer")
+        : (t.seller?.name ?? t.sellerName ?? "Seller"),
       amount: Math.round(price),
       terms: t.terms ?? undefined,
       createdAt,
@@ -110,7 +97,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
   });
 
   // Transaction progress bar: map your listing/transaction status to DealStage
-  type DealStage = import("./_components/ListingOffersPanel").DealStage;
+  type DealStage = import("@/components/listings/ListingOffersPanel").DealStage;
   const currentStage: DealStage | null = (() => {
     const s = (row as any)?.transactionStatus as string | undefined;
     if (!s) return null;
@@ -162,14 +149,14 @@ export default async function ListingDetailPage({ params }: PageProps) {
             <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
           </div>
 
-          {/* Offers & Activity Panel (always visible; shows Received/Sent tabs) */}
+          {/* Offers & Activity Panel */}
           <OffersPanelWithActions
             listingId={row.id}
             listingTitle={title}
             unitLabel="Total ($)"           // or "$ / AF"
             offers={offers}
             currentStage={currentStage}
-            // The onAccept/Decline/Counter handlers are provided by the client shim
+            // handlers provided by the client shim
           />
         </section>
 
@@ -245,5 +232,5 @@ function format2(n: number) {
 
 /* ---------- Lazy imports so this file stays a Server Component ---------- */
 import ListingActions from "@/components/ListingActions";
-// client shim that wires panel actions to /api/trades/... routes
-import OffersPanelWithActions from "./_components/OffersPanelWithActions";
+// use the SHARED shim (fixes the webpack error)
+import OffersPanelWithActions from "@/components/listings/OffersPanelWithActions";
