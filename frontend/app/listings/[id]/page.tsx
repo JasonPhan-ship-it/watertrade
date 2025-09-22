@@ -6,42 +6,70 @@ import { auth } from "@clerk/nextjs/server";
 import { Info } from "lucide-react";
 
 export const revalidate = 0; // always fresh
+// export const runtime = "nodejs"; // uncomment if anything accidentally pushed you to edge
 
 type PageProps = { params: { id: string } };
 
 export default async function ListingDetailPage({ params }: PageProps) {
-  // Who is viewing? (for ownership check)
-  const { userId: clerkId } = auth();
+  // Identify viewer
   let viewerDbUserId: string | null = null;
-  if (clerkId) {
-    const viewer = await prisma.user.findUnique({
-      where: { clerkId },
-      select: { id: true },
-    });
-    viewerDbUserId = viewer?.id ?? null;
+  try {
+    const { userId: clerkId } = auth();
+    if (clerkId) {
+      const viewer = await prisma.user.findUnique({
+        where: { clerkId },
+        select: { id: true },
+      });
+      viewerDbUserId = viewer?.id ?? null;
+    }
+  } catch (e) {
+    console.error("[listing page] auth/prisma user lookup failed", e);
+    // Non-fatal: page can still render; viewerDbUserId stays null
   }
 
   // --- Listing core details ---
-  const row = await prisma.listing.findUnique({
-    where: { id: params.id },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      district: true,
-      waterType: true,
-      acreFeet: true,
-      pricePerAF: true,        // cents
-      kind: true,              // SELL | BUY
-      status: true,
-      createdAt: true,
-      updatedAt: true,
-      sellerId: true,          // used to determine ownership
-      // If you track a transaction/deal status on the listing, include it for the progress bar:
-      // @ts-ignore - field may not exist; remove ignore if it does
-      transactionStatus: true,
-    },
-  });
+  let row:
+    | {
+        id: string;
+        title: string | null;
+        description: string | null;
+        district: string | null;
+        waterType: string | null;
+        acreFeet: number;
+        pricePerAF: number | null;
+        kind: "SELL" | "BUY";
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        sellerId: string | null;
+        transactionStatus?: string | null;
+      }
+    | null = null;
+
+  try {
+    row = await prisma.listing.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        district: true,
+        waterType: true,
+        acreFeet: true,
+        pricePerAF: true, // cents
+        kind: true, // SELL | BUY
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        sellerId: true,
+        // @ts-ignore (only if present)
+        transactionStatus: true,
+      },
+    });
+  } catch (e) {
+    console.error("[listing page] prisma.listing.findUnique failed", e);
+    return <ServerError where="listing" />;
+  }
 
   if (!row) return notFound();
 
@@ -52,28 +80,31 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const description = (row.description || "").trim() || "No description provided.";
 
   // --- Fetch trades/offers for the Offers & Activity Panel ---
-  const trades = await prisma.trade.findMany({
-    where: { listingId: row.id },
-    orderBy: { createdAt: "desc" },
-    include: { buyer: true, seller: true },
-  });
+  let trades: any[] = [];
+  try {
+    trades = await prisma.trade.findMany({
+      where: { listingId: row.id },
+      orderBy: { createdAt: "desc" },
+      include: { buyer: true, seller: true },
+    });
+  } catch (e) {
+    console.error("[listing page] prisma.trade.findMany failed", e);
+    // Non-fatal: panel will just show empty state
+  }
 
   // Map trades -> panel Offer[] shape
   type Offer = import("@/components/listings/ListingOffersPanel").Offer;
   const offers: Offer[] = trades.map((t: any) => {
     const price = Number(t.pricePerAf ?? t.pricePerAF ?? t.totalAmount ?? 0);
     const createdAt: string = (t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt)).toISOString();
+
     const expiresAt: string | undefined = t.expiresAt
       ? (t.expiresAt instanceof Date ? t.expiresAt : new Date(t.expiresAt)).toISOString()
       : undefined;
 
-    // Who sent it vs who received it (from the viewer's perspective)
     const side =
-      t.sellerUserId && viewerDbUserId
-        ? (t.sellerUserId === viewerDbUserId ? "received" : "sent")
-        : "received";
+      t.sellerUserId && viewerDbUserId ? (t.sellerUserId === viewerDbUserId ? "received" : "sent") : "received";
 
-    // Status mapping (tweak to your enums)
     const status =
       t.status === "ACCEPTED" ? "accepted" :
       t.status === "DECLINED" ? "declined" :
@@ -96,7 +127,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
     } as Offer;
   });
 
-  // Transaction progress bar: map your listing/transaction status to DealStage
   type DealStage = import("@/components/listings/ListingOffersPanel").DealStage;
   const currentStage: DealStage | null = (() => {
     const s = (row as any)?.transactionStatus as string | undefined;
@@ -126,7 +156,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
             {row.kind === "BUY" ? "Buyer Looking" : "For Sale"}
           </span>
-          {isOwner && (
+          {/* Hide “Your listing” if sellerId is null */}
+          {row.sellerId && isOwner && (
             <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700">
               Your listing
             </span>
@@ -140,8 +171,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
         <section className="space-y-6">
           {/* Facts */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Detail label="District" value={row.district} />
-            <Detail label="Water Type" value={row.waterType} />
+            <Detail label="District" value={row.district ?? "—"} />
+            <Detail label="Water Type" value={row.waterType ?? "—"} />
             <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
             <Detail label="Price $/AF" value={`$${format2(pricePerAfDollars)}`} />
             <Detail label="Status" value={row.status} />
@@ -153,10 +184,10 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <OffersPanelWithActions
             listingId={row.id}
             listingTitle={title}
-            unitLabel="Total ($)"           // or "$ / AF"
+            unitLabel="Total ($)"
             offers={offers}
             currentStage={currentStage}
-            // handlers provided by the client shim
+            // handlers are provided by the client shim
           />
         </section>
 
@@ -182,9 +213,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
               <div className="flex items-start gap-2">
                 <Info aria-hidden className="mt-0.5 h-5 w-5 text-emerald-600" />
-                <p>
-                  Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.
-                </p>
+                <p>Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.</p>
               </div>
             </div>
           </aside>
@@ -193,17 +222,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
       {/* Back link + manage for owner */}
       <div className="mt-8 flex items-center gap-3">
-        <Link
-          href="/dashboard"
-          className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
-        >
+        <Link href="/dashboard" className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">
           Back to Listings
         </Link>
         {isOwner && (
-          <Link
-            href={`/listings/${row.id}/edit`}
-            className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] "
-          >
+          <Link href={`/listings/${row.id}/edit`} className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] ">
             Edit Listing
           </Link>
         )}
@@ -232,5 +255,15 @@ function format2(n: number) {
 
 /* ---------- Lazy imports so this file stays a Server Component ---------- */
 import ListingActions from "@/components/ListingActions";
-// use the SHARED shim (fixes the webpack error)
 import OffersPanelWithActions from "@/components/listings/OffersPanelWithActions";
+
+/* ---------- Inline server error helper ---------- */
+function ServerError({ where }: { where: string }) {
+  return (
+    <div className="mx-auto max-w-3xl p-6">
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        Something went wrong loading the {where}. Check server logs for details.
+      </div>
+    </div>
+  );
+}
