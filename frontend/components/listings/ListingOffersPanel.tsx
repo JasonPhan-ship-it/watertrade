@@ -1,39 +1,10 @@
 import React, { useMemo, useState } from "react";
 import { Check, Clock, ChevronRight, MoreHorizontal } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import { DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 
-/* -------------------------------- Types ------------------------------- */
+/* ----------------------------- Types ----------------------------- */
 
 export type OfferSide = "received" | "sent";
-export type OfferStatus =
-  | "pending"
-  | "accepted"
-  | "declined"
-  | "expired"
-  | "countered";
+export type OfferStatus = "pending" | "accepted" | "declined" | "expired" | "countered";
 
 export type DealStage =
   | "OFFER_SENT"
@@ -69,7 +40,7 @@ export type ListingOffersPanelProps = {
   onCounter?: (offerId: string) => Promise<void> | void;
 };
 
-/* ------------------------------- Constants ---------------------------- */
+/* --------------------------- Utilities --------------------------- */
 
 const STAGE_ORDER: DealStage[] = [
   "OFFER_SENT",
@@ -82,60 +53,101 @@ const STAGE_ORDER: DealStage[] = [
   "CLOSED",
 ];
 
-/* ------------------------------ Utilities ----------------------------- */
-
 function formatMoney(n: number) {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
-
 function isExpired(offer: Offer) {
   return offer.expiresAt ? new Date(offer.expiresAt) < new Date() : false;
 }
-
-/* ----------------------------- Subcomponents -------------------------- */
-
-function StatusBadge({ status }: { status: OfferStatus }) {
-  const map: Record<OfferStatus, { label: string; variant: string }> = {
-    pending: { label: "Pending", variant: "outline" },
-    accepted: { label: "Accepted", variant: "default" },
-    declined: { label: "Declined", variant: "secondary" },
-    expired: { label: "Expired", variant: "destructive" },
-    countered: { label: "Countered", variant: "default" },
-  };
-  return <Badge variant={map[status].variant as any}>{map[status].label}</Badge>;
+function cx(...cls: Array<string | false | undefined>) {
+  return cls.filter(Boolean).join(" ");
 }
 
-function StagePill({
-  label,
-  active,
-  complete,
+/* ------------------------- Tiny UI atoms ------------------------- */
+
+function Badge({ children, variant = "solid" }: { children: React.ReactNode; variant?: "solid" | "outline" | "destructive" | "secondary" }) {
+  const styles =
+    variant === "outline"
+      ? "border border-slate-300 text-slate-700 bg-white"
+      : variant === "destructive"
+      ? "bg-red-100 text-red-700"
+      : variant === "secondary"
+      ? "bg-slate-200 text-slate-700"
+      : "bg-emerald-600 text-white";
+  return <span className={cx("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", styles)}>{children}</span>;
+}
+
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <div className={cx("rounded-2xl border border-slate-200 bg-white shadow-sm", className)}>{children}</div>;
+}
+function CardHeader({ children }: { children: React.ReactNode }) {
+  return <div className="px-4 pt-4">{children}</div>;
+}
+function CardTitle({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <div className={cx("text-base font-semibold", className)}>{children}</div>;
+}
+function CardDescription({ children }: { children: React.ReactNode }) {
+  return <div className="mt-1 text-sm text-slate-600">{children}</div>;
+}
+function CardContent({ children }: { children: React.ReactNode }) {
+  return <div className="px-4 pb-4">{children}</div>;
+}
+
+function Button({
+  children,
+  onClick,
+  disabled,
+  variant = "primary",
+  className = "",
+  title,
 }: {
-  label: string;
-  active?: boolean;
-  complete?: boolean;
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  variant?: "primary" | "secondary" | "outline" | "ghost" | "icon";
+  className?: string;
+  title?: string;
 }) {
+  const base = "inline-flex items-center justify-center rounded-2xl px-3 py-2 text-sm";
+  const styles =
+    variant === "primary"
+      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+      : variant === "secondary"
+      ? "bg-slate-200 text-slate-900 hover:bg-slate-300"
+      : variant === "outline"
+      ? "border border-slate-300 text-slate-900 hover:bg-slate-50"
+      : variant === "ghost"
+      ? "text-slate-700 hover:bg-slate-100"
+      : "p-2 rounded-full"; // icon
+  return (
+    <button className={cx(base, styles, disabled && "opacity-60 cursor-not-allowed", className)} onClick={onClick} disabled={disabled} title={title}>
+      {children}
+    </button>
+  );
+}
+
+/* -------------------------- Subcomponents ------------------------- */
+
+function StatusBadge({ status }: { status: OfferStatus }) {
+  const map: Record<OfferStatus, { label: string; variant: React.ComponentProps<typeof Badge>["variant"] }> = {
+    pending: { label: "Pending", variant: "outline" },
+    accepted: { label: "Accepted", variant: "solid" },
+    declined: { label: "Declined", variant: "secondary" },
+    expired: { label: "Expired", variant: "destructive" },
+    countered: { label: "Countered", variant: "solid" },
+  };
+  return <Badge variant={map[status].variant}>{map[status].label}</Badge>;
+}
+
+function StagePill({ label, active, complete }: { label: string; active?: boolean; complete?: boolean }) {
   return (
     <div
-      className={cn(
+      className={cx(
         "flex items-center gap-2 rounded-full px-3 py-1 text-xs",
-        complete
-          ? "bg-green-100 text-green-700"
-          : active
-          ? "bg-blue-100 text-blue-700"
-          : "bg-muted text-muted-foreground"
+        complete ? "bg-green-100 text-green-700" : active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600",
       )}
     >
-      {complete ? (
-        <Check className="h-3 w-3" />
-      ) : active ? (
-        <Clock className="h-3 w-3" />
-      ) : (
-        <ChevronRight className="h-3 w-3" />
-      )}
+      {complete ? <Check className="h-3 w-3" /> : active ? <Clock className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
       <span>{label}</span>
     </div>
   );
@@ -151,24 +163,12 @@ function TransactionProgress({ stage }: { stage: DealStage }) {
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-3">
-          <div className="relative h-2 w-full rounded-full bg-muted">
-            <div
-              className="absolute left-0 top-0 h-2 rounded-full bg-primary"
-              style={{
-                width: `${
-                  (currentIndex / (STAGE_ORDER.length - 1)) * 100
-                }%`,
-              }}
-            />
+          <div className="relative h-2 w-full rounded-full bg-slate-100">
+            <div className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600" style={{ width: `${(currentIndex / (STAGE_ORDER.length - 1)) * 100}%` }} />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {STAGE_ORDER.map((s, i) => (
-              <StagePill
-                key={s}
-                label={toStageLabel(s)}
-                complete={i < currentIndex}
-                active={i === currentIndex}
-              />
+              <StagePill key={s} label={toStageLabel(s)} complete={i < currentIndex} active={i === currentIndex} />
             ))}
           </div>
         </div>
@@ -213,93 +213,53 @@ function OfferRow({
 }) {
   const expired = isExpired(offer);
   const canAct = offer.status === "pending" && !expired;
+
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border p-4">
+    <div className="flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center">
       <div className="flex items-start gap-3">
-        {offer.unread ? (
-          <Badge className="shrink-0">New</Badge>
-        ) : (
-          <Badge variant="outline" className="shrink-0">
-            Offer
-          </Badge>
-        )}
+        {offer.unread ? <Badge>New</Badge> : <Badge variant="outline">Offer</Badge>}
         <div>
           <div className="flex items-center gap-2">
             <p className="font-medium leading-none">{offer.fromParty}</p>
             <StatusBadge status={expired ? "expired" : offer.status} />
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            {unitLabel || "Total ($)"}:{" "}
-            <span className="font-medium">{formatMoney(offer.amount)}</span>
+          <p className="mt-1 text-sm text-slate-600">
+            {unitLabel || "Total ($)"}: <span className="font-medium">{formatMoney(offer.amount)}</span>
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Sent {new Date(offer.createdAt).toLocaleString()}{" "}
-            {offer.expiresAt &&
-              `• Expires ${new Date(offer.expiresAt).toLocaleString()}`}
+          <p className="mt-1 text-xs text-slate-500">
+            Sent {new Date(offer.createdAt).toLocaleString()} {offer.expiresAt && `• Expires ${new Date(offer.expiresAt).toLocaleString()}`}
           </p>
           {offer.terms && (
-            <p className="text-sm mt-2">
-              <span className="text-muted-foreground">Terms:</span>{" "}
-              {offer.terms}
+            <p className="mt-2 text-sm">
+              <span className="text-slate-500">Terms:</span> {offer.terms}
             </p>
           )}
           {offer.notes && (
-            <p className="text-sm mt-1">
-              <span className="text-muted-foreground">Notes:</span>{" "}
-              {offer.notes}
+            <p className="mt-1 text-sm">
+              <span className="text-slate-500">Notes:</span> {offer.notes}
             </p>
           )}
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          className="rounded-2xl"
-          disabled={!canAct}
-          onClick={() => onCounter?.(offer.id)}
-        >
+        <Button variant="outline" className="rounded-2xl" disabled={!canAct} onClick={() => onCounter?.(offer.id)}>
           Counter
         </Button>
-        <Button
-          variant="secondary"
-          className="rounded-2xl"
-          disabled={!canAct}
-          onClick={() => onDecline?.(offer.id)}
-        >
+        <Button variant="secondary" className="rounded-2xl" disabled={!canAct} onClick={() => onDecline?.(offer.id)}>
           Decline
         </Button>
-        <Button
-          className="rounded-2xl"
-          disabled={!canAct}
-          onClick={() => onAccept?.(offer.id)}
-        >
+        <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)}>
           Accept
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="rounded-full">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>More</DropdownMenuLabel>
-            <DropdownMenuItem
-              onClick={() =>
-                navigator?.clipboard?.writeText(offer.id)
-              }
-            >
-              Copy Offer ID
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled>View Thread</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button variant="ghost" title="Copy Offer ID" onClick={() => navigator?.clipboard?.writeText(offer.id)}>
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   );
 }
 
-/* ------------------------------ Main Panel ---------------------------- */
+/* ----------------------------- Main Panel ----------------------------- */
 
 export default function ListingOffersPanel({
   listingId,
@@ -319,138 +279,90 @@ export default function ListingOffersPanel({
     return offers
       .filter((o) => (tab === "all" ? true : o.side === tab))
       .filter((o) =>
-        !q
-          ? true
-          : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()]
-              .filter(Boolean)
-              .some((v) => String(v).toLowerCase().includes(q))
+        !q ? true : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
       )
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() -
-          new Date(a.createdAt).getTime()
-      );
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [offers, query, tab]);
 
-  const unreadCount = offers.filter(
-    (o) => o.unread && o.side === "received"
-  ).length;
+  const unreadCount = offers.filter((o) => o.unread && o.side === "received").length;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start md:items-center justify-between gap-3">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 md:items-center">
         <div>
           <h2 className="text-xl font-semibold">Offers & Activity</h2>
-          <p className="text-sm text-muted-foreground">
-            For <span className="font-medium">{listingTitle}</span> ·
-            Listing ID {listingId}
+          <p className="text-sm text-slate-600">
+            For <span className="font-medium">{listingTitle}</span> · Listing ID {listingId}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Input
+          <input
             placeholder="Search offers, terms, notes…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-64"
+            className="h-9 w-64 rounded-lg border px-3 text-sm"
           />
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="w-full">
-        <TabsList className="rounded-2xl">
-          <TabsTrigger value="received" className="rounded-2xl">
-            Received {unreadCount > 0 && <Badge className="ml-2">{unreadCount}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="sent" className="rounded-2xl">
-            Sent
-          </TabsTrigger>
-          <TabsTrigger value="all" className="rounded-2xl">
-            All
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="received" className="space-y-3 mt-4">
-          {filtered.length === 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">No received offers</CardTitle>
-                <CardDescription>
-                  Check back later or share your listing to get more visibility.
-                </CardDescription>
-              </CardHeader>
-            </Card>
+      {/* Tabs (simple buttons) */}
+      <div className="flex gap-2">
+        <button
+          className={cx(
+            "rounded-2xl border px-3 py-1.5 text-sm",
+            tab === "received" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50",
           )}
-          {filtered.map((o) => (
-            <OfferRow
-              key={o.id}
-              offer={o}
-              unitLabel={unitLabel}
-              onAccept={onAccept}
-              onDecline={onDecline}
-              onCounter={onCounter}
-            />
-          ))}
-        </TabsContent>
-
-        <TabsContent value="sent" className="space-y-3 mt-4">
-          {filtered.length === 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">No sent offers</CardTitle>
-                <CardDescription>
-                  Make an offer on a listing to see it here.
-                </CardDescription>
-              </CardHeader>
-            </Card>
+          onClick={() => setTab("received")}
+        >
+          Received {unreadCount > 0 && <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs text-white">{unreadCount}</span>}
+        </button>
+        <button
+          className={cx(
+            "rounded-2xl border px-3 py-1.5 text-sm",
+            tab === "sent" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50",
           )}
-          {filtered.map((o) => (
-            <OfferRow
-              key={o.id}
-              offer={o}
-              unitLabel={unitLabel}
-              onAccept={onAccept}
-              onDecline={onDecline}
-              onCounter={onCounter}
-            />
-          ))}
-        </TabsContent>
-
-        <TabsContent value="all" className="space-y-3 mt-4">
-          {filtered.length === 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">No activity yet</CardTitle>
-                <CardDescription>
-                  When offers are created or updated, they’ll appear here.
-                </CardDescription>
-              </CardHeader>
-            </Card>
+          onClick={() => setTab("sent")}
+        >
+          Sent
+        </button>
+        <button
+          className={cx(
+            "rounded-2xl border px-3 py-1.5 text-sm",
+            tab === "all" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50",
           )}
-          {filtered.map((o) => (
-            <OfferRow
-              key={o.id}
-              offer={o}
-              unitLabel={unitLabel}
-              onAccept={onAccept}
-              onDecline={onDecline}
-              onCounter={onCounter}
-            />
-          ))}
-        </TabsContent>
-      </Tabs>
+          onClick={() => setTab("all")}
+        >
+          All
+        </button>
+      </div>
 
-      {currentStage &&
-        STAGE_ORDER.indexOf(currentStage) >=
-          STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && (
-          <TransactionProgress stage={currentStage} />
+      {/* List for current tab */}
+      <div className="mt-4 space-y-3">
+        {filtered.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>No {tab === "all" ? "activity yet" : tab === "received" ? "received offers" : "sent offers"}</CardTitle>
+              <CardDescription>
+                {tab === "sent" ? "Make an offer on a listing to see it here." : "When offers are created or updated, they’ll appear here."}
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : (
+          filtered.map((o) => (
+            <OfferRow key={o.id} offer={o} unitLabel={unitLabel} onAccept={onAccept} onDecline={onDecline} onCounter={onCounter} />
+          ))
         )}
+      </div>
+
+      {/* Progress bar (visible once signing starts) */}
+      {currentStage && STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && <TransactionProgress stage={currentStage} />}
 
       <Card className="mt-2">
         <CardHeader>
-          <CardTitle className="text-base">How actions work</CardTitle>
+          <CardTitle>How actions work</CardTitle>
           <CardDescription>
-            Accept locks the price and moves the deal to contracts. Decline closes
-            the thread. Counter lets you revise price/terms and re-send.
+            Accept locks the price and moves the deal to contracts. Decline closes the thread. Counter lets you revise price/terms and re-send.
           </CardDescription>
         </CardHeader>
       </Card>
