@@ -21,7 +21,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
     viewerDbUserId = viewer?.id ?? null;
   }
 
-  // Only select columns that exist
+  // --- Listing core details ---
   const row = await prisma.listing.findUnique({
     where: { id: params.id },
     select: {
@@ -37,6 +37,9 @@ export default async function ListingDetailPage({ params }: PageProps) {
       createdAt: true,
       updatedAt: true,
       sellerId: true,          // used to determine ownership
+      // If you track a transaction/deal status on the listing, include it for the progress bar:
+      // @ts-ignore - field may not exist; remove ignore if it does
+      transactionStatus: true,
     },
   });
 
@@ -47,6 +50,82 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   const title = (row.title || "").trim() || "Untitled Listing";
   const description = (row.description || "").trim() || "No description provided.";
+
+  // --- Fetch trades/offers for the Offers & Activity Panel ---
+  // Adjust model/field names if they differ in your Prisma schema.
+  const trades = await prisma.trade.findMany({
+    where: { listingId: row.id },
+    orderBy: { createdAt: "desc" },
+    include: {
+      // If you have relations named differently, update these:
+      buyer: true,
+      seller: true,
+    },
+  });
+
+  // Map trades -> panel Offer[] shape
+  type Offer = import("./_components/ListingOffersPanel").Offer;
+  const offers: Offer[] = trades.map((t: any) => {
+    // Normalize fields that may differ across your models
+    const price =
+      Number(t.pricePerAf ?? t.pricePerAF ?? t.totalAmount ?? 0);
+    const createdAt: string = (t.createdAt instanceof Date
+      ? t.createdAt
+      : new Date(t.createdAt)
+    ).toISOString();
+
+    const expiresAt: string | undefined = t.expiresAt
+      ? (t.expiresAt instanceof Date ? t.expiresAt : new Date(t.expiresAt)).toISOString()
+      : undefined;
+
+    // Who sent it vs who received it (from the viewer's perspective)
+    const side =
+      t.sellerUserId && viewerDbUserId
+        ? (t.sellerUserId === viewerDbUserId ? "received" : "sent")
+        : "received";
+
+    // Status mapping (tweak to your enums)
+    const status =
+      t.status === "ACCEPTED" ? "accepted" :
+      t.status === "DECLINED" ? "declined" :
+      t.status === "COUNTERED" ? "countered" :
+      // if you store expirations, mark expired here:
+      "pending";
+
+    return {
+      id: String(t.id),
+      side,
+      fromParty:
+        side === "received"
+          ? (t.buyer?.name ?? t.buyerName ?? "Buyer")
+          : (t.seller?.name ?? t.sellerName ?? "Seller"),
+      amount: Math.round(price),
+      terms: t.terms ?? undefined,
+      createdAt,
+      expiresAt,
+      status,
+      unread: Boolean(t.viewerHasSeen === false),
+      notes: t.note ?? undefined,
+    } as Offer;
+  });
+
+  // Transaction progress bar: map your listing/transaction status to DealStage
+  type DealStage = import("./_components/ListingOffersPanel").DealStage;
+  const currentStage: DealStage | null = (() => {
+    const s = (row as any)?.transactionStatus as string | undefined;
+    if (!s) return null;
+    switch (s) {
+      case "SIGNING_IN_PROGRESS": return "SIGNING_IN_PROGRESS";
+      case "ESCROW_OPENED": return "ESCROW_OPENED";
+      case "DUE_DILIGENCE": return "DUE_DILIGENCE";
+      case "CLOSING_SCHEDULED": return "CLOSING_SCHEDULED";
+      case "CLOSED": return "CLOSED";
+      case "OFFER_ACCEPTED": return "OFFER_ACCEPTED";
+      case "CONTRACTS_DRAFTED": return "CONTRACTS_DRAFTED";
+      case "OFFER_SENT": return "OFFER_SENT";
+      default: return null;
+    }
+  })();
 
   return (
     <div className="mx-auto max-w-6xl p-6">
@@ -70,18 +149,31 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
       {/* Details + Action panel */}
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr,380px]">
-        {/* Left: Facts */}
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Detail label="District" value={row.district} />
-          <Detail label="Water Type" value={row.waterType} />
-          <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
-          <Detail label="Price $/AF" value={`$${format2(pricePerAfDollars)}`} />
-          <Detail label="Status" value={row.status} />
-          <Detail label="Created" value={new Date(row.createdAt).toLocaleString()} />
-          <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
+        {/* Left: Facts + Offers & Activity */}
+        <section className="space-y-6">
+          {/* Facts */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Detail label="District" value={row.district} />
+            <Detail label="Water Type" value={row.waterType} />
+            <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
+            <Detail label="Price $/AF" value={`$${format2(pricePerAfDollars)}`} />
+            <Detail label="Status" value={row.status} />
+            <Detail label="Created" value={new Date(row.createdAt).toLocaleString()} />
+            <Detail label="Updated" value={new Date(row.updatedAt).toLocaleString()} />
+          </div>
+
+          {/* Offers & Activity Panel (always visible; shows Received/Sent tabs) */}
+          <OffersPanelWithActions
+            listingId={row.id}
+            listingTitle={title}
+            unitLabel="Total ($)"           // or "$ / AF"
+            offers={offers}
+            currentStage={currentStage}
+            // The onAccept/Decline/Counter handlers are provided by the client shim
+          />
         </section>
 
-        {/* Right: Actions — hide for owner, only show for SELL listings */}
+        {/* Right: Buyer-side Actions — hide for owner, only for SELL listings */}
         {!isOwner && row.kind === "SELL" && (
           <aside className="sticky top-4 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3">
@@ -151,5 +243,7 @@ function format2(n: number) {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/* ---------- Lazy import so this file stays a Server Component ---------- */
+/* ---------- Lazy imports so this file stays a Server Component ---------- */
 import ListingActions from "@/components/ListingActions";
+// client shim that wires panel actions to /api/trades/... routes
+import OffersPanelWithActions from "./_components/OffersPanelWithActions";
