@@ -11,7 +11,7 @@ export const revalidate = 0; // always fresh
 type PageProps = { params: { id: string } };
 
 export default async function ListingDetailPage({ params }: PageProps) {
-  // Identify viewer
+  // Identify viewer (non-fatal if this fails)
   let viewerDbUserId: string | null = null;
   try {
     const { userId: clerkId } = auth();
@@ -24,7 +24,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
     }
   } catch (e) {
     console.error("[listing page] auth/prisma user lookup failed", e);
-    // Non-fatal: page can still render; viewerDbUserId stays null
   }
 
   // --- Listing core details ---
@@ -36,13 +35,12 @@ export default async function ListingDetailPage({ params }: PageProps) {
         district: string | null;
         waterType: string | null;
         acreFeet: number;
-        pricePerAF: number | null;
+        pricePerAF: number | null; // cents
         kind: "SELL" | "BUY";
         status: string;
         createdAt: Date;
         updatedAt: Date;
         sellerId: string | null;
-        transactionStatus?: string | null;
       }
     | null = null;
 
@@ -62,8 +60,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
         createdAt: true,
         updatedAt: true,
         sellerId: true,
-        // @ts-ignore (only if present)
-        transactionStatus: true,
       },
     });
   } catch (e) {
@@ -102,9 +98,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
       ? (t.expiresAt instanceof Date ? t.expiresAt : new Date(t.expiresAt)).toISOString()
       : undefined;
 
+    // From the current viewer's perspective
     const side =
       t.sellerUserId && viewerDbUserId ? (t.sellerUserId === viewerDbUserId ? "received" : "sent") : "received";
 
+    // Status mapping (tweak to your enums)
     const status =
       t.status === "ACCEPTED" ? "accepted" :
       t.status === "DECLINED" ? "declined" :
@@ -114,9 +112,10 @@ export default async function ListingDetailPage({ params }: PageProps) {
     return {
       id: String(t.id),
       side,
-      fromParty: side === "received"
-        ? (t.buyer?.name ?? t.buyerName ?? "Buyer")
-        : (t.seller?.name ?? t.sellerName ?? "Seller"),
+      fromParty:
+        side === "received"
+          ? (t.buyer?.name ?? t.buyerName ?? "Buyer")
+          : (t.seller?.name ?? t.sellerName ?? "Seller"),
       amount: Math.round(price),
       terms: t.terms ?? undefined,
       createdAt,
@@ -127,22 +126,9 @@ export default async function ListingDetailPage({ params }: PageProps) {
     } as Offer;
   });
 
+  // Progress bar: temporarily disabled (no transactionStatus on Listing)
   type DealStage = import("@/components/listings/ListingOffersPanel").DealStage;
-  const currentStage: DealStage | null = (() => {
-    const s = (row as any)?.transactionStatus as string | undefined;
-    if (!s) return null;
-    switch (s) {
-      case "SIGNING_IN_PROGRESS": return "SIGNING_IN_PROGRESS";
-      case "ESCROW_OPENED": return "ESCROW_OPENED";
-      case "DUE_DILIGENCE": return "DUE_DILIGENCE";
-      case "CLOSING_SCHEDULED": return "CLOSING_SCHEDULED";
-      case "CLOSED": return "CLOSED";
-      case "OFFER_ACCEPTED": return "OFFER_ACCEPTED";
-      case "CONTRACTS_DRAFTED": return "CONTRACTS_DRAFTED";
-      case "OFFER_SENT": return "OFFER_SENT";
-      default: return null;
-    }
-  })();
+  const currentStage: DealStage | null = null;
 
   return (
     <div className="mx-auto max-w-6xl p-6">
@@ -156,7 +142,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
             {row.kind === "BUY" ? "Buyer Looking" : "For Sale"}
           </span>
-          {/* Hide “Your listing” if sellerId is null */}
           {row.sellerId && isOwner && (
             <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700">
               Your listing
