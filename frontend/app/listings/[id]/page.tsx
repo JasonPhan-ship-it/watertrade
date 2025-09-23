@@ -130,7 +130,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-6xl">
-      {/* Sticky summary header */}
+      {/* Sticky summary header (kept fully intact) */}
       <nav className="sticky top-0 z-30 border-b bg-white/85 backdrop-blur">
         <div className="px-6 py-3 flex items-center justify-between gap-4">
           <div className="min-w-0">
@@ -140,11 +140,12 @@ export default async function ListingDetailPage({ params }: PageProps) {
               <h1 className="truncate text-lg font-semibold text-slate-900">{title}</h1>
               <StatusPill status={row.status} />
             </div>
+            {/* Meta row BELOW stays exactly as is */}
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
               <Meta label="District" value={row.district ?? "—"} />
               <Meta label="Water Type" value={row.waterType ?? "—"} />
               <Meta label="AF" value={formatInt(row.acreFeet)} />
-              <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
+              <Meta label="$ / AF" value={`$${format2((row.pricePerAF ?? 0) / 100)}`} />
               <Meta label="Kind" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
               <Meta label="Created" value={formatDate(row.createdAt)} />
             </div>
@@ -170,21 +171,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
         {/* Details + Action panel */}
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr,380px]">
-          {/* Left: Overview + Offers & Activity */}
+          {/* Left: Offers & Activity only (Overview fields removed) */}
           <section className="space-y-6">
-            {/* Overview card */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
-                <Detail label="District" value={row.district ?? "—"} />
-                <Detail label="Water Type" value={row.waterType ?? "—"} />
-                <Detail label="Acre-Feet" value={formatInt(row.acreFeet)} />
-                <Detail label="Price $/AF" value={`$${format2(pricePerAfDollars)}`} />
-                <Detail label="Status" value={prettyStatus(row.status)} />
-                <Detail label="Updated" value={formatDate(row.updatedAt)} />
-              </div>
-            </div>
-
-            {/* Offers & Activity Panel */}
             <OffersPanelWithActions
               listingId={row.id}
               listingTitle={title}
@@ -306,23 +294,12 @@ function Breadcrumbs() {
   );
 }
 
-function Detail({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-slate-900">{value}</div>
-    </div>
-  );
-}
-
 function formatInt(n: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
 }
-
 function format2(n: number) {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
 function formatDate(d: Date) {
   try {
     return new Intl.DateTimeFormat("en-US", {
