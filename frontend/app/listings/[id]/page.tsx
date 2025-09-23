@@ -72,8 +72,27 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const isOwner = !!viewerDbUserId && row.sellerId === viewerDbUserId;
   const pricePerAfDollars = (row.pricePerAF ?? 0) / 100;
 
-  const title = (row.title || "").trim() || "Untitled Listing";
+  const rawTitle = (row.title || "").trim();
   const description = (row.description || "").trim() || "No description provided.";
+
+  // Smart display title: if DB title is short or an all-caps acronym, compose a clearer heading
+  function isSkimpyTitle(t: string) {
+    if (!t) return true;
+    const trimmed = t.trim();
+    const looksLikeAcronym = /^[A-Z]{2,6}$/.test(trimmed); // e.g., AEWD, MID, TID
+    return trimmed.length < 6 || looksLikeAcronym;
+  }
+  const displayTitle =
+    !isSkimpyTitle(rawTitle)
+      ? rawTitle
+      : [
+          row.kind === "BUY" ? "Buyer Request" : "For Sale",
+          row.acreFeet ? `${new Intl.NumberFormat("en-US").format(row.acreFeet)} AF` : null,
+          row.waterType || null,
+          row.district || null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Listing";
 
   /** Fetch trades/offers for the Offers & Activity Panel */
   let trades: any[] = [];
@@ -137,7 +156,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             <div className="flex items-center gap-2">
               <Breadcrumbs />
               <span className="text-slate-300">/</span>
-              <h1 className="truncate text-lg font-semibold text-slate-900">{title}</h1>
+              <h1 className="truncate text-lg font-semibold text-slate-900">{displayTitle}</h1>
               <StatusPill status={row.status} />
             </div>
             {/* Meta row BELOW stays exactly as is */}
@@ -145,7 +164,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
               <Meta label="District" value={row.district ?? "—"} />
               <Meta label="Water Type" value={row.waterType ?? "—"} />
               <Meta label="AF" value={formatInt(row.acreFeet)} />
-              <Meta label="$ / AF" value={`$${format2((row.pricePerAF ?? 0) / 100)}`} />
+              <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
               <Meta label="Kind" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
               <Meta label="Created" value={formatDate(row.createdAt)} />
             </div>
@@ -175,7 +194,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <section className="space-y-6">
             <OffersPanelWithActions
               listingId={row.id}
-              listingTitle={title}
+              listingTitle={displayTitle}
               unitLabel="Total ($)"
               offers={offers}
               currentStage={currentStage}
