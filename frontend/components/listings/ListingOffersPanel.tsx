@@ -65,7 +65,13 @@ function cx(...cls: Array<string | false | undefined>) {
 
 /* ------------------------- Tiny UI atoms ------------------------- */
 
-function Badge({ children, variant = "solid" }: { children: React.ReactNode; variant?: "solid" | "outline" | "destructive" | "secondary" }) {
+function Badge({
+  children,
+  variant = "solid",
+}: {
+  children: React.ReactNode;
+  variant?: "solid" | "outline" | "destructive" | "secondary";
+}) {
   const styles =
     variant === "outline"
       ? "border border-slate-300 text-slate-700 bg-white"
@@ -74,7 +80,11 @@ function Badge({ children, variant = "solid" }: { children: React.ReactNode; var
       : variant === "secondary"
       ? "bg-slate-200 text-slate-700"
       : "bg-emerald-600 text-white";
-  return <span className={cx("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", styles)}>{children}</span>;
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", styles)}>
+      {children}
+    </span>
+  );
 }
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -120,7 +130,12 @@ function Button({
       ? "text-slate-700 hover:bg-slate-100"
       : "p-2 rounded-full"; // icon
   return (
-    <button className={cx(base, styles, disabled && "opacity-60 cursor-not-allowed", className)} onClick={onClick} disabled={disabled} title={title}>
+    <button
+      className={cx(base, styles, disabled && "opacity-60 cursor-not-allowed", className)}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+    >
       {children}
     </button>
   );
@@ -144,7 +159,7 @@ function StagePill({ label, active, complete }: { label: string; active?: boolea
     <div
       className={cx(
         "flex items-center gap-2 rounded-full px-3 py-1 text-xs",
-        complete ? "bg-green-100 text-green-700" : active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600",
+        complete ? "bg-green-100 text-green-700" : active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"
       )}
     >
       {complete ? <Check className="h-3 w-3" /> : active ? <Clock className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -164,7 +179,10 @@ function TransactionProgress({ stage }: { stage: DealStage }) {
       <CardContent>
         <div className="flex flex-col gap-3">
           <div className="relative h-2 w-full rounded-full bg-slate-100">
-            <div className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600" style={{ width: `${(currentIndex / (STAGE_ORDER.length - 1)) * 100}%` }} />
+            <div
+              className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600"
+              style={{ width: `${(currentIndex / (STAGE_ORDER.length - 1)) * 100}%` }}
+            />
           </div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {STAGE_ORDER.map((s, i) => (
@@ -279,7 +297,7 @@ export default function ListingOffersPanel({
     return offers
       .filter((o) => (tab === "all" ? true : o.side === tab))
       .filter((o) =>
-        !q ? true : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
+        !q ? true : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))
       )
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [offers, query, tab]);
@@ -291,10 +309,8 @@ export default function ListingOffersPanel({
       {/* Header */}
       <div className="flex items-start justify-between gap-3 md:items-center">
         <div>
-          <h2 className="text-xl font-semibold">Offers & Activity</h2>
-          <p className="text-sm text-slate-600">
-            For <span className="font-medium">{listingTitle}</span> · Listing ID {listingId}
-          </p>
+          <h2 className="text-xl font-semibold">Offers &amp; Activity</h2>
+          {/* subtitle removed per request */}
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -311,16 +327,19 @@ export default function ListingOffersPanel({
         <button
           className={cx(
             "rounded-2xl border px-3 py-1.5 text-sm",
-            tab === "received" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50",
+            tab === "received" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
           )}
           onClick={() => setTab("received")}
         >
-          Received {unreadCount > 0 && <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs text-white">{unreadCount}</span>}
+          Received{" "}
+          {unreadCount > 0 && (
+            <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs text-white">{unreadCount}</span>
+          )}
         </button>
         <button
           className={cx(
             "rounded-2xl border px-3 py-1.5 text-sm",
-            tab === "sent" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50",
+            tab === "sent" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
           )}
           onClick={() => setTab("sent")}
         >
@@ -329,7 +348,7 @@ export default function ListingOffersPanel({
         <button
           className={cx(
             "rounded-2xl border px-3 py-1.5 text-sm",
-            tab === "all" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50",
+            tab === "all" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
           )}
           onClick={() => setTab("all")}
         >
@@ -342,7 +361,9 @@ export default function ListingOffersPanel({
         {filtered.length === 0 ? (
           <Card>
             <CardHeader>
-              <CardTitle>No {tab === "all" ? "activity yet" : tab === "received" ? "received offers" : "sent offers"}</CardTitle>
+              <CardTitle>
+                No {tab === "all" ? "activity yet" : tab === "received" ? "received offers" : "sent offers"}
+              </CardTitle>
               <CardDescription>
                 {tab === "sent" ? "Make an offer on a listing to see it here." : "When offers are created or updated, they’ll appear here."}
               </CardDescription>
@@ -350,13 +371,22 @@ export default function ListingOffersPanel({
           </Card>
         ) : (
           filtered.map((o) => (
-            <OfferRow key={o.id} offer={o} unitLabel={unitLabel} onAccept={onAccept} onDecline={onDecline} onCounter={onCounter} />
+            <OfferRow
+              key={o.id}
+              offer={o}
+              unitLabel={unitLabel}
+              onAccept={onAccept}
+              onDecline={onDecline}
+              onCounter={onCounter}
+            />
           ))
         )}
       </div>
 
       {/* Progress bar (visible once signing starts) */}
-      {currentStage && STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && <TransactionProgress stage={currentStage} />}
+      {currentStage && STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && (
+        <TransactionProgress stage={currentStage} />
+      )}
 
       <Card className="mt-2">
         <CardHeader>
