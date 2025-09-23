@@ -159,11 +159,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
               <StatusPill status={row.status} />
             </div>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-              <Meta label="District" value={row.district ?? "—"} />
-              <Meta label="Water Type" value={row.waterType ?? "—"} />
-              <Meta label="AF" value={formatInt(row.acreFeet)} />
               <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
-              <Meta label="Kind" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
+              <Meta label="Transaction Type" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
               <Meta label="Created" value={formatDate(row.createdAt)} />
             </div>
           </div>
