@@ -54,23 +54,11 @@ const STAGE_ORDER: DealStage[] = [
 ];
 
 function formatMoney(n: number) {
-  // Keep USD display with no cents; allow locale to be user-agent default
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
-
 function isExpired(offer: Offer) {
   return offer.expiresAt ? new Date(offer.expiresAt) < new Date() : false;
 }
-
-function formatDateTime(iso: string) {
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
-
 function cx(...cls: Array<string | false | undefined>) {
   return cls.filter(Boolean).join(" ");
 }
@@ -108,15 +96,8 @@ function CardHeader({ children }: { children: React.ReactNode }) {
 function CardTitle({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={cx("text-base font-semibold", className)}>{children}</div>;
 }
-function CardDescription({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  // Accept className so specific instances can add spacing after the description
-  return <div className={cx("mt-1 text-sm text-slate-600", className)}>{children}</div>;
+function CardDescription({ children }: { children: React.ReactNode }) {
+  return <div className="mt-1 text-sm text-slate-600">{children}</div>;
 }
 function CardContent({ children }: { children: React.ReactNode }) {
   return <div className="px-4 pb-4">{children}</div>;
@@ -129,7 +110,6 @@ function Button({
   variant = "primary",
   className = "",
   title,
-  ariaLabel,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
@@ -137,7 +117,6 @@ function Button({
   variant?: "primary" | "secondary" | "outline" | "ghost" | "icon";
   className?: string;
   title?: string;
-  ariaLabel?: string;
 }) {
   const base = "inline-flex items-center justify-center rounded-2xl px-3 py-2 text-sm";
   const styles =
@@ -156,8 +135,6 @@ function Button({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      aria-label={ariaLabel || title}
-      type="button"
     >
       {children}
     </button>
@@ -193,8 +170,6 @@ function StagePill({ label, active, complete }: { label: string; active?: boolea
 
 function TransactionProgress({ stage }: { stage: DealStage }) {
   const currentIndex = STAGE_ORDER.indexOf(stage);
-  const progressPct = Math.max(0, Math.min(100, (currentIndex / (STAGE_ORDER.length - 1)) * 100));
-
   return (
     <Card className="mt-4">
       <CardHeader>
@@ -206,8 +181,7 @@ function TransactionProgress({ stage }: { stage: DealStage }) {
           <div className="relative h-2 w-full rounded-full bg-slate-100">
             <div
               className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600"
-              style={{ width: `${progressPct}%` }}
-              aria-hidden="true"
+              style={{ width: `${(currentIndex / (STAGE_ORDER.length - 1)) * 100}%` }}
             />
           </div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -239,8 +213,6 @@ function toStageLabel(s: DealStage) {
       return "Closing Scheduled";
     case "CLOSED":
       return "Closed";
-    default:
-      return s;
   }
 }
 
@@ -266,15 +238,14 @@ function OfferRow({
         {offer.unread ? <Badge>New</Badge> : <Badge variant="outline">Offer</Badge>}
         <div>
           <div className="flex items-center gap-2">
-            <p className="max-w-[12rem] truncate font-medium leading-none md:max-w-none">{offer.fromParty}</p>
+            <p className="font-medium leading-none">{offer.fromParty}</p>
             <StatusBadge status={expired ? "expired" : offer.status} />
           </div>
           <p className="mt-1 text-sm text-slate-600">
             {unitLabel || "Total ($)"}: <span className="font-medium">{formatMoney(offer.amount)}</span>
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Sent {formatDateTime(offer.createdAt)}{" "}
-            {offer.expiresAt && <>• Expires {formatDateTime(offer.expiresAt)}</>}
+            Sent {new Date(offer.createdAt).toLocaleString()} {offer.expiresAt && `• Expires ${new Date(offer.expiresAt).toLocaleString()}`}
           </p>
           {offer.terms && (
             <p className="mt-2 text-sm">
@@ -289,35 +260,17 @@ function OfferRow({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          className="rounded-2xl"
-          disabled={!canAct}
-          onClick={() => onCounter?.(offer.id)}
-          title="Counter this offer"
-        >
+        <Button variant="outline" className="rounded-2xl" disabled={!canAct} onClick={() => onCounter?.(offer.id)}>
           Counter
         </Button>
-        <Button
-          variant="secondary"
-          className="rounded-2xl"
-          disabled={!canAct}
-          onClick={() => onDecline?.(offer.id)}
-          title="Decline this offer"
-        >
+        <Button variant="secondary" className="rounded-2xl" disabled={!canAct} onClick={() => onDecline?.(offer.id)}>
           Decline
         </Button>
-        <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)} title="Accept this offer">
+        <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)}>
           Accept
         </Button>
-        <Button
-          variant="ghost"
-          ariaLabel="Copy Offer ID"
-          title="Copy Offer ID"
-          onClick={() => navigator?.clipboard?.writeText(offer.id)}
-        >
+        <Button variant="ghost" title="Copy Offer ID" onClick={() => navigator?.clipboard?.writeText(offer.id)}>
           <MoreHorizontal className="h-4 w-4" />
-          <span className="sr-only">Copy Offer ID</span>
         </Button>
       </div>
     </div>
@@ -344,63 +297,48 @@ export default function ListingOffersPanel({
     return offers
       .filter((o) => (tab === "all" ? true : o.side === tab))
       .filter((o) =>
-        !q
-          ? true
-          : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()]
-              .filter(Boolean)
-              .some((v) => String(v).toLowerCase().includes(q))
+        !q ? true : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))
       )
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [offers, query, tab]);
 
-  const unreadCount = useMemo(
-    () => offers.filter((o) => o.unread && o.side === "received").length,
-    [offers]
-  );
+  const unreadCount = offers.filter((o) => o.unread && o.side === "received").length;
 
   return (
-    <div className="space-y-4" data-listing-id={listingId} data-listing-title={listingTitle}>
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 md:items-center">
         <div>
           <h2 className="text-xl font-semibold">Offers &amp; Activity</h2>
-          {/* subtitle intentionally omitted */}
+          {/* subtitle removed per request */}
         </div>
-        <div className="flex w-full items-center gap-2 md:w-auto">
-          <label htmlFor="offer-search" className="sr-only">
-            Search offers
-          </label>
+        <div className="flex items-center gap-2">
           <input
-            id="offer-search"
             placeholder="Search offers, terms, notes…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="h-9 w-full rounded-lg border px-3 text-sm md:w-64"
+            className="h-9 w-64 rounded-lg border px-3 text-sm"
           />
         </div>
       </div>
 
-      {/* Tabs (accessible segmented control) */}
-      <div className="flex gap-2" role="tablist" aria-label="Offer filter tabs">
+      {/* Tabs (simple buttons) */}
+      <div className="flex gap-2">
         <button
-          role="tab"
-          aria-selected={tab === "received"}
           className={cx(
-            "rounded-2xl border px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-emerald-500",
+            "rounded-2xl border px-3 py-1.5 text-sm",
             tab === "received" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
           )}
           onClick={() => setTab("received")}
         >
-          Received
+          Received{" "}
           {unreadCount > 0 && (
             <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs text-white">{unreadCount}</span>
           )}
         </button>
         <button
-          role="tab"
-          aria-selected={tab === "sent"}
           className={cx(
-            "rounded-2xl border px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-emerald-500",
+            "rounded-2xl border px-3 py-1.5 text-sm",
             tab === "sent" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
           )}
           onClick={() => setTab("sent")}
@@ -408,10 +346,8 @@ export default function ListingOffersPanel({
           Sent
         </button>
         <button
-          role="tab"
-          aria-selected={tab === "all"}
           className={cx(
-            "rounded-2xl border px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-emerald-500",
+            "rounded-2xl border px-3 py-1.5 text-sm",
             tab === "all" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
           )}
           onClick={() => setTab("all")}
@@ -428,10 +364,8 @@ export default function ListingOffersPanel({
               <CardTitle>
                 No {tab === "all" ? "activity yet" : tab === "received" ? "received offers" : "sent offers"}
               </CardTitle>
-              <CardDescription className="mb-2">
-                {tab === "sent"
-                  ? "Make an offer on a listing to see it here."
-                  : "When offers are created or updated, they’ll appear here."}
+              <CardDescription>
+                {tab === "sent" ? "Make an offer on a listing to see it here." : "When offers are created or updated, they’ll appear here."}
               </CardDescription>
             </CardHeader>
           </Card>
@@ -453,17 +387,6 @@ export default function ListingOffersPanel({
       {currentStage && STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && (
         <TransactionProgress stage={currentStage} />
       )}
-
-      {/* How actions work */}
-      <Card className="mt-2">
-        <CardHeader>
-          <CardTitle>How actions work</CardTitle>
-          {/* Add spacing *after* the description only here via className */}
-          <CardDescription className="mb-4">
-            Accept locks the price and moves the deal to contracts. Decline closes the thread. Counter lets you revise price/terms and re-send.
-          </CardDescription>
-        </CardHeader>
-      </Card>
     </div>
   );
 }
