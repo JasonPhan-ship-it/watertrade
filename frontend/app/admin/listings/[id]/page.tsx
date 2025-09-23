@@ -2,35 +2,43 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import OffersPanelWithActions from "@/components/listings/OffersPanelWithActions";
+import type { ReactNode } from "react";
+import type { Offer, DealStage } from "@/components/listings/types";
 
 export const revalidate = 0;
 
 export default async function AdminListingDetailPage({ params }: { params: { id: string } }) {
+  // --- Fetch listing ---
   const listing = await prisma.listing.findUnique({
     where: { id: params.id },
     select: {
-      id: true, title: true, description: true, district: true, waterType: true,
-      acreFeet: true, pricePerAF: true, status: true,
-      // include if you store it; otherwise pass null below
+      id: true,
+      title: true,
+      description: true,
+      district: true,
+      waterType: true,
+      acreFeet: true,
+      pricePerAF: true,
+      status: true,
+      // Include only if it exists in your schema; safe-cast below
       // @ts-ignore
       transactionStatus: true,
     },
   });
   if (!listing) return notFound();
 
-  // Pull trades/offers for this listing
+  // --- Fetch trades/offers for this listing ---
   const trades = await prisma.trade.findMany({
     where: { listingId: listing.id },
     orderBy: { createdAt: "desc" },
     include: { buyer: true, seller: true },
   });
 
-  type Offer = import("@/components/listings/ListingOffersPanel").Offer;
-  type DealStage = import("@/components/listings/ListingOffersPanel").DealStage;
-
+  // Map DB trade rows -> UI Offer[]
   const offers: Offer[] = trades.map((t: any) => ({
     id: String(t.id),
-    side: "received", // Admin perspective: show as received; change if you want role-aware
+    // Admin view: treat all as "received" (you can change to role-aware if desired)
+    side: "received",
     fromParty: t.buyer?.name ?? t.buyerName ?? t.seller?.name ?? t.sellerName ?? "Counterparty",
     amount: Math.round(Number(t.pricePerAf ?? t.pricePerAF ?? t.totalAmount ?? 0)),
     terms: t.terms ?? undefined,
@@ -44,6 +52,7 @@ export default async function AdminListingDetailPage({ params }: { params: { id:
     notes: t.note ?? undefined,
   }));
 
+  // Map optional transactionStatus -> DealStage (if you track it)
   const currentStage: DealStage | null = (() => {
     const s = (listing as any)?.transactionStatus as string | undefined;
     switch (s) {
@@ -89,7 +98,7 @@ export default async function AdminListingDetailPage({ params }: { params: { id:
   );
 }
 
-function Detail({ label, value }: { label: string; value: React.ReactNode }) {
+function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="text-xs text-slate-500">{label}</div>
@@ -97,6 +106,7 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   );
 }
+
 function formatInt(n: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
 }
