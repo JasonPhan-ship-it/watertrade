@@ -75,11 +75,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const rawTitle = (row.title || "").trim();
   const description = (row.description || "").trim() || "No description provided.";
 
-  // Smart display title: if DB title is short or an all-caps acronym, compose a clearer heading
+  // Smart display title: nicer heading if DB title is very short / acronym (e.g., "AEWD")
   function isSkimpyTitle(t: string) {
     if (!t) return true;
     const trimmed = t.trim();
-    const looksLikeAcronym = /^[A-Z]{2,6}$/.test(trimmed); // e.g., AEWD, MID, TID
+    const looksLikeAcronym = /^[A-Z]{2,6}$/.test(trimmed);
     return trimmed.length < 6 || looksLikeAcronym;
   }
   const displayTitle =
@@ -104,7 +104,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
     });
   } catch (e) {
     console.error("[listing page] prisma.trade.findMany failed", e);
-    // Non-fatal: panel will show empty state
   }
 
   /** Map trades -> panel Offer[] shape */
@@ -159,7 +158,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
               <h1 className="truncate text-lg font-semibold text-slate-900">{displayTitle}</h1>
               <StatusPill status={row.status} />
             </div>
-            {/* Meta row BELOW stays exactly as is */}
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
               <Meta label="District" value={row.district ?? "—"} />
               <Meta label="Water Type" value={row.waterType ?? "—"} />
@@ -190,7 +188,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
         {/* Details + Action panel */}
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr,380px]">
-          {/* Left: Offers & Activity only (Overview fields removed) */}
+          {/* Left: Offers & Activity */}
           <section className="space-y-6">
             <OffersPanelWithActions
               listingId={row.id}
@@ -202,62 +200,77 @@ export default async function ListingDetailPage({ params }: PageProps) {
             />
           </section>
 
-          {/* Right: Buyer-side Actions — hide for owner, only for SELL listings */}
-          {!isOwner && row.kind === "SELL" && (
-            <aside
-              id="buy-now"
-              className="sticky top-24 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-            >
-              <div className="mb-3">
-                <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Submit a firm offer or propose new terms. Escrow managed by a licensed third party.
+          {/* Right: stacked cards (Buy/Offer + How actions work + Footer buttons) */}
+          <div className="space-y-6">
+            {/* Buy / Offer (only when viewer isn't owner and listing is SELL) */}
+            {!isOwner && row.kind === "SELL" && (
+              <aside
+                id="buy-now"
+                className="sticky top-24 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Submit a firm offer or propose new terms. Escrow managed by a licensed third party.
+                  </div>
                 </div>
-              </div>
 
-              <ListingActions
-                listingId={row.id}
-                kind="SELL"
-                pricePerAf={pricePerAfDollars}
-                isAuction={false}
-                reservePrice={null}
-              />
+                <ListingActions
+                  listingId={row.id}
+                  kind="SELL"
+                  pricePerAf={pricePerAfDollars}
+                  isAuction={false}
+                  reservePrice={null}
+                />
 
-              <ul className="mt-4 space-y-1 text-xs text-slate-600">
-                <li>• Funds held in escrow</li>
-                <li>• District fees settled at closing</li>
-                <li>• Support available 9–5 PT</li>
-              </ul>
+                <ul className="mt-4 space-y-1 text-xs text-slate-600">
+                  <li>• Funds held in escrow</li>
+                  <li>• District fees settled at closing</li>
+                  <li>• Support available 9–5 PT</li>
+                </ul>
 
-              {/* Helper note */}
-              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                <div className="flex items-start gap-2">
-                  <Info aria-hidden className="mt-0.5 h-5 w-5 text-emerald-600" />
-                  <p>
-                    Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.
-                  </p>
+                {/* Helper note */}
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  <div className="flex items-start gap-2">
+                    <Info aria-hidden className="mt-0.5 h-5 w-5 text-emerald-600" />
+                    <p>
+                      Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.
+                    </p>
+                  </div>
                 </div>
+              </aside>
+            )}
+
+            {/* How actions work (moved to right column) */}
+            <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-semibold text-slate-900">How actions work</div>
+              <p className="mt-1 text-xs text-slate-600">
+                <strong>Accept</strong> locks the price and moves the deal to contracts.{" "}
+                <strong>Decline</strong> closes the thread.{" "}
+                <strong>Counter</strong> lets you revise price/terms and re-send.
+              </p>
+            </aside>
+
+            {/* Footer actions moved to right column */}
+            <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  href="/dashboard"
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
+                >
+                  Back to Listings
+                </Link>
+                {isOwner && (
+                  <Link
+                    href={`/listings/${row.id}/edit`}
+                    className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] "
+                  >
+                    Edit Listing
+                  </Link>
+                )}
               </div>
             </aside>
-          )}
-        </div>
-
-        {/* Footer nav */}
-        <div className="mt-8 flex items-center gap-3">
-          <Link
-            href="/dashboard"
-            className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
-          >
-            Back to Listings
-          </Link>
-          {isOwner && (
-            <Link
-              href={`/listings/${row.id}/edit`}
-              className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] "
-            >
-              Edit Listing
-            </Link>
-          )}
+          </div>
         </div>
       </div>
     </div>
