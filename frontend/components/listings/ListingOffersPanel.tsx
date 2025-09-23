@@ -1,392 +1,358 @@
-import React, { useMemo, useState } from "react";
-import { Check, Clock, ChevronRight, MoreHorizontal } from "lucide-react";
+// app/listings/[id]/page.tsx
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { prisma } from "@/lib/prisma";
+import { auth } from "@clerk/nextjs/server";
+import { Info } from "lucide-react";
 
-/* ----------------------------- Types ----------------------------- */
+export const revalidate = 0; // always fresh
+// export const runtime = "nodejs"; // uncomment if anything accidentally pushed you to edge
 
-export type OfferSide = "received" | "sent";
-export type OfferStatus = "pending" | "accepted" | "declined" | "expired" | "countered";
+type PageProps = { params: { id: string } };
 
-export type DealStage =
-  | "OFFER_SENT"
-  | "OFFER_ACCEPTED"
-  | "CONTRACTS_DRAFTED"
-  | "SIGNING_IN_PROGRESS"
-  | "ESCROW_OPENED"
-  | "DUE_DILIGENCE"
-  | "CLOSING_SCHEDULED"
-  | "CLOSED";
+export default async function ListingDetailPage({ params }: PageProps) {
+  /** Identify viewer (non-fatal if this fails) */
+  let viewerDbUserId: string | null = null;
+  try {
+    const { userId: clerkId } = auth();
+    if (clerkId) {
+      const viewer = await prisma.user.findUnique({
+        where: { clerkId },
+        select: { id: true },
+      });
+      viewerDbUserId = viewer?.id ?? null;
+    }
+  } catch (e) {
+    console.error("[listing page] auth/prisma user lookup failed", e);
+  }
 
-export type Offer = {
-  id: string;
-  side: OfferSide;
-  fromParty: string;
-  amount: number;
-  terms?: string;
-  createdAt: string;
-  expiresAt?: string;
-  status: OfferStatus;
-  unread?: boolean;
-  notes?: string;
-};
+  /** Listing core details */
+  let row:
+    | {
+        id: string;
+        title: string | null;
+        description: string | null;
+        district: string | null;
+        waterType: string | null;
+        acreFeet: number;
+        pricePerAF: number | null; // cents
+        kind: "SELL" | "BUY";
+        status: "ACTIVE" | "UNDER_CONTRACT" | "SOLD" | "ARCHIVED" | string;
+        createdAt: Date;
+        updatedAt: Date;
+        sellerId: string | null;
+      }
+    | null = null;
 
-export type ListingOffersPanelProps = {
-  listingId: string;
-  listingTitle?: string;
-  unitLabel?: string;
-  offers: Offer[];
-  currentStage?: DealStage | null;
-  onAccept?: (offerId: string) => Promise<void> | void;
-  onDecline?: (offerId: string) => Promise<void> | void;
-  onCounter?: (offerId: string) => Promise<void> | void;
-};
+  try {
+    row = await prisma.listing.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        district: true,
+        waterType: true,
+        acreFeet: true,
+        pricePerAF: true, // cents
+        kind: true, // SELL | BUY
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        sellerId: true,
+      },
+    });
+  } catch (e) {
+    console.error("[listing page] prisma.listing.findUnique failed", e);
+    return <ServerError where="listing" />;
+  }
 
-/* --------------------------- Utilities --------------------------- */
+  if (!row) return notFound();
 
-const STAGE_ORDER: DealStage[] = [
-  "OFFER_SENT",
-  "OFFER_ACCEPTED",
-  "CONTRACTS_DRAFTED",
-  "SIGNING_IN_PROGRESS",
-  "ESCROW_OPENED",
-  "DUE_DILIGENCE",
-  "CLOSING_SCHEDULED",
-  "CLOSED",
-];
+  const isOwner = !!viewerDbUserId && row.sellerId === viewerDbUserId;
+  const pricePerAfDollars = (row.pricePerAF ?? 0) / 100;
 
-function formatMoney(n: number) {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-}
-function isExpired(offer: Offer) {
-  return offer.expiresAt ? new Date(offer.expiresAt) < new Date() : false;
-}
-function cx(...cls: Array<string | false | undefined>) {
-  return cls.filter(Boolean).join(" ");
-}
+  const rawTitle = (row.title || "").trim();
+  const description = (row.description || "").trim() || "No description provided.";
 
-/* ------------------------- Tiny UI atoms ------------------------- */
+  // Smart display title: nicer heading if DB title is very short / acronym (e.g., "AEWD")
+  function isSkimpyTitle(t: string) {
+    if (!t) return true;
+    const trimmed = t.trim();
+    const looksLikeAcronym = /^[A-Z]{2,6}$/.test(trimmed);
+    return trimmed.length < 6 || looksLikeAcronym;
+  }
+  const displayTitle =
+    !isSkimpyTitle(rawTitle)
+      ? rawTitle
+      : [
+          row.kind === "BUY" ? "Buyer Request" : "For Sale",
+          row.acreFeet ? `${new Intl.NumberFormat("en-US").format(row.acreFeet)} AF` : null,
+          row.waterType || null,
+          row.district || null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Listing";
 
-function Badge({
-  children,
-  variant = "solid",
-}: {
-  children: React.ReactNode;
-  variant?: "solid" | "outline" | "destructive" | "secondary";
-}) {
-  const styles =
-    variant === "outline"
-      ? "border border-slate-300 text-slate-700 bg-white"
-      : variant === "destructive"
-      ? "bg-red-100 text-red-700"
-      : variant === "secondary"
-      ? "bg-slate-200 text-slate-700"
-      : "bg-emerald-600 text-white";
+  /** Fetch trades/offers for the Offers & Activity Panel */
+  let trades: any[] = [];
+  try {
+    trades = await prisma.trade.findMany({
+      where: { listingId: row.id },
+      orderBy: { createdAt: "desc" },
+      include: { buyer: true, seller: true },
+    });
+  } catch (e) {
+    console.error("[listing page] prisma.trade.findMany failed", e);
+  }
+
+  /** Map trades -> panel Offer[] shape */
+  type Offer = import("@/components/listings/ListingOffersPanel").Offer;
+  const offers: Offer[] = trades.map((t: any) => {
+    const price = Number(t.pricePerAf ?? t.pricePerAF ?? t.totalAmount ?? 0);
+    const createdAt: string = (t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt)).toISOString();
+
+    const expiresAt: string | undefined = t.expiresAt
+      ? (t.expiresAt instanceof Date ? t.expiresAt : new Date(t.expiresAt)).toISOString()
+      : undefined;
+
+    const side =
+      t.sellerUserId && viewerDbUserId ? (t.sellerUserId === viewerDbUserId ? "received" : "sent") : "received";
+
+    const status =
+      t.status === "ACCEPTED" ? "accepted" :
+      t.status === "DECLINED" ? "declined" :
+      t.status === "COUNTERED" ? "countered" :
+      "pending";
+
+    return {
+      id: String(t.id),
+      side,
+      fromParty:
+        side === "received"
+          ? (t.buyer?.name ?? t.buyerName ?? "Buyer")
+          : (t.seller?.name ?? t.sellerName ?? "Seller"),
+      amount: Math.round(price),
+      terms: t.terms ?? undefined,
+      createdAt,
+      expiresAt,
+      status,
+      unread: Boolean(t.viewerHasSeen === false),
+      notes: t.note ?? undefined,
+    } as Offer;
+  });
+
+  /** Progress bar: temporarily disabled (no transactionStatus on Listing) */
+  type DealStage = import("@/components/listings/ListingOffersPanel").DealStage;
+  const currentStage: DealStage | null = null;
+
   return (
-    <span className={cx("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", styles)}>
-      {children}
+    <div className="mx-auto max-w-6xl">
+      {/* Sticky summary header (meta trimmed per request) */}
+      <nav className="sticky top-0 z-30 border-b bg-white/85 backdrop-blur">
+        <div className="px-6 py-3 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Breadcrumbs />
+              <span className="text-slate-300">/</span>
+              <h1 className="truncate text-lg font-semibold text-slate-900">{displayTitle}</h1>
+              <StatusPill status={row.status} />
+            </div>
+            {/* Meta row: removed District, Water Type, AF */}
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+              <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
+              <Meta label="Kind" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
+              <Meta label="Created" value={formatDate(row.createdAt)} />
+            </div>
+          </div>
+
+          {!isOwner && row.kind === "SELL" && (
+            <div className="flex items-center gap-2">
+              <a
+                href="#buy-now"
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Buy / Make Offer
+              </a>
+            </div>
+          )}
+        </div>
+      </nav>
+
+      {/* Body */}
+      <div className="p-6">
+        {/* Intro blurb */}
+        <p className="text-sm text-slate-600">{description}</p>
+
+        {/* Details + Action panel */}
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr,380px]">
+          {/* Left: Offers & Activity */}
+          <section className="space-y-6">
+            <OffersPanelWithActions
+              listingId={row.id}
+              listingTitle={displayTitle}
+              unitLabel="Total ($)"
+              offers={offers}
+              currentStage={currentStage}
+              // handlers are provided by the client shim
+            />
+          </section>
+
+          {/* Right: stacked cards (Buy/Offer + How actions work + Footer buttons) */}
+          <div className="space-y-6">
+            {/* Buy / Offer (only when viewer isn't owner and listing is SELL) */}
+            {!isOwner && row.kind === "SELL" && (
+              <aside
+                id="buy-now"
+                className="sticky top-24 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Submit a firm offer or propose new terms. Escrow managed by a licensed third party.
+                  </div>
+                </div>
+
+                <ListingActions
+                  listingId={row.id}
+                  kind="SELL"
+                  pricePerAf={pricePerAfDollars}
+                  isAuction={false}
+                  reservePrice={null}
+                />
+
+                <ul className="mt-4 space-y-1 text-xs text-slate-600">
+                  <li>• Funds held in escrow</li>
+                  <li>• District fees settled at closing</li>
+                  <li>• Support available 9–5 PT</li>
+                </ul>
+
+                {/* Helper note */}
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  <div className="flex items-start gap-2">
+                    <Info aria-hidden className="mt-0.5 h-5 w-5 text-emerald-600" />
+                    <p>
+                      Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.
+                    </p>
+                  </div>
+                </div>
+              </aside>
+            )}
+
+            {/* How actions work (right column only) */}
+            <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-semibold text-slate-900">How actions work</div>
+              <p className="mt-1 text-xs text-slate-600">
+                <strong>Accept</strong> locks the price and moves the deal to contracts.{" "}
+                <strong>Decline</strong> closes the thread.{" "}
+                <strong>Counter</strong> lets you revise price/terms and re-send.
+              </p>
+            </aside>
+
+            {/* Footer actions moved to right column */}
+            <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  href="/dashboard"
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
+                >
+                  Back to Listings
+                </Link>
+                {isOwner && (
+                  <Link
+                    href={`/listings/${row.id}/edit`}
+                    className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] "
+                  >
+                    Edit Listing
+                  </Link>
+                )}
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Helpers & small UI atoms (no shadcn) ---------- */
+
+function Meta({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-slate-500">{label}:</span>
+      <span className="font-medium text-slate-800">{value}</span>
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const cls: Record<string, string> = {
+    ACTIVE: "bg-blue-100 text-blue-700",
+    UNDER_CONTRACT: "bg-amber-100 text-amber-800",
+    SOLD: "bg-emerald-100 text-emerald-800",
+    ARCHIVED: "bg-slate-100 text-slate-600",
+    DECLINED: "bg-rose-100 text-rose-700",
+    EXPIRED: "bg-slate-200 text-slate-700",
+  };
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-xs ${
+        cls[status] ?? "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {prettyStatus(status)}
     </span>
   );
 }
 
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={cx("rounded-2xl border border-slate-200 bg-white shadow-sm", className)}>{children}</div>;
-}
-function CardHeader({ children }: { children: React.ReactNode }) {
-  return <div className="px-4 pt-4">{children}</div>;
-}
-function CardTitle({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={cx("text-base font-semibold", className)}>{children}</div>;
-}
-function CardDescription({ children }: { children: React.ReactNode }) {
-  return <div className="mt-1 text-sm text-slate-600">{children}</div>;
-}
-function CardContent({ children }: { children: React.ReactNode }) {
-  return <div className="px-4 pb-4">{children}</div>;
+function prettyStatus(s: string) {
+  return s.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (t) => t.toUpperCase());
 }
 
-function Button({
-  children,
-  onClick,
-  disabled,
-  variant = "primary",
-  className = "",
-  title,
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  variant?: "primary" | "secondary" | "outline" | "ghost" | "icon";
-  className?: string;
-  title?: string;
-}) {
-  const base = "inline-flex items-center justify-center rounded-2xl px-3 py-2 text-sm";
-  const styles =
-    variant === "primary"
-      ? "bg-emerald-600 text-white hover:bg-emerald-700"
-      : variant === "secondary"
-      ? "bg-slate-200 text-slate-900 hover:bg-slate-300"
-      : variant === "outline"
-      ? "border border-slate-300 text-slate-900 hover:bg-slate-50"
-      : variant === "ghost"
-      ? "text-slate-700 hover:bg-slate-100"
-      : "p-2 rounded-full"; // icon
+function Breadcrumbs() {
   return (
-    <button
-      className={cx(base, styles, disabled && "opacity-60 cursor-not-allowed", className)}
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-    >
-      {children}
-    </button>
-  );
-}
-
-/* -------------------------- Subcomponents ------------------------- */
-
-function StatusBadge({ status }: { status: OfferStatus }) {
-  const map: Record<OfferStatus, { label: string; variant: React.ComponentProps<typeof Badge>["variant"] }> = {
-    pending: { label: "Pending", variant: "outline" },
-    accepted: { label: "Accepted", variant: "solid" },
-    declined: { label: "Declined", variant: "secondary" },
-    expired: { label: "Expired", variant: "destructive" },
-    countered: { label: "Countered", variant: "solid" },
-  };
-  return <Badge variant={map[status].variant}>{map[status].label}</Badge>;
-}
-
-function StagePill({ label, active, complete }: { label: string; active?: boolean; complete?: boolean }) {
-  return (
-    <div
-      className={cx(
-        "flex items-center gap-2 rounded-full px-3 py-1 text-xs",
-        complete ? "bg-green-100 text-green-700" : active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"
-      )}
-    >
-      {complete ? <Check className="h-3 w-3" /> : active ? <Clock className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-      <span>{label}</span>
+    <div className="flex items-center gap-2 text-xs text-slate-500">
+      <Link href="/dashboard" className="hover:text-slate-700">
+        Dashboard
+      </Link>
+      <span>/</span>
+      <Link href="/dashboard" className="hover:text-slate-700">
+        Listings
+      </Link>
     </div>
   );
 }
 
-function TransactionProgress({ stage }: { stage: DealStage }) {
-  const currentIndex = STAGE_ORDER.indexOf(stage);
-  return (
-    <Card className="mt-4">
-      <CardHeader>
-        <CardTitle className="text-base">Transaction Progress</CardTitle>
-        <CardDescription>Live status once signing begins</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-3">
-          <div className="relative h-2 w-full rounded-full bg-slate-100">
-            <div
-              className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600"
-              style={{ width: `${(currentIndex / (STAGE_ORDER.length - 1)) * 100}%` }}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            {STAGE_ORDER.map((s, i) => (
-              <StagePill key={s} label={toStageLabel(s)} complete={i < currentIndex} active={i === currentIndex} />
-            ))}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+function format2(n: number) {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
-function toStageLabel(s: DealStage) {
-  switch (s) {
-    case "OFFER_SENT":
-      return "Offer Sent";
-    case "OFFER_ACCEPTED":
-      return "Offer Accepted";
-    case "CONTRACTS_DRAFTED":
-      return "Contracts Drafted";
-    case "SIGNING_IN_PROGRESS":
-      return "Signing In Progress";
-    case "ESCROW_OPENED":
-      return "Escrow Opened";
-    case "DUE_DILIGENCE":
-      return "Due Diligence";
-    case "CLOSING_SCHEDULED":
-      return "Closing Scheduled";
-    case "CLOSED":
-      return "Closed";
+function formatDate(d: Date) {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date(d));
+  } catch {
+    return new Date(d).toLocaleString();
   }
 }
 
-function OfferRow({
-  offer,
-  unitLabel,
-  onAccept,
-  onDecline,
-  onCounter,
-}: {
-  offer: Offer;
-  unitLabel?: string;
-  onAccept?: (id: string) => void | Promise<void>;
-  onDecline?: (id: string) => void | Promise<void>;
-  onCounter?: (id: string) => void | Promise<void>;
-}) {
-  const expired = isExpired(offer);
-  const canAct = offer.status === "pending" && !expired;
+/* ---------- Lazy imports so this file stays a Server Component ---------- */
+import ListingActions from "@/components/ListingActions";
+import OffersPanelWithActions from "@/components/listings/OffersPanelWithActions";
 
+/* ---------- Inline server error helper ---------- */
+function ServerError({ where }: { where: string }) {
   return (
-    <div className="flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center">
-      <div className="flex items-start gap-3">
-        {offer.unread ? <Badge>New</Badge> : <Badge variant="outline">Offer</Badge>}
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="font-medium leading-none">{offer.fromParty}</p>
-            <StatusBadge status={expired ? "expired" : offer.status} />
-          </div>
-          <p className="mt-1 text-sm text-slate-600">
-            {unitLabel || "Total ($)"}: <span className="font-medium">{formatMoney(offer.amount)}</span>
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Sent {new Date(offer.createdAt).toLocaleString()} {offer.expiresAt && `• Expires ${new Date(offer.expiresAt).toLocaleString()}`}
-          </p>
-          {offer.terms && (
-            <p className="mt-2 text-sm">
-              <span className="text-slate-500">Terms:</span> {offer.terms}
-            </p>
-          )}
-          {offer.notes && (
-            <p className="mt-1 text-sm">
-              <span className="text-slate-500">Notes:</span> {offer.notes}
-            </p>
-          )}
-        </div>
+    <div className="mx-auto max-w-3xl p-6">
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        Something went wrong loading the {where}. Check server logs for details.
       </div>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" className="rounded-2xl" disabled={!canAct} onClick={() => onCounter?.(offer.id)}>
-          Counter
-        </Button>
-        <Button variant="secondary" className="rounded-2xl" disabled={!canAct} onClick={() => onDecline?.(offer.id)}>
-          Decline
-        </Button>
-        <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)}>
-          Accept
-        </Button>
-        <Button variant="ghost" title="Copy Offer ID" onClick={() => navigator?.clipboard?.writeText(offer.id)}>
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/* ----------------------------- Main Panel ----------------------------- */
-
-export default function ListingOffersPanel({
-  listingId,
-  listingTitle = "Unnamed Listing",
-  unitLabel = "Total ($)",
-  offers,
-  currentStage = null,
-  onAccept,
-  onDecline,
-  onCounter,
-}: ListingOffersPanelProps) {
-  const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<OfferSide | "all">("received");
-
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    return offers
-      .filter((o) => (tab === "all" ? true : o.side === tab))
-      .filter((o) =>
-        !q ? true : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))
-      )
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [offers, query, tab]);
-
-  const unreadCount = offers.filter((o) => o.unread && o.side === "received").length;
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 md:items-center">
-        <div>
-          <h2 className="text-xl font-semibold">Offers &amp; Activity</h2>
-          {/* subtitle removed per request */}
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            placeholder="Search offers, terms, notes…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="h-9 w-64 rounded-lg border px-3 text-sm"
-          />
-        </div>
-      </div>
-
-      {/* Tabs (simple buttons) */}
-      <div className="flex gap-2">
-        <button
-          className={cx(
-            "rounded-2xl border px-3 py-1.5 text-sm",
-            tab === "received" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
-          )}
-          onClick={() => setTab("received")}
-        >
-          Received{" "}
-          {unreadCount > 0 && (
-            <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs text-white">{unreadCount}</span>
-          )}
-        </button>
-        <button
-          className={cx(
-            "rounded-2xl border px-3 py-1.5 text-sm",
-            tab === "sent" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
-          )}
-          onClick={() => setTab("sent")}
-        >
-          Sent
-        </button>
-        <button
-          className={cx(
-            "rounded-2xl border px-3 py-1.5 text-sm",
-            tab === "all" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
-          )}
-          onClick={() => setTab("all")}
-        >
-          All
-        </button>
-      </div>
-
-      {/* List for current tab */}
-      <div className="mt-4 space-y-3">
-        {filtered.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                No {tab === "all" ? "activity yet" : tab === "received" ? "received offers" : "sent offers"}
-              </CardTitle>
-              <CardDescription>
-                {tab === "sent" ? "Make an offer on a listing to see it here." : "When offers are created or updated, they’ll appear here."}
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        ) : (
-          filtered.map((o) => (
-            <OfferRow
-              key={o.id}
-              offer={o}
-              unitLabel={unitLabel}
-              onAccept={onAccept}
-              onDecline={onDecline}
-              onCounter={onCounter}
-            />
-          ))
-        )}
-      </div>
-
-      {/* Progress bar (visible once signing starts) */}
-      {currentStage && STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && (
-        <TransactionProgress stage={currentStage} />
-      )}
     </div>
   );
 }
