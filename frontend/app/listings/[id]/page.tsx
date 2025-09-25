@@ -259,12 +259,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
             {/* Footer actions */}
             <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center gap-3">
-                <Link
-                  href="/dashboard"
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
-                >
-                  Back to Listings
-                </Link>
                 {isOwner && (
                   <Link
                     href={`/listings/${row.id}/edit`}
