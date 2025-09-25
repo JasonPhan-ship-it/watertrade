@@ -33,8 +33,6 @@ export type Offer = {
 
 export type ListingOffersPanelProps = {
   listingId: string;
-  /** Optional title shown in the header (e.g., the listing name) */
-  listingTitle?: string;
   /** Label for the amount line; defaults to "Total ($)" */
   unitLabel?: string;
   offers: Offer[];
@@ -320,7 +318,6 @@ function OfferRow({
 
 export default function ListingOffersPanel({
   listingId, // retained for future route/action usage
-  listingTitle,
   unitLabel = "Total ($)",
   offers,
   currentStage = null,
@@ -353,7 +350,6 @@ export default function ListingOffersPanel({
       <div className="flex items-start justify-between gap-3 md:items-center">
         <div>
           <h2 className="text-xl font-semibold">Offers &amp; Activity</h2>
-          {listingTitle && <p className="mt-1 text-sm text-slate-600">for {listingTitle}</p>}
         </div>
         <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="offers-search">
