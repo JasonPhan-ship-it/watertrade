@@ -237,8 +237,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
                   <div className="flex items-start gap-2">
                     <Info aria-hidden className="mt-0.5 h-7 w-7 text-emerald-600" />
                     <p className="leading-relaxed">
-                      All funds are securely held in escrow and prices are shown
-                      in dollars per acre-foot, and the final settlement amount may vary based on conveyance and applicable
+                      All funds are securely held in escrow and the final settlement amount may vary based on conveyance and applicable
                       district fees.
                     </p>
                   </div>
