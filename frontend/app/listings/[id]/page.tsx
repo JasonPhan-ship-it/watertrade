@@ -228,9 +228,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
                   <div className="flex items-start gap-2">
                     <Info aria-hidden className="mt-0.5 h-7 w-7 text-emerald-600" />
                     <p className="leading-relaxed">
-                      All funds are securely held in escrow, with district fees settled at closing. Our support team is
-                      available from 9:00 a.m. to 5:00 p.m. Pacific Time to assist with any questions. Prices are shown
-                      in dollars per acre-foot, and the final settlement amount may vary based on conveyance and applicable
+                      All funds are securely held in escrow and the final settlement amount may vary based on conveyance and applicable
                       district fees.
                     </p>
                   </div>
