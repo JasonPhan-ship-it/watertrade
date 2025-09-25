@@ -98,8 +98,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const shouldShowDescription = (() => {
     const d = (description || "").trim();
     if (!d) return false;
-    if (/^[A-Z]{2,6}$/.test(d)) return false; // acronym-only
-    if (d === rawTitle || d === displayTitle) return false; // duplicate of title
+    // hide if it's just an acronym (2–6 uppercase letters)
+    if (/^[A-Z]{2,6}$/.test(d)) return false;
+    // hide if it equals the raw or computed title
+    if (d === rawTitle || d === displayTitle) return false;
+    // hide default placeholder
     if (d === "No description provided.") return false;
     return true;
   })();
@@ -175,7 +178,16 @@ export default async function ListingDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Header action removed per request */}
+          {!isOwner && row.kind === "SELL" && (
+            <div className="flex items-center gap-2">
+              <a
+                href="#buy-now"
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Buy / Make Offer
+              </a>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -220,11 +232,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
                   reservePrice={null}
                 />
 
-                {/* Formal helper note */}
-                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                {/* Formal helper note (subtle text + larger icon) */}
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
                   <div className="flex items-start gap-2">
-                    <Info aria-hidden className="mt-0.5 h-5 w-5 text-emerald-600" />
-                    <p>
+                    <Info aria-hidden className="mt-0.5 h-7 w-7 text-emerald-600" />
+                    <p className="leading-relaxed">
                       All funds are securely held in escrow, with district fees settled at closing. Our support team is
                       available from 9:00 a.m. to 5:00 p.m. Pacific Time to assist with any questions. Prices are shown
                       in dollars per acre-foot, and the final settlement amount may vary based on conveyance and applicable
