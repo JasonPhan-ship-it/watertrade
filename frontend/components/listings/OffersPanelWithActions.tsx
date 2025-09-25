@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import ListingOffersPanel, { type ListingOffersPanelProps } from "./ListingOffersPanel";
 import type { Offer } from "@/components/listings/types";
@@ -15,7 +15,6 @@ export default function OffersPanelWithActions({
   viewerRole = "unknown",
   // ListingOffersPanelProps (explicit, no spread)
   listingId,
-  listingTitle,
   unitLabel,
   offers,
   currentStage,
@@ -28,7 +27,6 @@ export default function OffersPanelWithActions({
   /** Local, optimistically updated copy of offers */
   const [items, setItems] = useState<Offer[]>(offers);
   useEffect(() => {
-    // If parent revalidated and provided a new array identity, adopt it.
     if (offers !== items) setItems(offers);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offers]);
@@ -66,7 +64,6 @@ export default function OffersPanelWithActions({
       }
       throw new Error(message);
     }
-    // Try to parse JSON; if none, return {}
     try {
       return await res.json();
     } catch {
@@ -74,7 +71,7 @@ export default function OffersPanelWithActions({
     }
   }
 
-  /* -------- Role-aware endpoints (kept) -------- */
+  /* -------- Role-aware endpoints -------- */
 
   function acceptRoute(offerId: string) {
     if (viewerRole === "seller" || viewerRole === "admin") return `/api/trades/${offerId}/seller/accept`;
@@ -92,7 +89,7 @@ export default function OffersPanelWithActions({
     return `/api/trades/${offerId}/seller/counter`;
   }
 
-  /* ------------------- Button handlers (wired) ------------------- */
+  /* ------------------- Button handlers ------------------- */
 
   const internalAccept = useCallback(
     (id: string) =>
@@ -136,7 +133,7 @@ export default function OffersPanelWithActions({
           new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 
         const rawAmount = window.prompt(`Counter amount (whole USD). Current: ${fmt(offer.amount)}`, String(offer.amount));
-        if (rawAmount == null) return; // user canceled
+        if (rawAmount == null) return;
 
         const amount = Math.max(0, Math.round(Number(rawAmount)));
         if (!Number.isFinite(amount)) {
@@ -152,7 +149,7 @@ export default function OffersPanelWithActions({
           await postJSON(counterRoute(id), { amount, terms });
           router.refresh();
         } catch (e: any) {
-          patchOffer(id, prev); // rollback
+          patchOffer(id, prev);
           alert(`Counter failed: ${e?.message || e}`);
         }
       }),
@@ -170,7 +167,6 @@ export default function OffersPanelWithActions({
   return (
     <ListingOffersPanel
       listingId={listingId}
-      listingTitle={listingTitle}
       unitLabel={unitLabel}
       offers={items}
       currentStage={currentStage}
