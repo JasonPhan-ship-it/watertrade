@@ -178,16 +178,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          {!isOwner && row.kind === "SELL" && (
-            <div className="flex items-center gap-2">
-              <a
-                href="#buy-now"
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-              >
-                Buy / Make Offer
-              </a>
-            </div>
-          )}
+          {/* Header CTA removed */}
         </div>
       </nav>
 
@@ -237,7 +228,9 @@ export default async function ListingDetailPage({ params }: PageProps) {
                   <div className="flex items-start gap-2">
                     <Info aria-hidden className="mt-0.5 h-7 w-7 text-emerald-600" />
                     <p className="leading-relaxed">
-                      All funds are securely held in escrow and the final settlement amount may vary based on conveyance and applicable
+                      All funds are securely held in escrow, with district fees settled at closing. Our support team is
+                      available from 9:00 a.m. to 5:00 p.m. Pacific Time to assist with any questions. Prices are shown
+                      in dollars per acre-foot, and the final settlement amount may vary based on conveyance and applicable
                       district fees.
                     </p>
                   </div>
