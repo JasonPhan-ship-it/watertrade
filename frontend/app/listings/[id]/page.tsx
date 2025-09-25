@@ -209,7 +209,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             {/* Buy / Offer (only when viewer isn't owner and listing is SELL) */}
             {!isOwner && row.kind === "SELL" && (
               <aside id="buy-now" className="sticky top-24 h-fit">
-                <div className="mb-3">
+                <div className="mb-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
                   <div className="mt-1 text-xs text-slate-500">Submit an offer or purchase now.</div>
                 </div>
