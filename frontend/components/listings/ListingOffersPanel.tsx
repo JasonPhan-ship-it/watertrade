@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useMemo, useState } from "react";
 import { Check, Clock, ChevronRight, MoreHorizontal } from "lucide-react";
 
@@ -31,7 +33,6 @@ export type Offer = {
 
 export type ListingOffersPanelProps = {
   listingId: string;
-  listingTitle?: string;
   unitLabel?: string;
   offers: Offer[];
   currentStage?: DealStage | null;
@@ -54,7 +55,11 @@ const STAGE_ORDER: DealStage[] = [
 ];
 
 function formatMoney(n: number) {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(n);
 }
 function isExpired(offer: Offer) {
   return offer.expiresAt ? new Date(offer.expiresAt) < new Date() : false;
@@ -144,7 +149,10 @@ function Button({
 /* -------------------------- Subcomponents ------------------------- */
 
 function StatusBadge({ status }: { status: OfferStatus }) {
-  const map: Record<OfferStatus, { label: string; variant: React.ComponentProps<typeof Badge>["variant"] }> = {
+  const map: Record<
+    OfferStatus,
+    { label: string; variant: React.ComponentProps<typeof Badge>["variant"] }
+  > = {
     pending: { label: "Pending", variant: "outline" },
     accepted: { label: "Accepted", variant: "solid" },
     declined: { label: "Declined", variant: "secondary" },
@@ -216,6 +224,8 @@ function toStageLabel(s: DealStage) {
   }
 }
 
+/* ----------------------------- Offer row ----------------------------- */
+
 function OfferRow({
   offer,
   unitLabel,
@@ -245,7 +255,8 @@ function OfferRow({
             {unitLabel || "Total ($)"}: <span className="font-medium">{formatMoney(offer.amount)}</span>
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Sent {new Date(offer.createdAt).toLocaleString()} {offer.expiresAt && `• Expires ${new Date(offer.expiresAt).toLocaleString()}`}
+            Sent {new Date(offer.createdAt).toLocaleString()}{" "}
+            {offer.expiresAt && `• Expires ${new Date(offer.expiresAt).toLocaleString()}`}
           </p>
           {offer.terms && (
             <p className="mt-2 text-sm">
@@ -280,7 +291,7 @@ function OfferRow({
 /* ----------------------------- Main Panel ----------------------------- */
 
 export default function ListingOffersPanel({
-  listingId,
+  listingId, // kept in case you want to use it in future (not rendered now)
   unitLabel = "Total ($)",
   offers,
   currentStage = null,
@@ -296,7 +307,11 @@ export default function ListingOffersPanel({
     return offers
       .filter((o) => (tab === "all" ? true : o.side === tab))
       .filter((o) =>
-        !q ? true : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))
+        !q
+          ? true
+          : [o.fromParty, o.terms, o.notes, o.status, o.amount.toString()]
+              .filter(Boolean)
+              .some((v) => String(v).toLowerCase().includes(q))
       )
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [offers, query, tab]);
@@ -305,11 +320,11 @@ export default function ListingOffersPanel({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Header (no subtitle) */}
       <div className="flex items-start justify-between gap-3 md:items-center">
         <div>
           <h2 className="text-xl font-semibold">Offers &amp; Activity</h2>
-          {/* subtitle removed per request */}
+          {/* subtitle removed */}
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -321,7 +336,7 @@ export default function ListingOffersPanel({
         </div>
       </div>
 
-      {/* Tabs (simple buttons) */}
+      {/* Tabs */}
       <div className="flex gap-2">
         <button
           className={cx(
@@ -355,7 +370,7 @@ export default function ListingOffersPanel({
         </button>
       </div>
 
-      {/* List for current tab */}
+      {/* List */}
       <div className="mt-4 space-y-3">
         {filtered.length === 0 ? (
           <Card>
@@ -364,7 +379,9 @@ export default function ListingOffersPanel({
                 No {tab === "all" ? "activity yet" : tab === "received" ? "received offers" : "sent offers"}
               </CardTitle>
               <CardDescription>
-                {tab === "sent" ? "Make an offer on a listing to see it here." : "When offers are created or updated, they’ll appear here."}
+                {tab === "sent"
+                  ? "Make an offer on a listing to see it here."
+                  : "When offers are created or updated, they’ll appear here."}
               </CardDescription>
             </CardHeader>
           </Card>
@@ -382,10 +399,11 @@ export default function ListingOffersPanel({
         )}
       </div>
 
-      {/* Progress bar (visible once signing starts) */}
-      {currentStage && STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && (
-        <TransactionProgress stage={currentStage} />
-      )}
+      {/* Progress bar (only once signing has begun) */}
+      {currentStage &&
+        STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && (
+          <TransactionProgress stage={currentStage} />
+        )}
     </div>
   );
 }
