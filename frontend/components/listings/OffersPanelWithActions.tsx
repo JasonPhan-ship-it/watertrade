@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ListingOffersPanel, { type ListingOffersPanelProps } from "./ListingOffersPanel";
 import type { Offer } from "@/components/listings/types";
+
+/* ======================== Types ======================== */
 
 export type ViewerRole = "buyer" | "seller" | "admin" | "unknown";
 
@@ -11,9 +13,81 @@ export type OffersPanelWithActionsProps = ListingOffersPanelProps & {
   viewerRole?: ViewerRole;
 };
 
+/* ======================== Tiny UI ======================== */
+
+function cx(...cls: Array<string | false | undefined>) {
+  return cls.filter(Boolean).join(" ");
+}
+
+function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[100]">
+      {/* backdrop */}
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      {/* dialog */}
+      <div className="absolute inset-0 flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
+          <div className="border-b px-4 py-3">
+            <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          </div>
+          <div className="px-4 py-4">{children}</div>
+          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+            {footer}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Button({
+  children,
+  onClick,
+  disabled,
+  variant = "primary",
+  type = "button",
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
+  type?: "button" | "submit";
+}) {
+  const base = "inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm";
+  const styles =
+    variant === "primary"
+      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+      : variant === "secondary"
+      ? "bg-slate-200 text-slate-900 hover:bg-slate-300"
+      : variant === "outline"
+      ? "border border-slate-300 text-slate-900 hover:bg-slate-50"
+      : variant === "danger"
+      ? "bg-rose-600 text-white hover:bg-rose-700"
+      : "text-slate-700 hover:bg-slate-100";
+  return (
+    <button className={cx(base, styles, disabled && "opacity-60 cursor-not-allowed")} onClick={onClick} disabled={disabled} type={type}>
+      {children}
+    </button>
+  );
+}
+
+/* ======================== Component ======================== */
+
 export default function OffersPanelWithActions({
   viewerRole = "unknown",
-  // ListingOffersPanelProps (explicit, no spread)
   listingId,
   unitLabel,
   offers,
@@ -25,24 +99,19 @@ export default function OffersPanelWithActions({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  /** Role/token from URL for magic-link flows (guarded for strict TS) */
+  // Magic link bits
   const urlRole = ((searchParams?.get?.("role") ?? "") as string).toLowerCase() as "seller" | "buyer" | "";
   const urlToken = (searchParams?.get?.("token") ?? "") as string;
 
-  /** Local, optimistically updated copy of offers */
+  // Local optimistic items
   const [items, setItems] = useState<Offer[]>(offers);
   useEffect(() => {
     if (offers !== items) setItems(offers);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offers]);
 
-  /** Track in-flight mutations per offer to avoid double clicks */
+  // Busy tracker avoids double-submits
   const busy = useRef<Set<string>>(new Set());
-
-  const patchOffer = useCallback((id: string, patch: Partial<Offer>) => {
-    setItems((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o)));
-  }, []);
-
   const withBusy = useCallback(async (id: string, fn: () => Promise<void>) => {
     if (busy.current.has(id)) return;
     busy.current.add(id);
@@ -53,7 +122,12 @@ export default function OffersPanelWithActions({
     }
   }, []);
 
-  /** Build headers/body auth hints consistent with your API routes */
+  const patchOffer = useCallback((id: string, patch: Partial<Offer>) => {
+    setItems((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+  }, []);
+
+  /* -------- Helpers to match your API contracts -------- */
+
   function buildAuthBits(roleForAction: "seller" | "buyer") {
     const role = roleForAction;
     const token = urlToken || undefined;
@@ -62,7 +136,6 @@ export default function OffersPanelWithActions({
       ? { "Content-Type": "application/json", "x-trade-token": token }
       : { "Content-Type": "application/json" };
 
-    // Server already supports body token fallback; add it here.
     const bodyAuth: Record<string, string> = { role };
     if (token) bodyAuth.token = token;
 
@@ -81,7 +154,7 @@ export default function OffersPanelWithActions({
         const data = await res.json();
         if ((data as any)?.error) message = (data as any).error;
       } catch {
-        // ignore JSON parse error
+        /* swallow */
       }
       throw new Error(message);
     }
@@ -92,165 +165,252 @@ export default function OffersPanelWithActions({
     }
   }
 
-  /* -------- Role-aware endpoints (paths) -------- */
-
   function acceptRoute(offerId: string) {
-    if (viewerRole === "seller" || viewerRole === "admin" || urlRole === "seller")
-      return `/api/trades/${offerId}/seller/accept`;
+    if (viewerRole === "seller" || viewerRole === "admin" || urlRole === "seller") return `/api/trades/${offerId}/seller/accept`;
     if (viewerRole === "buyer" || urlRole === "buyer") return `/api/trades/${offerId}/buyer/accept`;
     return `/api/trades/${offerId}/seller/accept`;
   }
   function declineRoute(offerId: string) {
-    if (viewerRole === "seller" || viewerRole === "admin" || urlRole === "seller")
-      return `/api/trades/${offerId}/seller/decline`;
+    if (viewerRole === "seller" || viewerRole === "admin" || urlRole === "seller") return `/api/trades/${offerId}/seller/decline`;
     if (viewerRole === "buyer" || urlRole === "buyer") return `/api/trades/${offerId}/buyer/decline`;
     return `/api/trades/${offerId}/seller/decline`;
   }
   function counterRoute(offerId: string) {
-    if (viewerRole === "seller" || viewerRole === "admin" || urlRole === "seller")
-      return `/api/trades/${offerId}/seller/counter`;
+    if (viewerRole === "seller" || viewerRole === "admin" || urlRole === "seller") return `/api/trades/${offerId}/seller/counter`;
     if (viewerRole === "buyer" || urlRole === "buyer") return `/api/trades/${offerId}/buyer/counter`;
     return `/api/trades/${offerId}/seller/counter`;
   }
 
-  /* ------------------- Button handlers ------------------- */
-  // Adds a human confirmation and a success message noting the buyer email.
+  /* ======================== Modal state ======================== */
 
-  const internalAccept = useCallback(
-    (id: string) =>
-      withBusy(id, async () => {
-        const prev = items.find((o) => o.id === id);
+  type ActionKind = "accept" | "decline" | "counter" | null;
+  const [modalOpen, setModalOpen] = useState(false);
+  const [action, setAction] = useState<ActionKind>(null);
+  const [targetId, setTargetId] = useState<string | null>(null);
 
-        // Confirm: server will email buyer upon accept
-        const ok = window.confirm("Accept this offer? The buyer will receive an email to review & sign.");
-        if (!ok) return;
+  // Counter form fields
+  const [usdPerAf, setUsdPerAf] = useState<string>("");
+  const [volumeAf, setVolumeAf] = useState<string>("");
 
-        // optimistic
-        patchOffer(id, { status: "accepted", unread: false });
+  const targetOffer = useMemo(() => items.find((o) => o.id === targetId) || null, [items, targetId]);
 
-        // align with API: include role/token in body & header
-        const roleForAction: "seller" | "buyer" =
-          (viewerRole === "buyer" || urlRole === "buyer") ? "buyer" : "seller";
-        const { headers, bodyAuth } = buildAuthBits(roleForAction);
+  function openModal(kind: ActionKind, id: string) {
+    setAction(kind);
+    setTargetId(id);
+    if (kind === "counter") {
+      setUsdPerAf("");
+      setVolumeAf("");
+    }
+    setModalOpen(true);
+  }
+  function closeModal() {
+    setModalOpen(false);
+    setAction(null);
+    setTargetId(null);
+  }
 
-        try {
-          const resp = await postJSON(acceptRoute(id), bodyAuth, headers);
+  /* ======================== Action handlers (invoked from modal) ======================== */
 
-          // Friendly notice
-          alert("Accepted. The buyer has been emailed with next steps.");
+  async function doAccept() {
+    if (!targetId) return;
+    await withBusy(targetId, async () => {
+      const prev = items.find((o) => o.id === targetId);
+      patchOffer(targetId, { status: "accepted", unread: false });
 
-          // If server returns redirectUrl/signLink, prefer redirect
-          if (resp?.redirectUrl) {
-            router.replace(resp.redirectUrl);
-          } else {
-            router.refresh();
-          }
-        } catch (e: any) {
-          // rollback
-          if (prev) patchOffer(id, { status: prev.status, unread: prev.unread });
-          alert(`Accept failed: ${e?.message || e}`);
-        }
-      }),
-    [items, patchOffer, withBusy, router, viewerRole, urlRole]
-  );
+      const roleForAction: "seller" | "buyer" = (viewerRole === "buyer" || urlRole === "buyer") ? "buyer" : "seller";
+      const { headers, bodyAuth } = buildAuthBits(roleForAction);
 
-  const internalDecline = useCallback(
-    (id: string) =>
-      withBusy(id, async () => {
-        const prev = items.find((o) => o.id === id);
+      try {
+        const resp = await postJSON(acceptRoute(targetId), bodyAuth, headers);
+        // server emails buyer; show friendly toast
+        alert("Accepted. The buyer has been emailed with next steps.");
+        if (resp?.redirectUrl) router.replace(resp.redirectUrl);
+        else router.refresh();
+        closeModal();
+      } catch (e: any) {
+        if (prev) patchOffer(targetId, { status: prev.status, unread: prev.unread });
+        alert(`Accept failed: ${e?.message || e}`);
+      }
+    });
+  }
 
-        const ok = window.confirm("Decline this offer? The buyer will be notified.");
-        if (!ok) return;
+  async function doDecline() {
+    if (!targetId) return;
+    await withBusy(targetId, async () => {
+      const prev = items.find((o) => o.id === targetId);
+      patchOffer(targetId, { status: "declined", unread: false });
 
-        // optimistic
-        patchOffer(id, { status: "declined", unread: false });
+      const roleForAction: "seller" | "buyer" = (viewerRole === "buyer" || urlRole === "buyer") ? "buyer" : "seller";
+      const { headers, bodyAuth } = buildAuthBits(roleForAction);
 
-        const roleForAction: "seller" | "buyer" =
-          (viewerRole === "buyer" || urlRole === "buyer") ? "buyer" : "seller";
-        const { headers, bodyAuth } = buildAuthBits(roleForAction);
+      try {
+        await postJSON(declineRoute(targetId), bodyAuth, headers);
+        alert("Declined. The buyer has been notified.");
+        router.refresh();
+        closeModal();
+      } catch (e: any) {
+        if (prev) patchOffer(targetId, { status: prev.status, unread: prev.unread });
+        alert(`Decline failed: ${e?.message || e}`);
+      }
+    });
+  }
 
-        try {
-          await postJSON(declineRoute(id), bodyAuth, headers);
-          alert("Declined. The buyer has been notified.");
-          router.refresh();
-        } catch (e: any) {
-          if (prev) patchOffer(id, { status: prev.status, unread: prev.unread });
-          alert(`Decline failed: ${e?.message || e}`);
-        }
-      }),
-    [items, patchOffer, withBusy, router, viewerRole, urlRole]
-  );
+  async function doCounter() {
+    if (!targetId) return;
 
-  const internalCounter = useCallback(
-    (id: string) =>
-      withBusy(id, async () => {
-        const offer = items.find((o) => o.id === id);
-        if (!offer) return;
+    // Validate form: USD per AF (dollars), volume AF
+    const usd = Number(usdPerAf);
+    const vol = Number(volumeAf);
+    if (!Number.isFinite(usd) || !Number.isFinite(vol)) {
+      alert("Please enter valid numeric values for USD/AF and AF.");
+      return;
+    }
+    if (usd <= 0 || vol <= 0) {
+      alert("USD/AF and AF must be greater than 0.");
+      return;
+    }
+    const pricePerAf = Math.round(usd * 100); // dollars -> cents
 
-        // Prompt for USD/AF and AF (volume). Route expects cents and AF numbers.
-        const usdPrompt = window.prompt("Counter price (USD per AF, e.g. 650.00):", "");
-        if (usdPrompt == null) return;
+    await withBusy(targetId, async () => {
+      const prev = items.find((o) => o.id === targetId);
+      patchOffer(targetId, { status: "countered", unread: false });
 
-        const volumePrompt = window.prompt("Counter volume (AF, whole number):", "");
-        if (volumePrompt == null) return;
+      const roleForAction: "seller" | "buyer" = (viewerRole === "buyer" || urlRole === "buyer") ? "buyer" : "seller";
+      const { headers, bodyAuth } = buildAuthBits(roleForAction);
 
-        const confirmMsg = `Send counter at $${(+usdPrompt).toFixed?.(2) ?? usdPrompt} per AF for ${volumePrompt} AF?\n` +
-                           `The buyer will receive a confirmation email.`;
-        const ok = window.confirm(confirmMsg);
-        if (!ok) return;
+      try {
+        await postJSON(counterRoute(targetId), { ...bodyAuth, pricePerAf, volumeAf: vol }, headers);
+        alert("Counter sent. The buyer has been emailed.");
+        router.refresh();
+        closeModal();
+      } catch (e: any) {
+        if (prev) patchOffer(targetId, prev);
+        alert(`Counter failed: ${e?.message || e}`);
+      }
+    });
+  }
 
-        const usdPerAf = Number(usdPrompt);
-        const volumeAf = Number(volumePrompt);
+  /* ======================== Wire up to child panel ======================== */
 
-        if (!Number.isFinite(usdPerAf) || !Number.isFinite(volumeAf)) {
-          alert("Please enter valid numeric values for USD/AF and AF.");
-          return;
-        }
-        if (usdPerAf <= 0 || volumeAf <= 0) {
-          alert("USD/AF and AF must be greater than 0.");
-          return;
-        }
+  const onAcceptInternal = useCallback((id: string) => openModal("accept", id), []);
+  const onDeclineInternal = useCallback((id: string) => openModal("decline", id), []);
+  const onCounterInternal = useCallback((id: string) => openModal("counter", id), []);
 
-        // Convert dollars -> cents for API contract
-        const pricePerAf = Math.round(usdPerAf * 100);
+  const mergedOnAccept = onAccept ?? onAcceptInternal;
+  const mergedOnDecline = onDecline ?? onDeclineInternal;
+  const mergedOnCounter = onCounter ?? onCounterInternal;
 
-        const prev = { ...offer };
-        // optimistic
-        patchOffer(id, { status: "countered", unread: false });
+  /* ======================== Modal content ======================== */
 
-        const roleForAction: "seller" | "buyer" =
-          (viewerRole === "buyer" || urlRole === "buyer") ? "buyer" : "seller";
-        const { headers, bodyAuth } = buildAuthBits(roleForAction);
+  const modalTitle =
+    action === "accept"
+      ? "Confirm Accept"
+      : action === "decline"
+      ? "Confirm Decline"
+      : action === "counter"
+      ? "Send Counteroffer"
+      : "";
 
-        try {
-          await postJSON(counterRoute(id), { ...bodyAuth, pricePerAf, volumeAf }, headers);
-          alert("Counter sent. The buyer has been emailed.");
-          router.refresh();
-        } catch (e: any) {
-          patchOffer(id, prev);
-          alert(`Counter failed: ${e?.message || e}`);
-        }
-      }),
-    [items, patchOffer, withBusy, router, viewerRole, urlRole]
-  );
+  const modalBody =
+    action === "accept" ? (
+      <div className="space-y-2">
+        <p className="text-sm text-slate-700">
+          You’re about to <span className="font-medium">accept</span> this offer. The buyer will receive an email with
+          a link to review & sign.
+        </p>
+        {targetOffer && (
+          <p className="text-xs text-slate-500">
+            From: <span className="font-medium">{targetOffer.fromParty}</span> • Sent{" "}
+            {new Date(targetOffer.createdAt).toLocaleString()}
+          </p>
+        )}
+      </div>
+    ) : action === "decline" ? (
+      <div className="space-y-2">
+        <p className="text-sm text-slate-700">
+          Decline this offer? The buyer will be notified and the thread will be closed.
+        </p>
+        {targetOffer && (
+          <p className="text-xs text-slate-500">
+            From: <span className="font-medium">{targetOffer.fromParty}</span> • Sent{" "}
+            {new Date(targetOffer.createdAt).toLocaleString()}
+          </p>
+        )}
+      </div>
+    ) : action === "counter" ? (
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void doCounter();
+        }}
+      >
+        <div>
+          <label className="block text-xs text-slate-600">USD per AF</label>
+          <input
+            inputMode="decimal"
+            className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            placeholder="e.g. 650.00"
+            value={usdPerAf}
+            onChange={(e) => setUsdPerAf(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-600">Volume (AF)</label>
+          <input
+            inputMode="numeric"
+            className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            placeholder="e.g. 250"
+            value={volumeAf}
+            onChange={(e) => setVolumeAf(e.target.value.replace(/[^\d.]/g, ""))}
+          />
+        </div>
+      </form>
+    ) : null;
 
-  /* --------------------------- Merge handlers --------------------------- */
+  const modalFooter =
+    action === "accept" ? (
+      <>
+        <Button variant="outline" onClick={closeModal}>
+          Cancel
+        </Button>
+        <Button onClick={() => void doAccept()}>Accept</Button>
+      </>
+    ) : action === "decline" ? (
+      <>
+        <Button variant="outline" onClick={closeModal}>
+          Cancel
+        </Button>
+        <Button variant="danger" onClick={() => void doDecline()}>
+          Decline
+        </Button>
+      </>
+    ) : action === "counter" ? (
+      <>
+        <Button variant="outline" onClick={closeModal}>
+          Cancel
+        </Button>
+        <Button onClick={() => void doCounter()}>Send Counter</Button>
+      </>
+    ) : null;
 
-  const mergedOnAccept = onAccept ?? internalAccept;
-  const mergedOnDecline = onDecline ?? internalDecline;
-  const mergedOnCounter = onCounter ?? internalCounter;
-
-  /* --------------------------- Render --------------------------- */
+  /* ======================== Render ======================== */
 
   return (
-    <ListingOffersPanel
-      listingId={listingId}
-      unitLabel={unitLabel}
-      offers={items}
-      currentStage={currentStage}
-      onAccept={mergedOnAccept}
-      onDecline={mergedOnDecline}
-      onCounter={mergedOnCounter}
-    />
+    <>
+      <ListingOffersPanel
+        listingId={listingId}
+        unitLabel={unitLabel}
+        offers={items}
+        currentStage={currentStage}
+        onAccept={mergedOnAccept}
+        onDecline={mergedOnDecline}
+        onCounter={mergedOnCounter}
+      />
+
+      <Modal open={modalOpen} onClose={closeModal} title={modalTitle} footer={modalFooter}>
+        {modalBody}
+      </Modal>
+    </>
   );
 }
