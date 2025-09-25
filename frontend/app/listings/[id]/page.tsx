@@ -189,7 +189,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <section className="space-y-6">
             <OffersPanelWithActions
               listingId={row.id}
-              listingTitle={displayTitle}
               unitLabel="Total ($)"
               offers={offers}
               currentStage={currentStage}
