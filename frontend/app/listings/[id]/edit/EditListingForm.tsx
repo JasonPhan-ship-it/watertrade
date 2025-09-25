@@ -116,6 +116,11 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
     }
   }
 
+  function onCancel() {
+    // Explicitly route to dashboard to avoid 404s from relative paths/back
+    router.push("/dashboard");
+  }
+
   return (
     <form onSubmit={onSubmit} className="mt-6 space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -235,14 +240,23 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
 
       {err && <div className="text-sm text-red-600">{err}</div>}
 
-      {/* Actions: Save only (Cancel removed here) */}
-      <div>
+      {/* Actions */}
+      <div className="flex items-center gap-3">
         <button
           type="submit"
           disabled={submitting}
           className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f] disabled:opacity-50"
         >
           {submitting ? "Saving…" : "Save Changes"}
+        </button>
+
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-xl border border-slate-300 px-5 py-2 text-slate-700 hover:bg-slate-50"
+          aria-label="Cancel and go to dashboard"
+        >
+          Cancel
         </button>
       </div>
     </form>
