@@ -98,8 +98,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const shouldShowDescription = (() => {
     const d = (description || "").trim();
     if (!d) return false;
-    if (/^[A-Z]{2,6}$/.test(d)) return false;            // just an acronym
+    // hide if it's just an acronym (2–6 uppercase letters)
+    if (/^[A-Z]{2,6}$/.test(d)) return false;
+    // hide if it equals the raw or computed title
     if (d === rawTitle || d === displayTitle) return false;
+    // hide default placeholder
     if (d === "No description provided.") return false;
     return true;
   })();
@@ -217,7 +220,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
                 <div className="mb-3">
                   <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    Submit a firm offer or propose new terms. Escrow managed by a licensed third party.
+                    {/* UPDATED LINE BELOW */}
+                    Submit an offer or purchase now.
                   </div>
                 </div>
 
@@ -229,11 +233,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
                   reservePrice={null}
                 />
 
-                <ul className="mt-4 space-y-1 text-xs text-slate-600">
-                  <li>• Funds held in escrow</li>
-                  <li>• District fees settled at closing</li>
-                  <li>• Support available 9–5 PT</li>
-                </ul>
+                {/* Replaced bullet list with a paragraph of complete sentences */}
+                <p className="mt-4 text-xs text-slate-600">
+                  All funds will be securely held in escrow. District fees will be settled at the time of closing.
+                  Our support team is available from 9 AM to 5 PM Pacific Time to assist you with any questions.
+                </p>
 
                 {/* Helper note */}
                 <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
