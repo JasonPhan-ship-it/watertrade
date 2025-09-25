@@ -13,8 +13,15 @@ export type OffersPanelWithActionsProps = ListingOffersPanelProps & {
 
 export default function OffersPanelWithActions({
   viewerRole = "unknown",
+  // ListingOffersPanelProps (explicit, no spread)
+  listingId,
+  listingTitle,
+  unitLabel,
   offers,
-  ...rest
+  currentStage,
+  onAccept,
+  onDecline,
+  onCounter,
 }: OffersPanelWithActionsProps) {
   const router = useRouter();
 
@@ -67,7 +74,7 @@ export default function OffersPanelWithActions({
     }
   }
 
-  /* -------- Role-aware endpoints (kept from your version) -------- */
+  /* -------- Role-aware endpoints (kept) -------- */
 
   function acceptRoute(offerId: string) {
     if (viewerRole === "seller" || viewerRole === "admin") return `/api/trades/${offerId}/seller/accept`;
@@ -87,7 +94,7 @@ export default function OffersPanelWithActions({
 
   /* ------------------- Button handlers (wired) ------------------- */
 
-  const onAccept = useCallback(
+  const internalAccept = useCallback(
     (id: string) =>
       withBusy(id, async () => {
         const prev = items.find((o) => o.id === id);
@@ -103,7 +110,7 @@ export default function OffersPanelWithActions({
     [items, patchOffer, withBusy, router]
   );
 
-  const onDecline = useCallback(
+  const internalDecline = useCallback(
     (id: string) =>
       withBusy(id, async () => {
         const prev = items.find((o) => o.id === id);
@@ -119,7 +126,7 @@ export default function OffersPanelWithActions({
     [items, patchOffer, withBusy, router]
   );
 
-  const onCounter = useCallback(
+  const internalCounter = useCallback(
     (id: string) =>
       withBusy(id, async () => {
         const offer = items.find((o) => o.id === id);
@@ -152,18 +159,21 @@ export default function OffersPanelWithActions({
     [items, patchOffer, withBusy, router]
   );
 
+  /* --------------------------- Merge handlers --------------------------- */
+
+  const mergedOnAccept = onAccept ?? internalAccept;
+  const mergedOnDecline = onDecline ?? internalDecline;
+  const mergedOnCounter = onCounter ?? internalCounter;
+
   /* --------------------------- Render --------------------------- */
 
-  // If parent passed custom handlers, prefer those; otherwise use ours
-  const mergedOnAccept = rest.onAccept ?? onAccept;
-  const mergedOnDecline = rest.onDecline ?? onDecline;
-  const mergedOnCounter = rest.onCounter ?? onCounter;
-
-  // Pass our optimistic items down
   return (
     <ListingOffersPanel
-      {...rest}
+      listingId={listingId}
+      listingTitle={listingTitle}
+      unitLabel={unitLabel}
       offers={items}
+      currentStage={currentStage}
       onAccept={mergedOnAccept}
       onDecline={mergedOnDecline}
       onCounter={mergedOnCounter}
