@@ -178,7 +178,15 @@ export default async function ListingDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Header CTA removed */}
+          {/* Right-aligned Back to Listings button (moved here) */}
+          <div className="shrink-0">
+            <Link
+              href="/dashboard"
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Back to Listings
+            </Link>
+          </div>
         </div>
       </nav>
 
