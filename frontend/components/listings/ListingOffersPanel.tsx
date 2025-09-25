@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Check, Clock, ChevronRight, MoreHorizontal } from "lucide-react";
+import { Check, Clock, ChevronRight } from "lucide-react";
 
 /* ----------------------------- Types ----------------------------- */
 
@@ -244,18 +244,6 @@ function OfferRow({
   const expired = isExpired(offer);
   const canAct = offer.status === "pending" && !expired;
 
-  async function copyId() {
-    try {
-      await navigator?.clipboard?.writeText(offer.id);
-      // lightweight feedback without extra libs
-      // eslint-disable-next-line no-alert
-      alert("Offer ID copied");
-    } catch {
-      // eslint-disable-next-line no-alert
-      alert("Could not copy Offer ID");
-    }
-  }
-
   return (
     <div className="flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center">
       <div className="flex items-start gap-3">
@@ -306,9 +294,7 @@ function OfferRow({
         <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)} title="Accept this offer">
           Accept
         </Button>
-        <Button variant="ghost" title="Copy Offer ID" onClick={copyId} aria-label="Copy Offer ID">
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
+        {/* Copy ID button removed */}
       </div>
     </div>
   );
