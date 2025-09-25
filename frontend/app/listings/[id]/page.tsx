@@ -175,7 +175,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Right-aligned Back to Listings button (already moved) */}
+          {/* Right-aligned Back to Listings button */}
           <div className="shrink-0">
             <Link
               href="/dashboard"
@@ -208,15 +208,10 @@ export default async function ListingDetailPage({ params }: PageProps) {
           <div className="space-y-6">
             {/* Buy / Offer (only when viewer isn't owner and listing is SELL) */}
             {!isOwner && row.kind === "SELL" && (
-              <aside
-                id="buy-now"
-                className="sticky top-24 h-fit"
-              >
+              <aside id="buy-now" className="sticky top-24 h-fit">
                 <div className="mb-3">
                   <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    Submit an offer or purchase now.
-                  </div>
+                  <div className="mt-1 text-xs text-slate-500">Submit an offer or purchase now.</div>
                 </div>
 
                 <ListingActions
@@ -232,8 +227,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
                   <div className="flex items-start gap-2">
                     <Info aria-hidden className="mt-0.5 h-7 w-7 text-emerald-600" />
                     <p className="leading-relaxed">
-                      All funds are securely held in escrow and the final settlement amount may vary based on conveyance and applicable
-                      district fees.
+                      All funds are securely held in escrow and the final settlement amount may vary based on conveyance
+                      and applicable district fees.
                     </p>
                   </div>
                 </div>
@@ -242,18 +237,18 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
             {/* How actions work — visible to SELLER (owner) only */}
             {isOwner && (
-              <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <aside>
                 <div className="text-sm font-semibold text-slate-900">How actions work</div>
                 <p className="mt-1 text-xs text-slate-600">
                   <strong>Accept</strong> locks the price and moves the deal to contracts.{" "}
-                  <strong>Decline</strong> closes the thread.{" "}
-                  <strong>Counter</strong> lets you revise price/terms and re-send.
+                  <strong>Decline</strong> closes the thread. <strong>Counter</strong> lets you revise price/terms and
+                  re-send.
                 </p>
               </aside>
             )}
 
-            {/* Footer actions */}
-            <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            {/* Footer actions (no white-box chrome) */}
+            <aside>
               <div className="flex flex-wrap items-center gap-3">
                 {isOwner && (
                   <Link
