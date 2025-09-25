@@ -281,7 +281,6 @@ function OfferRow({
 
 export default function ListingOffersPanel({
   listingId,
-  listingTitle = "Unnamed Listing",
   unitLabel = "Total ($)",
   offers,
   currentStage = null,
