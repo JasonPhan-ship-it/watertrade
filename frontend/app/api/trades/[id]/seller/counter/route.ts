@@ -1,4 +1,3 @@
-// app/api/trades/[id]/seller/counter/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -34,9 +33,7 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
 
   const txn = await prisma.transaction.findUnique({
     where: { id },
-    include: {
-      listing: { select: { id: true, district: true, title: true, waterType: true } },
-    },
+    include: { listing: { select: { id: true, district: true, title: true, waterType: true } } },
   });
   if (!txn) return null;
 
@@ -70,24 +67,25 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const id = (params.id || "").trim();
-    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    if (!id) return NextResponse.json({ error: "Missing id", errorCode: "MISSING_ID" }, { status: 400 });
 
     // Ensure Trade exists (Trade.id or Transaction.id accepted)
     let trade;
     try {
       trade = await ensureTradeFromAnyIdOrThrow(id);
     } catch (e: any) {
-      return NextResponse.json({ error: e?.message || "Unable to create Trade" }, { status: 422 });
+      return NextResponse.json({ error: e?.message || "Unable to create Trade", errorCode: "CREATE_FAILED" }, { status: 422 });
     }
-    if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!trade) return NextResponse.json({ error: "Not found", errorCode: "NOT_FOUND" }, { status: 404 });
 
-    // AuthZ: must be seller (auth session OR ?role=seller&token=<sellerToken> OR x-trade-token)
+    // AuthZ: must be seller
     const viewer = await getViewer(req, trade as any);
     if (viewer.role !== "seller") {
       const url = new URL(req.url);
       return NextResponse.json(
         {
           error: "Forbidden",
+          errorCode: "FORBIDDEN",
           details: {
             viewerRole: viewer?.role ?? "unknown",
             via: (viewer as any)?.via ?? "n/a",
@@ -100,20 +98,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    // Parse & validate input (ignore window fields entirely)
+    // Parse & validate input
     const { pricePerAf, volumeAf } = await readBody(req);
     const pricePerAfNum = Number(pricePerAf);
     const volumeAfNum = Number(volumeAf);
 
     if (!Number.isFinite(pricePerAfNum) || !Number.isFinite(volumeAfNum)) {
       return NextResponse.json(
-        { error: "pricePerAf (cents) and volumeAf (AF) must be numeric" },
+        { error: "pricePerAf (cents) and volumeAf (AF) must be numeric", errorCode: "VALIDATION_ERROR" },
         { status: 400 }
       );
     }
     if (pricePerAfNum <= 0 || volumeAfNum <= 0) {
       return NextResponse.json(
-        { error: "pricePerAf and volumeAf must be > 0" },
+        { error: "pricePerAf and volumeAf must be > 0", errorCode: "VALIDATION_ERROR" },
         { status: 400 }
       );
     }
@@ -121,7 +119,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Optional guard: don't counter below current ask
     if (typeof (trade as any).pricePerAf === "number" && pricePerAfNum < (trade as any).pricePerAf) {
       return NextResponse.json(
-        { error: `Counter price must be at least ${((trade as any).pricePerAf / 100).toFixed(2)} USD/AF.` },
+        { error: `Counter price must be at least ${((trade as any).pricePerAf / 100).toFixed(2)} USD/AF.`, errorCode: "BUSINESS_RULE" },
         { status: 400 }
       );
     }
@@ -148,9 +146,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           },
         },
       },
+      select: {
+        id: true,
+        status: true,
+        volumeAf: true,
+        pricePerAf: true,
+        district: true,
+        waterType: true,
+        buyerUserId: true,
+        sellerUserId: true,
+        buyerToken: true,
+        sellerToken: true,
+      },
     });
 
-    // Notify buyer (best-effort)
+    // Notify buyer (existing) + NEW: seller confirmation
     const [sellerUser, buyerUser] = await Promise.all([
       prisma.user.findUnique({ where: { id: (updated as any).sellerUserId } }),
       prisma.user.findUnique({ where: { id: (updated as any).buyerUserId } }),
@@ -159,6 +169,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     let sellerName = sellerUser?.name || "";
     let buyerName = buyerUser?.name || "";
     let buyerEmail = buyerUser?.email || "";
+    let sellerEmail = sellerUser?.email || "";
 
     if (buyerUser?.clerkId || sellerUser?.clerkId) {
       try {
@@ -166,7 +177,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           sellerUser?.clerkId ? clerkClient.users.getUser(sellerUser.clerkId) : null,
           buyerUser?.clerkId ? clerkClient.users.getUser(buyerUser.clerkId) : null,
         ]);
-        if (sellerClerk) sellerName = sellerName || sellerClerk.firstName || sellerClerk.username || "";
+        if (sellerClerk) {
+          sellerName = sellerName || sellerClerk.firstName || sellerClerk.username || "";
+          const primary = sellerClerk.emailAddresses?.find(e => e.id === sellerClerk.primaryEmailAddressId)?.emailAddress;
+          sellerEmail = sellerEmail || primary || sellerClerk.emailAddresses?.[0]?.emailAddress || "";
+        }
         if (buyerClerk) {
           buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || "";
           const primary = buyerClerk.emailAddresses?.find(e => e.id === buyerClerk.primaryEmailAddressId)?.emailAddress;
@@ -185,28 +200,37 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         buyerName,
         sellerName,
         offer: {
-          listingTitle: (updated as any).listingTitle || "Water Trade",
+          listingTitle: (updated as any).windowLabel || "Water Trade",
           district: (updated as any).district || "—",
           waterType: (updated as any).waterType || null,
           volumeAf: updated.volumeAf ?? 0,
           pricePerAf: updated.pricePerAf ?? 0,
-          // windowLabel intentionally omitted
         },
         viewLink,
         counterLink,
         declineLink,
       });
 
-      await sendEmail({
-        to: buyerEmail,
-        subject: "Seller sent a counteroffer",
-        html,
-        preheader,
-      });
+      await sendEmail({ to: buyerEmail, subject: "Seller sent a counteroffer", html, preheader });
+    }
+
+    // NEW: Seller confirmation
+    if (sellerEmail) {
+      const sellerViewLink = appUrl(`/t/${updated.id}?role=seller${updated.sellerToken ? `&token=${updated.sellerToken}` : ""}`);
+      const html = `
+        <p>Hi ${sellerName || "Seller"},</p>
+        <p>Your counteroffer was sent to the buyer.</p>
+        <ul>
+          <li>Price: $${(updated.pricePerAf / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/AF</li>
+          <li>Volume: ${updated.volumeAf} AF</li>
+        </ul>
+        <p>Thread: <a href="${sellerViewLink}">${sellerViewLink}</a></p>
+      `;
+      await sendEmail({ to: sellerEmail, subject: "Your counteroffer was sent", html });
     }
 
     return NextResponse.json({ ok: true, tradeId: updated.id, status: updated.status });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Unexpected error", errorCode: "UNEXPECTED" }, { status: 500 });
   }
 }
