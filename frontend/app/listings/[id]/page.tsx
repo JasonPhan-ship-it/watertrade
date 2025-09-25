@@ -98,11 +98,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const shouldShowDescription = (() => {
     const d = (description || "").trim();
     if (!d) return false;
-    // hide if it's just an acronym (2–6 uppercase letters)
-    if (/^[A-Z]{2,6}$/.test(d)) return false;
-    // hide if it equals the raw or computed title
+    if (/^[A-Z]{2,6}$/.test(d)) return false;            // just an acronym
     if (d === rawTitle || d === displayTitle) return false;
-    // hide default placeholder
     if (d === "No description provided.") return false;
     return true;
   })();
@@ -250,17 +247,19 @@ export default async function ListingDetailPage({ params }: PageProps) {
               </aside>
             )}
 
-            {/* How actions work (moved to right column) */}
-            <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-sm font-semibold text-slate-900">How actions work</div>
-              <p className="mt-1 text-xs text-slate-600">
-                <strong>Accept</strong> locks the price and moves the deal to contracts.{" "}
-                <strong>Decline</strong> closes the thread.{" "}
-                <strong>Counter</strong> lets you revise price/terms and re-send.
-              </p>
-            </aside>
+            {/* How actions work — visible to SELLER (owner) only */}
+            {isOwner && (
+              <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-sm font-semibold text-slate-900">How actions work</div>
+                <p className="mt-1 text-xs text-slate-600">
+                  <strong>Accept</strong> locks the price and moves the deal to contracts.{" "}
+                  <strong>Decline</strong> closes the thread.{" "}
+                  <strong>Counter</strong> lets you revise price/terms and re-send.
+                </p>
+              </aside>
+            )}
 
-            {/* Footer actions moved to right column */}
+            {/* Footer actions */}
             <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center gap-3">
                 <Link
