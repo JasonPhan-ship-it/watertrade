@@ -1,5 +1,6 @@
 // app/api/profile/route.ts
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
@@ -94,7 +95,6 @@ function composeResponseProfile(db: any, clerkEmail?: string | null) {
     lastName,
     address: db?.address ?? null,
     email,
-    // phone: REMOVED
     cellPhone: db?.cellPhone ?? null,
     smsOptIn: typeof db?.smsOptIn === "boolean" ? db.smsOptIn : null,
     districts: Array.isArray(db?.districts) ? db.districts : [],
@@ -104,32 +104,92 @@ function composeResponseProfile(db: any, clerkEmail?: string | null) {
 }
 
 /* -------------------------------- GET ---------------------------------- */
-
 // GET /api/profile  ->  { profile, farms }
 export async function GET() {
-  const { userId } = auth();
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const { userId } = auth();
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
 
-  const localUser = await getOrCreateLocalUser(userId);
+    // Ensure we have a local user row; safe even if Clerk call fails
+    const localUser = await getOrCreateLocalUser(userId);
 
-  // pull Clerk email as a fallback for display
-  const cu = await clerkClient.users.getUser(userId).catch(() => null);
-  const clerkEmail =
-    cu?.emailAddresses?.find((e) => e.id === cu?.primaryEmailAddressId)?.emailAddress ??
-    cu?.emailAddresses?.[0]?.emailAddress ??
-    null;
+    // Clerk email fallback (wrapped in try/catch)
+    let clerkEmail: string | null = null;
+    try {
+      const cu = await clerkClient.users.getUser(userId);
+      clerkEmail =
+        cu?.emailAddresses?.find((e) => e.id === cu?.primaryEmailAddressId)?.emailAddress ??
+        cu?.emailAddresses?.[0]?.emailAddress ??
+        null;
+    } catch {
+      clerkEmail = null;
+    }
 
-  const dbProfile = await prisma.userProfile.findUnique({
-    where: { userId: localUser.id },
-  });
+    // Profile + farms
+    const [dbProfile, farms] = await Promise.all([
+      prisma.userProfile.findUnique({ where: { userId: localUser.id } }),
+      prisma.farm.findMany({
+        where: { userId: localUser.id },
+        orderBy: { createdAt: "asc" },
+        select: { name: true, accountNumber: true, district: true },
+      }),
+    ]);
 
-  const farms = await prisma.farm.findMany({
-    where: { userId: localUser.id },
-    orderBy: { createdAt: "asc" },
-  });
+    // If no profile exists yet, send sensible defaults (client can still render)
+    const baseProfile =
+      dbProfile ??
+      ({
+        userId: localUser.id,
+        fullName: localUser.name ?? null,
+        email: localUser.email ?? clerkEmail ?? null,
+        firstName: null,
+        lastName: null,
+        address: null,
+        company: null,
+        tradeRole: null,
+        primaryDistrict: null,
+        waterTypes: [],
+        cellPhone: null,
+        smsOptIn: null,
+        districts: [],
+      } as any);
 
-  const profile = composeResponseProfile(dbProfile, clerkEmail);
-  return NextResponse.json({ profile, farms }, { status: 200 });
+    const profile = composeResponseProfile(baseProfile, clerkEmail);
+
+    return NextResponse.json(
+      { profile, farms },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
+  } catch (e: any) {
+    console.error("[GET /api/profile] error:", e);
+    return NextResponse.json(
+      { error: e?.message || "Internal error loading profile" },
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
+  }
 }
 
 /* -------------------------------- POST --------------------------------- */
@@ -178,7 +238,6 @@ export async function POST(req: Request) {
           fullName: `${firstName} ${lastName}`.trim(),
           address,
           email,
-          // phone: REMOVED
           cellPhone,
           smsOptIn,
           districts,
@@ -194,7 +253,6 @@ export async function POST(req: Request) {
           fullName: `${firstName} ${lastName}`.trim(),
           address,
           email,
-          // phone: REMOVED
           cellPhone,
           smsOptIn,
           districts,
@@ -253,13 +311,31 @@ export async function POST(req: Request) {
       });
     }
 
-    // Return standardized shape
     const composed = composeResponseProfile(result.profile);
-    const res = NextResponse.json({ ok: true, profile: composed, farms: result.farms }, { status: 200 });
+    const res = NextResponse.json(
+      { ok: true, profile: composed, farms: result.farms },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
     res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    console.error("[POST /api/profile] error:", e);
+    return NextResponse.json(
+      { error: e?.message || "Unexpected error" },
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   }
 }
 
@@ -309,7 +385,6 @@ export async function PUT(req: Request) {
           fullName: `${firstName} ${lastName}`.trim(),
           address,
           email,
-          // phone: REMOVED
           cellPhone,
           smsOptIn,
           districts,
@@ -363,11 +438,30 @@ export async function PUT(req: Request) {
       .catch(() => {});
 
     const composed = composeResponseProfile(result.profile);
-    const res = NextResponse.json({ ok: true, profile: composed, farms: result.farms }, { status: 200 });
+    const res = NextResponse.json(
+      { ok: true, profile: composed, farms: result.farms },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
     res.headers.append("Set-Cookie", onboardedCookie(userId));
     return res;
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    console.error("[PUT /api/profile] error:", e);
+    return NextResponse.json(
+      { error: e?.message || "Unexpected error" },
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   }
 }
 
@@ -396,7 +490,6 @@ export async function PATCH(req: Request) {
     if (nameParts.lastName) data.lastName = nameParts.lastName;
 
     if (typeof body.company === "string") data.company = String(body.company);
-    // data.phone: REMOVED
     if (typeof body.address === "string") data.address = String(body.address);
 
     if (typeof body.primaryDistrict === "string") data.primaryDistrict = String(body.primaryDistrict);
@@ -418,7 +511,16 @@ export async function PATCH(req: Request) {
         orderBy: { createdAt: "asc" },
       });
       const composed = composeResponseProfile(db);
-      return NextResponse.json({ ok: true, profile: composed, farms }, { status: 200 });
+      return NextResponse.json(
+        { ok: true, profile: composed, farms },
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
     }
 
     const updated = await prisma.userProfile.upsert({
@@ -468,8 +570,27 @@ export async function PATCH(req: Request) {
     });
 
     const composed = composeResponseProfile(updated);
-    return NextResponse.json({ ok: true, profile: composed, farms }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, profile: composed, farms },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    console.error("[PATCH /api/profile] error:", e);
+    return NextResponse.json(
+      { error: e?.message || "Unexpected error" },
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   }
 }
