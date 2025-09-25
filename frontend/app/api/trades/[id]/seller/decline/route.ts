@@ -1,4 +1,3 @@
-// app/api/trades/[id]/seller/decline/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -55,22 +54,22 @@ function pickDeclinedTxnStatus(): (typeof TransactionStatus)[keyof typeof Transa
   return TXS.DECLINED ?? TXS.CANCELLED ?? TXS.REJECTED ?? null;
 }
 
-export async function GET()  { return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 }); }
-export async function HEAD() { return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 }); }
+export async function GET()  { return NextResponse.json({ error: "Method Not Allowed", errorCode: "METHOD_NOT_ALLOWED" }, { status: 405 }); }
+export async function HEAD() { return NextResponse.json({ error: "Method Not Allowed", errorCode: "METHOD_NOT_ALLOWED" }, { status: 405 }); }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const rawId = (params.id || "").trim();
-    if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    if (!rawId) return NextResponse.json({ error: "Missing id", errorCode: "MISSING_ID" }, { status: 400 });
 
     // Accept Trade.id OR Transaction.id (and create Trade if needed)
     const trade = await ensureTradeFromAnyIdOrThrow(rawId);
-    if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!trade) return NextResponse.json({ error: "Not found", errorCode: "NOT_FOUND" }, { status: 404 });
 
     // Must be seller
     const viewer = await getViewer(req, trade as any);
     if (viewer.role !== "seller") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden", errorCode: "FORBIDDEN" }, { status: 403 });
     }
 
     const DECLINED = pickDeclinedTradeStatus();
@@ -98,10 +97,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       try {
         const txDeclined = pickDeclinedTxnStatus();
         if (txDeclined) {
-          await prisma.transaction.update({
-            where: { id: updated.transactionId },
-            data: { status: txDeclined },
-          });
+          await prisma.transaction.update({ where: { id: updated.transactionId }, data: { status: txDeclined } });
         }
       } catch (e) {
         console.warn("[seller/decline] transaction sync skipped:", (e as any)?.message);
@@ -111,6 +107,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: true, tradeId: updated.id, status: updated.status });
   } catch (e: any) {
     console.error("[api/trades/:id/seller/decline] error:", e);
-    return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Internal error", errorCode: "UNEXPECTED" }, { status: 500 });
   }
 }
