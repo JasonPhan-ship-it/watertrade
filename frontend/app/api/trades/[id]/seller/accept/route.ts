@@ -1,4 +1,3 @@
-// frontend/app/api/trades/[id]/seller/accept/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -48,29 +47,16 @@ async function ensureTradeFromAnyIdOrThrow(id: string) {
   return created;
 }
 
-/** Choose a reasonable "pending buyer signature" Transaction status */
 function pickTxnPendingBuyerSig():
   (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
   const TXS: any = TransactionStatus;
-  return (
-    TXS.PENDING_BUYER_SIGNATURE ??
-    TXS.PENDING_SIGNATURE ??
-    TXS.PENDING ??
-    TXS.ACCEPTED ??
-    null
-  );
+  return TXS.PENDING_BUYER_SIGNATURE ?? TXS.PENDING_SIGNATURE ?? TXS.PENDING ?? TXS.ACCEPTED ?? null;
 }
 
-/** Choose a valid Trade status for accepted/pending buyer signature */
 function pickAcceptedPendingTradeStatus():
   (typeof TradeStatus)[keyof typeof TradeStatus] {
   const TS: any = TradeStatus;
-  return (
-    TS.ACCEPTED_PENDING_BUYER_SIGNATURE ??
-    TS.ACCEPTED ??
-    TS.PENDING ??
-    TS.OFFERED
-  );
+  return TS.ACCEPTED_PENDING_BUYER_SIGNATURE ?? TS.ACCEPTED ?? TS.PENDING ?? TS.OFFERED;
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -99,53 +85,42 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const rawId = (params.id || "").trim();
-    if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    if (!rawId) return NextResponse.json({ error: "Missing id", errorCode: "MISSING_ID" }, { status: 400 });
 
-    // Read optional token from request body as well (some clients don't pass query/header)
+    // Read optional token from request body as well
     let bodyToken: string | undefined;
     let bodyRole: string | undefined;
     try {
       const body = (await req.json()) as any;
       bodyToken = body?.token || body?.tradeToken || undefined;
       bodyRole = body?.role || undefined;
-    } catch {
-      // non-JSON or empty body is fine
-    }
+    } catch { /* empty body ok */ }
 
     // Accept Trade.id or Transaction.id; create Trade if needed
     let trade;
     try {
       trade = await ensureTradeFromAnyIdOrThrow(rawId);
     } catch (e: any) {
-      return NextResponse.json({ error: e?.message || "Unable to create Trade" }, { status: 422 });
+      return NextResponse.json({ error: e?.message || "Unable to create Trade", errorCode: "CREATE_FAILED" }, { status: 422 });
     }
     if (!trade) {
-      return NextResponse.json(
-        { error: "Not found", hint: "No Trade or Transaction with this id" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Not found", errorCode: "NOT_FOUND", hint: "No Trade or Transaction with this id" }, { status: 404 });
     }
 
-    // Primary authZ: seller via getViewer (query/header tokens handled inside getViewer)
+    // AuthZ: seller or admin or valid token
     const viewer = await getViewer(req as any, trade as any);
-
-    // Body token fallback: if client posted {token:"..."} and it matches sellerToken, allow.
     let tokenMatchViaBody = false;
     if (viewer.role !== "seller" && bodyToken && (trade as any).sellerToken && bodyRole === "seller") {
       tokenMatchViaBody = bodyToken === (trade as any).sellerToken;
     }
 
-    // ADMIN bypass (signed-in admin may act)
     let allow = viewer.role === "seller" || tokenMatchViaBody;
     let actedByAdmin: { adminUserId: string; adminEmail?: string | null } | null = null;
 
     if (!allow) {
       const { userId: clerkId } = auth();
       if (clerkId) {
-        const admin = await prisma.user.findUnique({
-          where: { clerkId },
-          select: { id: true, role: true, email: true },
-        });
+        const admin = await prisma.user.findUnique({ where: { clerkId }, select: { id: true, role: true, email: true } });
         if (admin?.role === "ADMIN") {
           allow = true;
           actedByAdmin = { adminUserId: admin.id, adminEmail: admin.email };
@@ -163,14 +138,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json(
         {
           error: "Forbidden",
+          errorCode: "FORBIDDEN",
           details: {
             viewerRole: viewer?.role ?? "unknown",
             via: (viewer as any)?.via ?? "n/a",
-            // visibility to debug why token wasn't seen
-            query: {
-              role: url.searchParams.get("role") ?? null,
-              tokenPresent: url.searchParams.has("token"),
-            },
+            query: { role: url.searchParams.get("role") ?? null, tokenPresent: url.searchParams.has("token") },
             headers: {
               xTradeTokenPresent: !!req.headers.get("x-trade-token"),
               xMagicTokenPresent: !!req.headers.get("x-magic-token"),
@@ -202,11 +174,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             id: crypto.randomUUID(),
             actor: "seller",
             kind: "ACCEPT",
-            payload: {
-              previousStatus: (trade as any).status,
-              round: (trade as any).round,
-              ...(actedByAdmin ? { actedByAdmin } : {}),
-            },
+            payload: { previousStatus: (trade as any).status, round: (trade as any).round, ...(actedByAdmin ? { actedByAdmin } : {}) },
           },
         },
       },
@@ -221,6 +189,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         buyerUserId: true,
         sellerUserId: true,
         windowLabel: true,
+        buyerToken: true,
+        sellerToken: true,
       },
     });
 
@@ -229,60 +199,49 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       try {
         const pending = pickTxnPendingBuyerSig();
         if (pending) {
-          await prisma.transaction.update({
-            where: { id: updated.transactionId },
-            data: { status: pending },
-          });
+          await prisma.transaction.update({ where: { id: updated.transactionId }, data: { status: pending } });
         }
       } catch (e) {
         console.warn("[seller/accept] transaction sync skipped:", (e as any)?.message);
       }
     }
 
-    // ---- Create embedded sign URL for buyer ----
+    // Create embedded sign URL for buyer
     let signLink: string | null = null;
     try {
       signLink = await createBuyerSignatureLink(updated.id, (trade as any).buyerToken);
     } catch (e: any) {
       return NextResponse.json(
-        {
-          error: "Failed to create buyer sign URL",
-          details: e?.message || "Unknown error",
-          hint: "Check DROPBOX_SIGN_API_KEY / DROPBOX_SIGN_CLIENT_ID and sample file URL.",
-        },
+        { error: "Failed to create buyer sign URL", errorCode: "SIGN_URL_FAILED", details: e?.message || "Unknown error" },
         { status: 502 }
       );
     }
 
-    // ---- Notify buyer (best-effort) ----
+    // ---- Notify buyer (existing) + NEW: confirmation to seller ----
     const [buyerLocal, sellerLocal] = await Promise.all([
-      prisma.user.findUnique({
-        where: { id: updated.buyerUserId || "" },
-        select: { email: true, name: true, clerkId: true },
-      }),
-      prisma.user.findUnique({
-        where: { id: updated.sellerUserId || "" },
-        select: { name: true, clerkId: true },
-      }),
+      prisma.user.findUnique({ where: { id: updated.buyerUserId || "" }, select: { email: true, name: true, clerkId: true } }),
+      prisma.user.findUnique({ where: { id: updated.sellerUserId || "" }, select: { name: true, clerkId: true, email: true } }),
     ]);
 
     let buyerName = buyerLocal?.name || "";
     let sellerName = sellerLocal?.name || "";
     let buyerEmail = buyerLocal?.email || "";
+    let sellerEmail = sellerLocal?.email || "";
 
     if ((!buyerEmail || !buyerName) && buyerLocal?.clerkId) {
       try {
         const buyerClerk = await clerkClient.users.getUser(buyerLocal.clerkId);
         buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || "";
-        const primary =
-          buyerClerk.emailAddresses?.find(e => e.id === buyerClerk.primaryEmailAddressId)?.emailAddress;
+        const primary = buyerClerk.emailAddresses?.find(e => e.id === buyerClerk.primaryEmailAddressId)?.emailAddress;
         buyerEmail = buyerEmail || primary || buyerClerk.emailAddresses?.[0]?.emailAddress || "";
       } catch { /* non-fatal */ }
     }
-    if (!sellerName && sellerLocal?.clerkId) {
+    if ((!sellerEmail || !sellerName) && sellerLocal?.clerkId) {
       try {
         const sellerClerk = await clerkClient.users.getUser(sellerLocal.clerkId);
         sellerName = sellerName || sellerClerk.firstName || sellerClerk.username || "";
+        const primary = sellerClerk.emailAddresses?.find(e => e.id === sellerClerk.primaryEmailAddressId)?.emailAddress;
+        sellerEmail = sellerEmail || primary || sellerClerk.emailAddresses?.[0]?.emailAddress || "";
       } catch { /* non-fatal */ }
     }
 
@@ -307,14 +266,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
 
       try {
-        await sendEmail({
-          to: buyerEmail,
-          subject: "Seller accepted — review & sign",
-          html,
-          preheader,
-        });
+        await sendEmail({ to: buyerEmail, subject: "Seller accepted — review & sign", html, preheader });
       } catch (e) {
-        console.warn("[seller/accept] sendEmail failed:", (e as any)?.message);
+        console.warn("[seller/accept] sendEmail (buyer) failed:", (e as any)?.message);
+      }
+    }
+
+    // NEW: Seller confirmation
+    if (sellerEmail) {
+      const sellerViewLink = appUrl(`/t/${updated.id}?role=seller${updated.sellerToken ? `&token=${updated.sellerToken}` : ""}`);
+      const html = `
+        <p>Hi ${sellerName || "Seller"},</p>
+        <p>You accepted the buyer’s offer. We’ve notified the buyer and shared the signature link.</p>
+        <p>Thread: <a href="${sellerViewLink}">${sellerViewLink}</a></p>
+      `;
+      try {
+        await sendEmail({ to: sellerEmail, subject: "You accepted the offer", html });
+      } catch (e) {
+        console.warn("[seller/accept] sendEmail (seller confirm) failed:", (e as any)?.message);
       }
     }
 
@@ -339,6 +308,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
   } catch (e: any) {
     console.error("[trades/:id/seller/accept] error", e);
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Unexpected error", errorCode: "UNEXPECTED" }, { status: 500 });
   }
 }
