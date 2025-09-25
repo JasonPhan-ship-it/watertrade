@@ -99,7 +99,7 @@ export default function OffersPanelWithActions({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Magic link bits
+  // Magic link bits (optional chaining to satisfy TS)
   const urlRole = ((searchParams?.get?.("role") ?? "") as string).toLowerCase() as "seller" | "buyer" | "";
   const urlToken = (searchParams?.get?.("token") ?? "") as string;
 
@@ -142,22 +142,31 @@ export default function OffersPanelWithActions({
     return { headers, bodyAuth };
   }
 
+  // Enhanced postJSON: propagate status & errorCode for UI branching (verification modal)
   async function postJSON(url: string, body?: unknown, extraHeaders?: HeadersInit) {
     const res = await fetch(url, {
       method: "POST",
       headers: extraHeaders ?? (body ? { "Content-Type": "application/json" } : undefined),
       body: body ? JSON.stringify(body) : undefined,
     });
+
     if (!res.ok) {
       let message = `Request failed (${res.status})`;
+      let errorCode: string | undefined;
       try {
         const data = await res.json();
-        if ((data as any)?.error) message = (data as any).error;
+        if (data?.error) message = data.error;
+        if (data?.errorCode) errorCode = String(data.errorCode);
       } catch {
         /* swallow */
       }
-      throw new Error(message);
+      const err: any = new Error(message);
+      err.status = res.status;
+      if (errorCode) err.errorCode = errorCode;
+      throw err;
     }
+
+    // success
     try {
       return await res.json();
     } catch {
@@ -181,7 +190,29 @@ export default function OffersPanelWithActions({
     return `/api/trades/${offerId}/seller/counter`;
   }
 
-  /* ======================== Modal state ======================== */
+  /* ======================== Verification modal state ======================== */
+
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState<string>("");
+
+  function handleVerificationError(e: any) {
+    const code = (e?.errorCode || "").toUpperCase();
+    const msg = String(e?.message || "");
+    const looksLikeVerification =
+      code === "VERIFICATION_REQUIRED" ||
+      /verification required/i.test(msg);
+
+    if (looksLikeVerification) {
+      setVerifyMessage(
+        "Your account needs admin verification before you can complete this action. We’ve created a request for you — an admin will review shortly."
+      );
+      setVerifyOpen(true);
+      return true;
+    }
+    return false;
+  }
+
+  /* ======================== Action modal state ======================== */
 
   type ActionKind = "accept" | "decline" | "counter" | null;
   const [modalOpen, setModalOpen] = useState(false);
@@ -222,12 +253,16 @@ export default function OffersPanelWithActions({
 
       try {
         const resp = await postJSON(acceptRoute(targetId), bodyAuth, headers);
-        // server emails buyer; show friendly toast
         alert("Accepted. The buyer has been emailed with next steps.");
         if (resp?.redirectUrl) router.replace(resp.redirectUrl);
         else router.refresh();
         closeModal();
       } catch (e: any) {
+        if (handleVerificationError(e)) {
+          // rollback already accepted optimistic state
+          if (prev) patchOffer(targetId, { status: prev.status, unread: prev.unread });
+          return;
+        }
         if (prev) patchOffer(targetId, { status: prev.status, unread: prev.unread });
         alert(`Accept failed: ${e?.message || e}`);
       }
@@ -249,6 +284,10 @@ export default function OffersPanelWithActions({
         router.refresh();
         closeModal();
       } catch (e: any) {
+        if (handleVerificationError(e)) {
+          if (prev) patchOffer(targetId, { status: prev.status, unread: prev.unread });
+          return;
+        }
         if (prev) patchOffer(targetId, { status: prev.status, unread: prev.unread });
         alert(`Decline failed: ${e?.message || e}`);
       }
@@ -273,6 +312,7 @@ export default function OffersPanelWithActions({
 
     await withBusy(targetId, async () => {
       const prev = items.find((o) => o.id === targetId);
+      // Optimistically mark as countered (amount shown in thread is read from server, so no local amount change here)
       patchOffer(targetId, { status: "countered", unread: false });
 
       const roleForAction: "seller" | "buyer" = (viewerRole === "buyer" || urlRole === "buyer") ? "buyer" : "seller";
@@ -284,6 +324,10 @@ export default function OffersPanelWithActions({
         router.refresh();
         closeModal();
       } catch (e: any) {
+        if (handleVerificationError(e)) {
+          if (prev) patchOffer(targetId, prev);
+          return;
+        }
         if (prev) patchOffer(targetId, prev);
         alert(`Counter failed: ${e?.message || e}`);
       }
@@ -408,8 +452,24 @@ export default function OffersPanelWithActions({
         onCounter={mergedOnCounter}
       />
 
+      {/* Action modal (accept/decline/counter) */}
       <Modal open={modalOpen} onClose={closeModal} title={modalTitle} footer={modalFooter}>
         {modalBody}
+      </Modal>
+
+      {/* Verification-required modal */}
+      <Modal
+        open={verifyOpen}
+        onClose={() => setVerifyOpen(false)}
+        title="Verification required"
+        footer={<Button onClick={() => setVerifyOpen(false)}>Got it</Button>}
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700">{verifyMessage}</p>
+          <p className="text-xs text-slate-500">
+            Tip: Add your company name and phone in your profile so an admin can reach you faster.
+          </p>
+        </div>
       </Modal>
     </>
   );
