@@ -33,6 +33,9 @@ export type Offer = {
 
 export type ListingOffersPanelProps = {
   listingId: string;
+  /** Optional title shown in the header (e.g., the listing name) */
+  listingTitle?: string;
+  /** Label for the amount line; defaults to "Total ($)" */
   unitLabel?: string;
   offers: Offer[];
   currentStage?: DealStage | null;
@@ -62,7 +65,9 @@ function formatMoney(n: number) {
   }).format(n);
 }
 function isExpired(offer: Offer) {
-  return offer.expiresAt ? new Date(offer.expiresAt) < new Date() : false;
+  if (!offer.expiresAt) return false;
+  const d = new Date(offer.expiresAt);
+  return Number.isFinite(d.valueOf()) ? d < new Date() : false;
 }
 function cx(...cls: Array<string | false | undefined>) {
   return cls.filter(Boolean).join(" ");
@@ -140,6 +145,7 @@ function Button({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      type="button"
     >
       {children}
     </button>
@@ -178,6 +184,7 @@ function StagePill({ label, active, complete }: { label: string; active?: boolea
 
 function TransactionProgress({ stage }: { stage: DealStage }) {
   const currentIndex = STAGE_ORDER.indexOf(stage);
+  const pct = Math.max(0, Math.min(100, (currentIndex / (STAGE_ORDER.length - 1)) * 100));
   return (
     <Card className="mt-4">
       <CardHeader>
@@ -187,10 +194,7 @@ function TransactionProgress({ stage }: { stage: DealStage }) {
       <CardContent>
         <div className="flex flex-col gap-3">
           <div className="relative h-2 w-full rounded-full bg-slate-100">
-            <div
-              className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600"
-              style={{ width: `${(currentIndex / (STAGE_ORDER.length - 1)) * 100}%` }}
-            />
+            <div className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600" style={{ width: `${pct}%` }} />
           </div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {STAGE_ORDER.map((s, i) => (
@@ -242,6 +246,18 @@ function OfferRow({
   const expired = isExpired(offer);
   const canAct = offer.status === "pending" && !expired;
 
+  async function copyId() {
+    try {
+      await navigator?.clipboard?.writeText(offer.id);
+      // lightweight feedback without extra libs
+      // eslint-disable-next-line no-alert
+      alert("Offer ID copied");
+    } catch {
+      // eslint-disable-next-line no-alert
+      alert("Could not copy Offer ID");
+    }
+  }
+
   return (
     <div className="flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center">
       <div className="flex items-start gap-3">
@@ -271,16 +287,28 @@ function OfferRow({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="outline" className="rounded-2xl" disabled={!canAct} onClick={() => onCounter?.(offer.id)}>
+        <Button
+          variant="outline"
+          className="rounded-2xl"
+          disabled={!canAct}
+          onClick={() => onCounter?.(offer.id)}
+          title="Send a counter offer"
+        >
           Counter
         </Button>
-        <Button variant="secondary" className="rounded-2xl" disabled={!canAct} onClick={() => onDecline?.(offer.id)}>
+        <Button
+          variant="secondary"
+          className="rounded-2xl"
+          disabled={!canAct}
+          onClick={() => onDecline?.(offer.id)}
+          title="Decline this offer"
+        >
           Decline
         </Button>
-        <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)}>
+        <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)} title="Accept this offer">
           Accept
         </Button>
-        <Button variant="ghost" title="Copy Offer ID" onClick={() => navigator?.clipboard?.writeText(offer.id)}>
+        <Button variant="ghost" title="Copy Offer ID" onClick={copyId} aria-label="Copy Offer ID">
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </div>
@@ -291,7 +319,8 @@ function OfferRow({
 /* ----------------------------- Main Panel ----------------------------- */
 
 export default function ListingOffersPanel({
-  listingId, // kept in case you want to use it in future (not rendered now)
+  listingId, // retained for future route/action usage
+  listingTitle,
   unitLabel = "Total ($)",
   offers,
   currentStage = null,
@@ -320,14 +349,18 @@ export default function ListingOffersPanel({
 
   return (
     <div className="space-y-4">
-      {/* Header (no subtitle) */}
+      {/* Header */}
       <div className="flex items-start justify-between gap-3 md:items-center">
         <div>
           <h2 className="text-xl font-semibold">Offers &amp; Activity</h2>
-          {/* subtitle removed */}
+          {listingTitle && <p className="mt-1 text-sm text-slate-600">for {listingTitle}</p>}
         </div>
         <div className="flex items-center gap-2">
+          <label className="sr-only" htmlFor="offers-search">
+            Search offers
+          </label>
           <input
+            id="offers-search"
             placeholder="Search offers, terms, notes…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -337,8 +370,10 @@ export default function ListingOffersPanel({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2">
+      <div className="flex gap-2" role="tablist" aria-label="Offer tabs">
         <button
+          role="tab"
+          aria-selected={tab === "received"}
           className={cx(
             "rounded-2xl border px-3 py-1.5 text-sm",
             tab === "received" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
@@ -351,6 +386,8 @@ export default function ListingOffersPanel({
           )}
         </button>
         <button
+          role="tab"
+          aria-selected={tab === "sent"}
           className={cx(
             "rounded-2xl border px-3 py-1.5 text-sm",
             tab === "sent" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
@@ -360,6 +397,8 @@ export default function ListingOffersPanel({
           Sent
         </button>
         <button
+          role="tab"
+          aria-selected={tab === "all"}
           className={cx(
             "rounded-2xl border px-3 py-1.5 text-sm",
             tab === "all" ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
