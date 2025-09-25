@@ -98,11 +98,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const shouldShowDescription = (() => {
     const d = (description || "").trim();
     if (!d) return false;
-    // hide if it's just an acronym (2–6 uppercase letters)
     if (/^[A-Z]{2,6}$/.test(d)) return false;
-    // hide if it equals the raw or computed title
     if (d === rawTitle || d === displayTitle) return false;
-    // hide default placeholder
     if (d === "No description provided.") return false;
     return true;
   })();
@@ -178,7 +175,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Right-aligned Back to Listings button (moved here) */}
+          {/* Right-aligned Back to Listings button (already moved) */}
           <div className="shrink-0">
             <Link
               href="/dashboard"
@@ -204,7 +201,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
               unitLabel="Total ($)"
               offers={offers}
               currentStage={currentStage}
-              // handlers are provided by the client shim
             />
           </section>
 
@@ -214,7 +210,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             {!isOwner && row.kind === "SELL" && (
               <aside
                 id="buy-now"
-                className="sticky top-24 h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="sticky top-24 h-fit"
               >
                 <div className="mb-3">
                   <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
