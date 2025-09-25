@@ -1,4 +1,3 @@
-// app/api/trades/[id]/buyer/decline/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -16,25 +15,25 @@ function pickDeclinedTradeStatus(): (typeof TradeStatus)[keyof typeof TradeStatu
 }
 
 export async function GET() {
-  return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 });
+  return NextResponse.json({ error: "Method Not Allowed", errorCode: "METHOD_NOT_ALLOWED" }, { status: 405 });
 }
 export async function HEAD() {
-  return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 });
+  return NextResponse.json({ error: "Method Not Allowed", errorCode: "METHOD_NOT_ALLOWED" }, { status: 405 });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const rawId = (params.id || "").trim();
-    if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    if (!rawId) return NextResponse.json({ error: "Missing id", errorCode: "MISSING_ID" }, { status: 400 });
 
     // Support Trade.id OR Transaction.id
     const trade = await findTradeByAnyId(rawId);
-    if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!trade) return NextResponse.json({ error: "Not found", errorCode: "NOT_FOUND" }, { status: 404 });
 
     // Must be buyer
     const viewer = await getViewer(req, trade as any);
     if (viewer.role !== "buyer") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden", errorCode: "FORBIDDEN" }, { status: 403 });
     }
 
     const DECLINED = pickDeclinedTradeStatus();
@@ -66,10 +65,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         sellerUserId: true,
         buyerUserId: true,
         sellerToken: true,
+        buyerToken: true,
       },
     });
 
-    // ---- Notify seller (prefer local email; fallback to Clerk by clerkId) ----
+    // ---- Notify seller ----
     const [sellerLocal, buyerLocal] = await Promise.all([
       prisma.user.findUnique({ where: { id: trade.sellerUserId || "" }, select: { email: true, name: true, clerkId: true } }),
       prisma.user.findUnique({ where: { id: trade.buyerUserId || "" }, select: { email: true, name: true, clerkId: true } }),
@@ -78,6 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     let sellerEmail = sellerLocal?.email || "";
     let sellerName = sellerLocal?.name || "";
     let buyerName = buyerLocal?.name || "";
+    let buyerEmail = buyerLocal?.email || "";
 
     if (!sellerEmail && sellerLocal?.clerkId) {
       try {
@@ -87,18 +88,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           sellerClerk.emailAddresses?.find((e) => e.id === sellerClerk.primaryEmailAddressId)?.emailAddress ??
           sellerClerk.emailAddresses?.[0]?.emailAddress ??
           "";
-      } catch {
-        /* non-fatal */
-      }
+      } catch { /* non-fatal */ }
     }
-
     if (!buyerName && buyerLocal?.clerkId) {
       try {
         const buyerClerk = await clerkClient.users.getUser(buyerLocal.clerkId);
         buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || "";
-      } catch {
-        /* non-fatal */
-      }
+        const primary =
+          buyerClerk.emailAddresses?.find(e => e.id === buyerClerk.primaryEmailAddressId)?.emailAddress;
+        buyerEmail = buyerEmail || primary || buyerClerk.emailAddresses?.[0]?.emailAddress || "";
+      } catch { /* non-fatal */ }
     }
 
     if (sellerEmail) {
@@ -112,25 +111,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           waterType: updated.waterType ?? undefined,
           volumeAf: updated.volumeAf,
           pricePerAf: updated.pricePerAf,
-          priceLabel: `$${(updated.pricePerAf / 100).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}/AF`,
+          priceLabel: `$${(updated.pricePerAf / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/AF`,
           windowLabel: updated.windowLabel ?? undefined,
         },
         viewLink,
       });
+      await sendEmail({ to: sellerEmail, subject: "Buyer declined the offer", html, preheader });
+    }
 
-      await sendEmail({
-        to: sellerEmail,
-        subject: "Buyer declined the offer",
-        html,
-        preheader,
-      });
+    // NEW: buyer confirmation
+    if (buyerEmail) {
+      const buyerViewLink = appUrl(`/t/${updated.id}?role=buyer${updated.buyerToken ? `&token=${updated.buyerToken}` : ""}`);
+      const html = `
+        <p>Hi ${buyerName || "Buyer"},</p>
+        <p>You declined the offer. You can view the thread here:</p>
+        <p><a href="${buyerViewLink}">${buyerViewLink}</a></p>
+      `;
+      await sendEmail({ to: buyerEmail, subject: "You declined the offer", html });
     }
 
     return NextResponse.json({ ok: true, tradeId: updated.id, status: updated.status });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Unexpected error", errorCode: "UNEXPECTED" }, { status: 500 });
   }
 }
