@@ -161,7 +161,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-6xl">
-      {/* Sticky summary header (kept fully intact) */}
+      {/* Sticky summary header */}
       <nav className="sticky top-0 z-30 border-b bg-white/85 backdrop-blur">
         <div className="px-6 py-3 flex items-center justify-between gap-4">
           <div className="min-w-0">
@@ -209,7 +209,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             />
           </section>
 
-          {/* Right: stacked cards (Buy/Offer + How actions work + Footer buttons) */}
+          {/* Right: stacked cards (Buy/Offer + Seller-only help + Footer buttons) */}
           <div className="space-y-6">
             {/* Buy / Offer (only when viewer isn't owner and listing is SELL) */}
             {!isOwner && row.kind === "SELL" && (
@@ -220,7 +220,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
                 <div className="mb-3">
                   <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    {/* UPDATED LINE BELOW */}
                     Submit an offer or purchase now.
                   </div>
                 </div>
@@ -233,18 +232,15 @@ export default async function ListingDetailPage({ params }: PageProps) {
                   reservePrice={null}
                 />
 
-                {/* Replaced bullet list with a paragraph of complete sentences */}
-                <p className="mt-4 text-xs text-slate-600">
-                  All funds will be securely held in escrow. District fees will be settled at the time of closing.
-                  Our support team is available from 9 AM to 5 PM Pacific Time to assist you with any questions.
-                </p>
-
-                {/* Helper note */}
+                {/* Formal helper note */}
                 <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                   <div className="flex items-start gap-2">
                     <Info aria-hidden className="mt-0.5 h-5 w-5 text-emerald-600" />
                     <p>
-                      Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.
+                      All funds are securely held in escrow, with district fees settled at closing. Our support team is
+                      available from 9:00 a.m. to 5:00 p.m. Pacific Time to assist with any questions. Prices are shown
+                      in dollars per acre-foot, and the final settlement amount may vary based on conveyance and applicable
+                      district fees.
                     </p>
                   </div>
                 </div>
@@ -334,9 +330,6 @@ function Breadcrumbs() {
   );
 }
 
-function formatInt(n: number) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
-}
 function format2(n: number) {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
