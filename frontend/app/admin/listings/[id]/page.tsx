@@ -89,7 +89,6 @@ export default async function AdminListingDetailPage({ params }: { params: { id:
       {/* Offers & Activity for Admin */}
       <OffersPanelWithActions
         listingId={listing.id}
-        listingTitle={listing.title ?? "Listing"}
         unitLabel="Total ($)"
         offers={offers}
         currentStage={currentStage}
