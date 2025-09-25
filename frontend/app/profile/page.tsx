@@ -1,9 +1,12 @@
 // app/profile/page.tsx
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import Link from "next/link";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 
-/** Preset districts (for display ordering only) */
 const PRESET_DISTRICTS = [
   "Westlands Water District",
   "San Luis Water District",
@@ -11,11 +14,16 @@ const PRESET_DISTRICTS = [
   "Arvin Edison Water District",
 ] as const;
 
-function ErrorCard({ message }: { message: string }) {
+function ErrorCard({ message, detail }: { message: string; detail?: string }) {
   return (
     <div className="mx-auto max-w-3xl p-6">
       <h1 className="text-2xl font-semibold tracking-tight">My Profile</h1>
       <p className="mt-3 text-sm text-red-600">{message}</p>
+      {detail && process.env.NODE_ENV !== "production" && (
+        <pre className="mt-3 whitespace-pre-wrap rounded-lg border bg-red-50 p-3 text-xs text-rose-700">
+          {detail}
+        </pre>
+      )}
       <div className="mt-6 flex flex-wrap gap-3">
         <Link
           href="/sign-in?redirect_url=/profile"
@@ -46,36 +54,79 @@ function uniqStrings(arr: (string | null | undefined)[]) {
   return Array.from(out);
 }
 
-export const revalidate = 0;
-
 export default async function ProfilePage() {
+  let debug = "";
   try {
-    // 1) Who's viewing?
-    const { userId: clerkId } = auth();
+    // 0) Basic env sanity
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL is not set");
+    }
+
+    // 1) Auth
+    debug = "auth()";
+    const authRes = await (async () => {
+      try {
+        return auth();
+      } catch (e: any) {
+        throw new Error(`Clerk auth failed: ${e?.message || e}`);
+      }
+    })();
+
+    const clerkId = authRes?.userId;
     if (!clerkId) {
       return <ErrorCard message="You must be signed in to view your profile." />;
     }
 
-    // 2) Pull Clerk to seed/fill blanks
-    const clerkUser = await clerkClient.users.getUser(clerkId).catch(() => null);
+    // 2) Clerk user (best-effort)
+    debug = "clerkClient.users.getUser";
+    const clerkUser = await (async () => {
+      try {
+        return await clerkClient.users.getUser(clerkId);
+      } catch (e: any) {
+        // Non-fatal — continue with blanks
+        return null;
+      }
+    })();
+
     const primaryEmail =
       clerkUser?.emailAddresses?.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress ||
       clerkUser?.emailAddresses?.[0]?.emailAddress ||
       "";
 
-    // 3) Ensure local User
+    // 3) Ensure local User (prefer match by clerkId; fallback to email)
+    debug = "prisma.user.findUnique(clerkId)";
     let user = await prisma.user.findUnique({ where: { clerkId } });
+
+    if (!user && primaryEmail) {
+      debug = "prisma.user.findUnique(email)";
+      const byEmail = await prisma.user.findUnique({ where: { email: primaryEmail } }).catch(() => null);
+      if (byEmail && !byEmail.clerkId) {
+        // Link existing user to clerkId
+        debug = "prisma.user.update(link clerkId)";
+        user = await prisma.user.update({
+          where: { id: byEmail.id },
+          data: { clerkId },
+        });
+      }
+    }
+
     if (!user) {
+      debug = "prisma.user.create";
       user = await prisma.user.create({
         data: {
           clerkId,
           email: primaryEmail || `unknown+${clerkId}@example.com`,
-          name: clerkUser?.firstName || clerkUser?.username || primaryEmail || "Unknown",
+          name:
+            (clerkUser?.firstName || "") +
+              (clerkUser?.lastName ? ` ${clerkUser.lastName}` : "") ||
+            clerkUser?.username ||
+            primaryEmail ||
+            "Unknown",
         },
       });
     }
 
-    // 4) Ensure UserProfile with non-null fullName (your schema requires it)
+    // 4) Ensure UserProfile with fullName
     const fallbackFullName =
       [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ").trim() ||
       clerkUser?.username ||
@@ -83,36 +134,35 @@ export default async function ProfilePage() {
       primaryEmail ||
       "Unknown";
 
-    const existing = await prisma.userProfile.findUnique({
-      where: { userId: user.id },
-    });
+    debug = "prisma.userProfile.findUnique";
+    const existing = await prisma.userProfile.findUnique({ where: { userId: user.id } });
 
-    const profile =
-      existing
-        ? await prisma.userProfile.update({
-            where: { id: existing.id },
-            data: {
-              // If legacy rows have null/empty fullName, repair it
-              fullName: existing.fullName && existing.fullName.trim() ? existing.fullName : fallbackFullName,
-              email: primaryEmail || existing.email || null,
-            },
-          })
-        : await prisma.userProfile.create({
-            data: {
-              userId: user.id,
-              fullName: fallbackFullName,
-              email: primaryEmail || null,
-            },
-          });
+    debug = existing ? "prisma.userProfile.update" : "prisma.userProfile.create";
+    const profile = existing
+      ? await prisma.userProfile.update({
+          where: { id: existing.id },
+          data: {
+            fullName: existing.fullName && existing.fullName.trim() ? existing.fullName : fallbackFullName,
+            email: primaryEmail || existing.email || null,
+          },
+        })
+      : await prisma.userProfile.create({
+          data: {
+            userId: user.id,
+            fullName: fallbackFullName,
+            email: primaryEmail || null,
+          },
+        });
 
-    // 5) Pull farms (if any)
+    // 5) Farms
+    debug = "prisma.farm.findMany";
     const farms = await prisma.farm.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "asc" },
       select: { name: true, accountNumber: true, district: true },
     });
 
-    // 6) Present data (mirror your previous UI)
+    // 6) Render
     const name = profile.fullName?.trim() || "—";
     const email = (profile.email ?? "").trim() || "—";
     const cell = (profile.cellPhone ?? "").trim() || "—";
@@ -253,7 +303,12 @@ export default async function ProfilePage() {
       </div>
     );
   } catch (e: any) {
-    console.error("[/profile] error:", e);
-    return <ErrorCard message="Something went wrong loading your profile. Please try again." />;
+    console.error("[/profile] error at step:", e, "last step:", typeof e === "object" ? "" : "");
+    return (
+      <ErrorCard
+        message="Something went wrong loading your profile. Please try again."
+        detail={`Last step: ${JSON.stringify({ where: "server component", hint: "see server logs for stack", debugStep: (typeof e === "string" ? e : undefined) })}\n${e?.message || String(e)}`}
+      />
+    );
   }
 }
