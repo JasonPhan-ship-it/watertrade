@@ -98,11 +98,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
   const shouldShowDescription = (() => {
     const d = (description || "").trim();
     if (!d) return false;
-    // hide if it's just an acronym (2–6 uppercase letters)
-    if (/^[A-Z]{2,6}$/.test(d)) return false;
-    // hide if it equals the raw or computed title
-    if (d === rawTitle || d === displayTitle) return false;
-    // hide default placeholder
+    if (/^[A-Z]{2,6}$/.test(d)) return false; // acronym-only
+    if (d === rawTitle || d === displayTitle) return false; // duplicate of title
     if (d === "No description provided.") return false;
     return true;
   })();
@@ -178,16 +175,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          {!isOwner && row.kind === "SELL" && (
-            <div className="flex items-center gap-2">
-              <a
-                href="#buy-now"
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-              >
-                Buy / Make Offer
-              </a>
-            </div>
-          )}
+          {/* Header action removed per request */}
         </div>
       </nav>
 
