@@ -25,6 +25,10 @@ model User {
   stripeCustomerId       String?   @unique
   stripeSubscriptionId   String?   @unique
 
+  // --- NEW: Admin verification gates ---
+  verifiedBuyerAt  DateTime?
+  verifiedSellerAt DateTime?
+
   // Relations
   listings            Listing[]                           // listings this user is selling
   buyerTransactions   Transaction[] @relation("BuyerTransactions")
@@ -38,12 +42,17 @@ model User {
   tradesAsBuyer       Trade[] @relation("TradeBuyer")
   tradesAsSeller      Trade[] @relation("TradeSeller")
 
+  // --- NEW: Verification requests back-relation ---
+  verificationRequests VerificationRequest[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([role])
   @@index([subscriptionStatus])
   @@index([clerkId])
+  @@index([verifiedBuyerAt])
+  @@index([verifiedSellerAt])
 }
 
 /* ========================= Listings & Bids ========================= */
@@ -326,6 +335,26 @@ model Notification {
   @@index([kind, createdAt])
 }
 
+/* ========================= Verification (NEW) ========================= */
+
+model VerificationRequest {
+  id         String             @id @default(cuid())
+
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  type       VerificationType
+  status     VerificationStatus @default(PENDING)
+
+  note       String?
+  reviewerId String?
+  createdAt  DateTime           @default(now())
+  reviewedAt DateTime?
+
+  @@index([userId, type, status])
+  @@index([status, createdAt])
+}
+
 /* ========================= Enums ========================= */
 
 enum Role {
@@ -417,4 +446,17 @@ enum SignatureProgress {
   NONE
   REQUESTED
   SIGNED
+}
+
+/* ---- NEW (Verification) ---- */
+
+enum VerificationType {
+  BUY
+  SELL
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
