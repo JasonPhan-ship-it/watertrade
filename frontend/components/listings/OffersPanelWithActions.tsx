@@ -25,9 +25,9 @@ export default function OffersPanelWithActions({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  /** Role/token surfaced by URL for magic-link flows */
-  const urlRole = (searchParams.get("role") || "").toLowerCase() as "seller" | "buyer" | "";
-  const urlToken = searchParams.get("token") || "";
+  /** Role/token from URL for magic-link flows (guarded for strict TS) */
+  const urlRole = ((searchParams?.get?.("role") ?? "") as string).toLowerCase() as "seller" | "buyer" | "";
+  const urlToken = (searchParams?.get?.("token") ?? "") as string;
 
   /** Local, optimistically updated copy of offers */
   const [items, setItems] = useState<Offer[]>(offers);
@@ -55,19 +55,14 @@ export default function OffersPanelWithActions({
 
   /** Build headers/body auth hints consistent with your API routes */
   function buildAuthBits(roleForAction: "seller" | "buyer") {
-    // prefer explicit viewerRole, but allow URL role (“magic link”) to drive body too
     const role = roleForAction;
     const token = urlToken || undefined;
 
     const headers: HeadersInit = token
-      ? {
-          "Content-Type": "application/json",
-          "x-trade-token": token, // server also reads header tokens
-        }
-      : {
-          "Content-Type": "application/json",
-        };
+      ? { "Content-Type": "application/json", "x-trade-token": token }
+      : { "Content-Type": "application/json" };
 
+    // Server already supports body token fallback; add it here.
     const bodyAuth: Record<string, string> = { role };
     if (token) bodyAuth.token = token;
 
@@ -103,7 +98,6 @@ export default function OffersPanelWithActions({
     if (viewerRole === "seller" || viewerRole === "admin" || urlRole === "seller")
       return `/api/trades/${offerId}/seller/accept`;
     if (viewerRole === "buyer" || urlRole === "buyer") return `/api/trades/${offerId}/buyer/accept`;
-    // default to seller path; server will auth-check
     return `/api/trades/${offerId}/seller/accept`;
   }
   function declineRoute(offerId: string) {
@@ -120,11 +114,17 @@ export default function OffersPanelWithActions({
   }
 
   /* ------------------- Button handlers ------------------- */
+  // Adds a human confirmation and a success message noting the buyer email.
 
   const internalAccept = useCallback(
     (id: string) =>
       withBusy(id, async () => {
         const prev = items.find((o) => o.id === id);
+
+        // Confirm: server will email buyer upon accept
+        const ok = window.confirm("Accept this offer? The buyer will receive an email to review & sign.");
+        if (!ok) return;
+
         // optimistic
         patchOffer(id, { status: "accepted", unread: false });
 
@@ -135,7 +135,11 @@ export default function OffersPanelWithActions({
 
         try {
           const resp = await postJSON(acceptRoute(id), bodyAuth, headers);
-          // If server returns redirectUrl/signLink, prefer redirect (matches accept route)
+
+          // Friendly notice
+          alert("Accepted. The buyer has been emailed with next steps.");
+
+          // If server returns redirectUrl/signLink, prefer redirect
           if (resp?.redirectUrl) {
             router.replace(resp.redirectUrl);
           } else {
@@ -154,6 +158,10 @@ export default function OffersPanelWithActions({
     (id: string) =>
       withBusy(id, async () => {
         const prev = items.find((o) => o.id === id);
+
+        const ok = window.confirm("Decline this offer? The buyer will be notified.");
+        if (!ok) return;
+
         // optimistic
         patchOffer(id, { status: "declined", unread: false });
 
@@ -163,6 +171,7 @@ export default function OffersPanelWithActions({
 
         try {
           await postJSON(declineRoute(id), bodyAuth, headers);
+          alert("Declined. The buyer has been notified.");
           router.refresh();
         } catch (e: any) {
           if (prev) patchOffer(id, { status: prev.status, unread: prev.unread });
@@ -179,14 +188,16 @@ export default function OffersPanelWithActions({
         if (!offer) return;
 
         // Prompt for USD/AF and AF (volume). Route expects cents and AF numbers.
-        const usdPrompt = window.prompt(
-          "Counter price (USD per AF, e.g. 650.00):",
-          offer.amount ? String(Math.max(0, Math.round(Number(offer.amount)))) : ""
-        );
+        const usdPrompt = window.prompt("Counter price (USD per AF, e.g. 650.00):", "");
         if (usdPrompt == null) return;
 
         const volumePrompt = window.prompt("Counter volume (AF, whole number):", "");
         if (volumePrompt == null) return;
+
+        const confirmMsg = `Send counter at $${(+usdPrompt).toFixed?.(2) ?? usdPrompt} per AF for ${volumePrompt} AF?\n` +
+                           `The buyer will receive a confirmation email.`;
+        const ok = window.confirm(confirmMsg);
+        if (!ok) return;
 
         const usdPerAf = Number(usdPrompt);
         const volumeAf = Number(volumePrompt);
@@ -204,7 +215,7 @@ export default function OffersPanelWithActions({
         const pricePerAf = Math.round(usdPerAf * 100);
 
         const prev = { ...offer };
-        // optimistic: mark as countered; we don’t have per-AF/volume on Offer type, so leave amount unchanged
+        // optimistic
         patchOffer(id, { status: "countered", unread: false });
 
         const roleForAction: "seller" | "buyer" =
@@ -213,6 +224,7 @@ export default function OffersPanelWithActions({
 
         try {
           await postJSON(counterRoute(id), { ...bodyAuth, pricePerAf, volumeAf }, headers);
+          alert("Counter sent. The buyer has been emailed.");
           router.refresh();
         } catch (e: any) {
           patchOffer(id, prev);
