@@ -94,6 +94,19 @@ export default async function ListingDetailPage({ params }: PageProps) {
           .filter(Boolean)
           .join(" · ") || "Listing";
 
+  /** Hide skimpy/duplicative descriptions (prevents <p>AEWD</p>) */
+  const shouldShowDescription = (() => {
+    const d = (description || "").trim();
+    if (!d) return false;
+    // hide if it's just an acronym (2–6 uppercase letters)
+    if (/^[A-Z]{2,6}$/.test(d)) return false;
+    // hide if it equals the raw or computed title
+    if (d === rawTitle || d === displayTitle) return false;
+    // hide default placeholder
+    if (d === "No description provided.") return false;
+    return true;
+  })();
+
   /** Fetch trades/offers for the Offers & Activity Panel */
   let trades: any[] = [];
   try {
@@ -180,8 +193,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
       {/* Body */}
       <div className="p-6">
-        {/* Intro blurb */}
-        <p className="text-sm text-slate-600">{description}</p>
+        {/* Intro blurb (hidden for acronyms/duplicates) */}
+        {shouldShowDescription && <p className="text-sm text-slate-600">{description}</p>}
 
         {/* Details + Action panel */}
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr,380px]">
@@ -294,11 +307,7 @@ function StatusPill({ status }: { status: string }) {
     EXPIRED: "bg-slate-200 text-slate-700",
   };
   return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-xs ${
-        cls[status] ?? "bg-slate-100 text-slate-700"
-      }`}
-    >
+    <span className={`rounded-full px-2 py-0.5 text-xs ${cls[status] ?? "bg-slate-100 text-slate-700"}`}>
       {prettyStatus(status)}
     </span>
   );
