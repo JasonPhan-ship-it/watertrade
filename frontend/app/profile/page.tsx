@@ -1,7 +1,7 @@
-"use client";
-
-import * as React from "react";
+// app/profile/page.tsx
 import Link from "next/link";
+import { auth, clerkClient } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/prisma";
 
 /** Preset districts (for display ordering only) */
 const PRESET_DISTRICTS = [
@@ -11,44 +11,32 @@ const PRESET_DISTRICTS = [
   "Arvin Edison Water District",
 ] as const;
 
-type ApiFarm = {
-  name?: string | null;
-  accountNumber?: string | null;
-  district?: string | null;
-};
-
-type ApiProfile = {
-  // "edit" page shape
-  fullName?: string | null;
-  company?: string | null;
-  tradeRole?: string | null; // BUYER/SELLER/BOTH/DISTRICT_ADMIN
-  primaryDistrict?: string | null;
-  waterTypes?: string[] | null;
-
-  // "this page" legacy shape
-  firstName?: string | null;
-  lastName?: string | null;
-  address?: string | null;
-  email?: string | null;
-  cellPhone?: string | null;
-  smsOptIn?: boolean | null;
-
-  // shared
-  districts?: string[] | null;
-};
-
-function displayName(p: ApiProfile | null): string {
-  if (!p) return "";
-  if (p.fullName) return p.fullName;
-  const f = (p.firstName ?? "").trim();
-  const l = (p.lastName ?? "").trim();
-  return [f, l].filter(Boolean).join(" ");
+function ErrorCard({ message }: { message: string }) {
+  return (
+    <div className="mx-auto max-w-3xl p-6">
+      <h1 className="text-2xl font-semibold tracking-tight">My Profile</h1>
+      <p className="mt-3 text-sm text-red-600">{message}</p>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Link
+          href="/sign-in?redirect_url=/profile"
+          className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium hover:bg-slate-50"
+        >
+          Sign in
+        </Link>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          ← Back to Dashboard
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 function nonEmpty<T>(v: T | null | undefined): v is T {
   return v !== null && v !== undefined && `${v}`.trim() !== "";
 }
-
 function uniqStrings(arr: (string | null | undefined)[]) {
   const out = new Set<string>();
   for (const v of arr) {
@@ -58,237 +46,214 @@ function uniqStrings(arr: (string | null | undefined)[]) {
   return Array.from(out);
 }
 
-/** Robust fetcher that guarantees JSON and helpful errors */
-async function fetchProfile(): Promise<{ profile: ApiProfile | null; farms: ApiFarm[] }> {
-  const res = await fetch("/api/profile", {
-    credentials: "include",
-    cache: "no-store",
-  });
+export const revalidate = 0;
 
-  if (res.status === 401) {
-    throw new Error("You must be signed in to view your profile.");
-  }
+export default async function ProfilePage() {
+  try {
+    // 1) Who's viewing?
+    const { userId: clerkId } = auth();
+    if (!clerkId) {
+      return <ErrorCard message="You must be signed in to view your profile." />;
+    }
 
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("application/json")) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `Unexpected response (${res.status})`);
-  }
+    // 2) Pull Clerk to seed/fill blanks
+    const clerkUser = await clerkClient.users.getUser(clerkId).catch(() => null);
+    const primaryEmail =
+      clerkUser?.emailAddresses?.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress ||
+      clerkUser?.emailAddresses?.[0]?.emailAddress ||
+      "";
 
-  const json = (await res.json().catch(() => ({}))) as any;
+    // 3) Ensure local User
+    let user = await prisma.user.findUnique({ where: { clerkId } });
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          clerkId,
+          email: primaryEmail || `unknown+${clerkId}@example.com`,
+          name: clerkUser?.firstName || clerkUser?.username || primaryEmail || "Unknown",
+        },
+      });
+    }
 
-  if (!res.ok) {
-    const msg = json?.error || json?.message || `Request failed (${res.status})`;
-    throw new Error(msg);
-  }
+    // 4) Ensure UserProfile with non-null fullName (your schema requires it)
+    const fallbackFullName =
+      [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ").trim() ||
+      clerkUser?.username ||
+      user.name ||
+      primaryEmail ||
+      "Unknown";
 
-  return {
-    profile: (json?.profile ?? null) as ApiProfile | null,
-    farms: Array.isArray(json?.farms) ? (json.farms as ApiFarm[]) : [],
-  };
-}
+    const existing = await prisma.userProfile.findUnique({
+      where: { userId: user.id },
+    });
 
-export default function ProfilePage() {
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [profile, setProfile] = React.useState<ApiProfile | null>(null);
-  const [farms, setFarms] = React.useState<ApiFarm[]>([]);
+    const profile =
+      existing
+        ? await prisma.userProfile.update({
+            where: { id: existing.id },
+            data: {
+              // If legacy rows have null/empty fullName, repair it
+              fullName: existing.fullName && existing.fullName.trim() ? existing.fullName : fallbackFullName,
+              email: primaryEmail || existing.email || null,
+            },
+          })
+        : await prisma.userProfile.create({
+            data: {
+              userId: user.id,
+              fullName: fallbackFullName,
+              email: primaryEmail || null,
+            },
+          });
 
-  React.useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const { profile, farms } = await fetchProfile();
-        if (!alive) return;
-        setProfile(profile);
-        setFarms(farms);
-      } catch (e: any) {
-        if (alive) setError(e?.message || "Failed to load profile");
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+    // 5) Pull farms (if any)
+    const farms = await prisma.farm.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "asc" },
+      select: { name: true, accountNumber: true, district: true },
+    });
 
-  if (loading) return <div className="mx-auto max-w-3xl p-6">Loading…</div>;
+    // 6) Present data (mirror your previous UI)
+    const name = profile.fullName?.trim() || "—";
+    const email = (profile.email ?? "").trim() || "—";
+    const cell = (profile.cellPhone ?? "").trim() || "—";
+    const address = (profile.address ?? "").trim() || "—";
+    const role = (profile.tradeRole ?? "").trim() || "—";
+    const company = (profile.company ?? "").trim() || "—";
+    const primaryDistrict = (profile.primaryDistrict ?? "").trim();
 
-  if (error) {
+    const districts = uniqStrings([
+      ...(Array.isArray(profile.districts) ? profile.districts : []),
+      primaryDistrict || null,
+    ]).filter(Boolean);
+
+    const preset = districts.filter((d) => PRESET_DISTRICTS.includes(d as any));
+    const custom = districts.filter((d) => !PRESET_DISTRICTS.includes(d as any)).sort((a, b) => a.localeCompare(b));
+    const orderedDistricts = [...preset, ...custom];
+
+    const waterTypes = Array.isArray(profile.waterTypes) ? profile.waterTypes : [];
+
     return (
       <div className="mx-auto max-w-3xl p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">My Profile</h1>
-        <p className="mt-3 text-sm text-red-600">{error}</p>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Link
-            href="/sign-in?redirect_url=/profile"
-            className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium hover:bg-slate-50"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/profile/edit"
-            className="inline-flex items-center rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#003a2f]"
-          >
-            Edit profile
-          </Link>
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            ← Back to Dashboard
-          </Link>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">My Profile</h1>
+            <p className="mt-1 text-slate-600">View your details. Make changes on the edit page.</p>
+          </div>
+          <div className="flex gap-3 shrink-0">
+            <Link
+              href="/profile/edit"
+              className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#003a2f]"
+            >
+              Edit profile
+            </Link>
+            <Link
+              href="/dashboard"
+              className="rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              ← Back to Dashboard
+            </Link>
+          </div>
         </div>
-      </div>
-    );
-  }
 
-  const name = displayName(profile);
-  const email = (profile?.email ?? "").trim() || "";
-  const cell = (profile?.cellPhone ?? "").trim();
-  const address = (profile?.address ?? "").trim();
-  const role = (profile?.tradeRole ?? "").trim();
-  const company = (profile?.company ?? "").trim();
-  const primaryDistrict = (profile?.primaryDistrict ?? "").trim();
-
-  const districts = uniqStrings([
-    ...(Array.isArray(profile?.districts) ? profile!.districts! : []),
-    primaryDistrict || null,
-  ]).filter(Boolean);
-
-  const preset = districts.filter((d) => PRESET_DISTRICTS.includes(d as any));
-  const custom = districts
-    .filter((d) => !PRESET_DISTRICTS.includes(d as any))
-    .sort((a, b) => a.localeCompare(b));
-  const orderedDistricts = [...preset, ...custom];
-
-  const waterTypes = Array.isArray(profile?.waterTypes) ? profile!.waterTypes! : [];
-
-  return (
-    <div className="mx-auto max-w-3xl p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">My Profile</h1>
-          <p className="mt-1 text-slate-600">View your details. Make changes on the edit page.</p>
-        </div>
-        <div className="flex gap-3 shrink-0">
-          <Link
-            href="/profile/edit"
-            className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#003a2f]"
-          >
-            Edit profile
-          </Link>
-          <Link
-            href="/dashboard"
-            className="rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            ← Back to Dashboard
-          </Link>
-        </div>
-      </div>
-
-      {/* Identity */}
-      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-sm font-semibold text-slate-900">Identity</div>
-        <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-slate-500">Name</dt>
-            <dd className="mt-1 text-sm text-slate-900">{name || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-slate-500">Company</dt>
-            <dd className="mt-1 text-sm text-slate-900">{company || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-slate-500">Role</dt>
-            <dd className="mt-1 text-sm text-slate-900">{role || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-slate-500">Address</dt>
-            <dd className="mt-1 text-sm text-slate-900">{address || "—"}</dd>
-          </div>
-        </dl>
-      </section>
-
-      {/* Contact */}
-      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-sm font-semibold text-slate-900">Contact</div>
-        <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-slate-500">Email</dt>
-            <dd className="mt-1 text-sm text-slate-900">{email || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-slate-500">Cell</dt>
-            <dd className="mt-1 text-sm text-slate-900">{cell || "—"}</dd>
-          </div>
-          {typeof profile?.smsOptIn === "boolean" && (
+        {/* Identity */}
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Identity</div>
+          <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <dt className="text-xs text-slate-500">SMS Opt-In</dt>
-              <dd className="mt-1 text-sm text-slate-900">{profile?.smsOptIn ? "Yes" : "No"}</dd>
+              <dt className="text-xs text-slate-500">Name</dt>
+              <dd className="mt-1 text-sm text-slate-900">{name}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Company</dt>
+              <dd className="mt-1 text-sm text-slate-900">{company}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Role</dt>
+              <dd className="mt-1 text-sm text-slate-900">{role}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Address</dt>
+              <dd className="mt-1 text-sm text-slate-900">{address}</dd>
+            </div>
+          </dl>
+        </section>
+
+        {/* Contact */}
+        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Contact</div>
+          <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-slate-500">Email</dt>
+              <dd className="mt-1 text-sm text-slate-900">{email}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Cell</dt>
+              <dd className="mt-1 text-sm text-slate-900">{cell}</dd>
+            </div>
+            {typeof profile.smsOptIn === "boolean" && (
+              <div>
+                <dt className="text-xs text-slate-500">SMS Opt-In</dt>
+                <dd className="mt-1 text-sm text-slate-900">{profile.smsOptIn ? "Yes" : "No"}</dd>
+              </div>
+            )}
+          </dl>
+        </section>
+
+        {/* Water */}
+        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Water Preferences</div>
+          <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-slate-500">Primary District</dt>
+              <dd className="mt-1 text-sm text-slate-900">{primaryDistrict || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">All Districts</dt>
+              <dd className="mt-1 text-sm text-slate-900">
+                {orderedDistricts.length ? orderedDistricts.join(", ") : "—"}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs text-slate-500">Water Types</dt>
+              <dd className="mt-1 text-sm text-slate-900">{waterTypes.length ? waterTypes.join(", ") : "—"}</dd>
+            </div>
+          </dl>
+        </section>
+
+        {/* Farms */}
+        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Farms</div>
+          {farms.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-600">No farms on file.</p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {farms.map((f, i) => (
+                <div key={i} className="rounded-xl border border-slate-200 p-4">
+                  <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div>
+                      <dt className="text-xs text-slate-500">Name</dt>
+                      <dd className="mt-1 text-sm text-slate-900">{nonEmpty(f.name) ? f.name : "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-slate-500">Water Account #</dt>
+                      <dd className="mt-1 text-sm text-slate-900">
+                        {nonEmpty(f.accountNumber) ? f.accountNumber : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-slate-500">District</dt>
+                      <dd className="mt-1 text-sm text-slate-900">{nonEmpty(f.district) ? f.district : "—"}</dd>
+                    </div>
+                  </dl>
+                </div>
+              ))}
             </div>
           )}
-        </dl>
-      </section>
-
-      {/* Water */}
-      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-sm font-semibold text-slate-900">Water Preferences</div>
-        <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-slate-500">Primary District</dt>
-            <dd className="mt-1 text-sm text-slate-900">{primaryDistrict || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-slate-500">All Districts</dt>
-            <dd className="mt-1 text-sm text-slate-900">
-              {orderedDistricts.length ? orderedDistricts.join(", ") : "—"}
-            </dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-slate-500">Water Types</dt>
-            <dd className="mt-1 text-sm text-slate-900">
-              {waterTypes.length ? waterTypes.join(", ") : "—"}
-            </dd>
-          </div>
-        </dl>
-      </section>
-
-      {/* Farms */}
-      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-sm font-semibold text-slate-900">Farms</div>
-        {farms.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-600">No farms on file.</p>
-        ) : (
-          <div className="mt-3 space-y-3">
-            {farms.map((f, i) => (
-              <div key={i} className="rounded-xl border border-slate-200 p-4">
-                <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div>
-                    <dt className="text-xs text-slate-500">Name</dt>
-                    <dd className="mt-1 text-sm text-slate-900">{nonEmpty(f.name) ? f.name : "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-slate-500">Water Account #</dt>
-                    <dd className="mt-1 text-sm text-slate-900">
-                      {nonEmpty(f.accountNumber) ? f.accountNumber : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-slate-500">District</dt>
-                    <dd className="mt-1 text-sm text-slate-900">
-                      {nonEmpty(f.district) ? f.district : "—"}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
+        </section>
+      </div>
+    );
+  } catch (e: any) {
+    console.error("[/profile] error:", e);
+    return <ErrorCard message="Something went wrong loading your profile. Please try again." />;
+  }
 }
