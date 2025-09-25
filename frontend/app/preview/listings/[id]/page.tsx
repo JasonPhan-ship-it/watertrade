@@ -56,6 +56,7 @@ export default async function PreviewListingDetailPage({ params }: PageProps) {
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="mt-1 text-sm text-slate-600">{description}</p>
         </div>
+
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
             {row.kind === "BUY" ? "Buyer Looking" : "For Sale"}
@@ -65,6 +66,13 @@ export default async function PreviewListingDetailPage({ params }: PageProps) {
               Your listing
             </span>
           )}
+          {/* New: header-aligned Back to Listings button */}
+          <Link
+            href="/dashboard"
+            className="ml-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Back to Listings
+          </Link>
         </div>
       </div>
 
@@ -112,7 +120,7 @@ export default async function PreviewListingDetailPage({ params }: PageProps) {
         )}
       </div>
 
-      {/* Back link + manage for owner */}
+      {/* Back link + manage for owner (kept for consistency if you also want one below) */}
       <div className="mt-8 flex items-center gap-3">
         <Link
           href="/dashboard"
