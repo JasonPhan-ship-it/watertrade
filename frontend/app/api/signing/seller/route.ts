@@ -14,41 +14,27 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing tx" }, { status: 400 });
     }
 
-    // Grab only what we know exists on your schema (no TS errors).
-    const tx = await prisma.transaction.findUnique({
+    // Load only known-typed fields; then read optional DocuSign fields via `as any`.
+    const txBase = await prisma.transaction.findUnique({
       where: { id: txId },
-      select: {
-        id: true,
-        // common “maybe present” DocuSign fields (optional; TS-safe via select + any casting below)
-        // @ts-expect-error – may not exist; we’ll read through `any`
-        docusignEnvelopeId: true,
-        // @ts-expect-error – may not exist
-        envelopeId: true,
-        // @ts-expect-error – may not exist
-        docusign_envelope_id: true,
-        // @ts-expect-error – may not exist
-        agreementEnvelopeId: true,
-        // @ts-expect-error – may not exist
-        sellerClientUserId: true,
-        // @ts-expect-error – may not exist
-        seller_client_user_id: true,
-
+      include: {
         seller: { select: { email: true, name: true } },
         listing: { select: { title: true } },
       },
     });
 
-    if (!tx || !tx.seller?.email) {
+    if (!txBase || !txBase.seller?.email) {
       return NextResponse.json({ error: "Transaction or seller not found" }, { status: 404 });
     }
 
-    // Resolve envelopeId from a few likely column names.
-    const anyTx = tx as any;
+    // Read optional fields safely from the same object via `any`. This avoids typing unknown columns.
+    const txAny = txBase as any;
+
     const envelopeId: string | undefined =
-      anyTx.docusignEnvelopeId ??
-      anyTx.envelopeId ??
-      anyTx.docusign_envelope_id ??
-      anyTx.agreementEnvelopeId;
+      txAny.docusignEnvelopeId ??
+      txAny.envelopeId ??
+      txAny.docusign_envelope_id ??
+      txAny.agreementEnvelopeId;
 
     if (!envelopeId) {
       return NextResponse.json(
@@ -61,18 +47,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Resolve the embedded signer clientUserId.
-    // If you set clientUserId to the template role name when creating the envelope, this fallback works.
+    // Resolve embedded signer clientUserId (fall back to template role name if you used that).
     const clientUserId: string =
-      anyTx.sellerClientUserId ??
-      anyTx.seller_client_user_id ??
+      txAny.sellerClientUserId ??
+      txAny.seller_client_user_id ??
       process.env.DOCUSIGN_ROLE_SELLER ??
       "seller";
 
-    const sellerEmail = tx.seller.email;
-    const sellerName = tx.seller.name ?? tx.seller.email;
+    const sellerEmail = txBase.seller.email;
+    const sellerName = txBase.seller.name ?? txBase.seller.email;
 
-    const returnUrl = appUrl(`/transactions/${tx.id}?signed=1`);
+    const returnUrl = appUrl(`/transactions/${txBase.id}?signed=1`);
 
     const signUrl = await createSellerSigningUrl({
       envelopeId,
