@@ -26,8 +26,8 @@ model User {
   stripeSubscriptionId   String?   @unique
 
   // Admin verification gates
-  verifiedBuyerAt  DateTime?
-  verifiedSellerAt DateTime?
+  // verifiedBuyerAt  DateTime?
+  // verifiedSellerAt DateTime?
 
   // Relations
   listings            Listing[]                           // listings this user is selling
