@@ -3,14 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 
-// Include 'district' so UI sort works
+// UI sort keys (keep legacy "availabilityEnd" for old clients)
 type SortKey = "createdAt" | "pricePerAf" | "acreFeet" | "availabilityEnd" | "district";
 
-const ORDER_MAP: Record<SortKey, keyof import("@prisma/client").Listing> = {
+// Map UI sort key -> DB column (strings so we can alias legacy keys safely)
+const ORDER_MAP: Record<SortKey, string> = {
   createdAt: "createdAt",
   pricePerAf: "pricePerAF",
   acreFeet: "acreFeet",
-  availabilityEnd: "availabilityEnd",
+  availabilityEnd: "availability", // legacy alias
   district: "district",
 };
 
@@ -74,13 +75,14 @@ export async function GET(req: NextRequest) {
     // Paging + sorting
     const take = !q.premium ? 3 : q.pageSize;
     const skip = !q.premium ? 0 : (q.page - 1) * q.pageSize;
-    const orderKey = ORDER_MAP[q.sortBy] ?? "createdAt";
+    const orderColumn = ORDER_MAP[q.sortBy] || "createdAt";
 
     const [total, rows] = await Promise.all([
       prisma.listing.count({ where }),
       prisma.listing.findMany({
         where,
-        orderBy: { [orderKey]: q.sortDir },
+        // Cast to any so we can safely pass a string key (legacy alias supported)
+        orderBy: { [orderColumn]: q.sortDir } as any,
         skip,
         take,
         select: {
@@ -88,12 +90,12 @@ export async function GET(req: NextRequest) {
           district: true,
           waterType: true,
           acreFeet: true,
-          pricePerAF: true,      // cents
-          availabilityEnd: true, // end-only
+          pricePerAF: true, // cents
+          availability: true, // keep reading the string field
           createdAt: true,
           status: true,
           kind: true,
-          sellerId: true,        // owner id for client logic
+          sellerId: true, // owner id for client logic
         },
       }),
     ]);
@@ -103,12 +105,14 @@ export async function GET(req: NextRequest) {
       district: r.district,
       acreFeet: r.acreFeet,
       pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars
-      availabilityEnd: r.availabilityEnd?.toISOString?.() ?? null,
+      // Field kept for backward compat even though DB has only "availability" (string)
+      availabilityEnd: null as string | null,
       waterType: r.waterType,
       createdAt: r.createdAt.toISOString(),
       ownerUserId: r.sellerId,
       status: r.status,
       kind: r.kind,
+      availability: r.availability,
     }));
 
     return noCache(NextResponse.json({ listings, total, limited: !q.premium }, { status: 200 }));
@@ -141,10 +145,7 @@ export async function POST(req: NextRequest) {
     const waterType = String(body.waterType || "Surface");
 
     // acre-feet – accept acreFeet or volumeAF
-    const acreFeet = Math.max(
-      0,
-      Math.floor(Number(body.acreFeet ?? body.volumeAF ?? 0))
-    );
+    const acreFeet = Math.max(0, Math.floor(Number(body.acreFeet ?? body.volumeAF ?? 0)));
 
     // price per AF – dollars (required, > 0)
     const rawPrice = Number(body.pricePerAF);
@@ -153,13 +154,11 @@ export async function POST(req: NextRequest) {
     }
     const pricePerAfCents = Math.round(rawPrice * 100);
 
-    // availabilityEnd (optional) -> default 60 days out
-    const availabilityEnd = body.availabilityEnd
-      ? new Date(body.availabilityEnd)
-      : new Date(Date.now() + 60 * 24 * 3600 * 1000);
-
+    // Compose an "availability" label (DB only stores the string today)
+    const fallbackEnd = new Date(Date.now() + 60 * 24 * 3600 * 1000);
+    const availabilityEndInput = body.availabilityEnd ? new Date(body.availabilityEnd) : fallbackEnd;
     const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-    const availability = `Through ${mm(availabilityEnd)} ${availabilityEnd.getFullYear()}`;
+    const availability = `Through ${mm(availabilityEndInput)} ${availabilityEndInput.getFullYear()}`;
 
     const created = await prisma.listing.create({
       data: {
@@ -167,8 +166,7 @@ export async function POST(req: NextRequest) {
         description: body.description ? String(body.description) : null, // optional
         district,
         waterType,
-        availability,
-        availabilityEnd,
+        availability, // string only (no availabilityEnd column in DB)
         acreFeet,
         pricePerAF: pricePerAfCents, // cents
         kind,
