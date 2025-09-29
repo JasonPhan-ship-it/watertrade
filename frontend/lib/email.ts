@@ -86,6 +86,24 @@ export function appUrl(path = "/") {
   return `${base}${suffix}`;
 }
 
+/* --- Safety rail: coerce accidental in-app #sign links to the DocuSign redirect endpoint --- */
+function extractTxIdFromUrl(u: string) {
+  try {
+    const url = new URL(u, appUrl("/"));
+    const m = url.pathname.match(/\/transactions\/([^/]+)/);
+    return m?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+function coerceSellerSignLink(signLink: string): string {
+  if (signLink.includes("/transactions/") && signLink.includes("#sign")) {
+    const txId = extractTxIdFromUrl(signLink);
+    if (txId) return appUrl(`/api/signing/seller?tx=${txId}`);
+  }
+  return signLink;
+}
+
 /* --------------- Sender ---------------- */
 export async function sendEmail(opts: SendEmailOptions): Promise<{ id?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
@@ -526,11 +544,11 @@ export function renderSellerDocsReadyPurchasedEmail(params: {
   sellerName?: string | null;
   buyerName?: string | null;
   offer: OfferSummary;
-  signLink: string;     // /sign/:id?role=seller or provider deep link
+  signLink: string;     // should be /api/signing/seller?tx=:id (coerced if necessary)
   viewLink?: string;    // optional details link
 }) {
   const { sellerName, buyerName, offer, signLink, viewLink } = params;
-
+  const safeSignLink = coerceSellerSignLink(signLink);
   const price = offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf);
 
   const html = renderEmailLayout({
@@ -548,7 +566,7 @@ export function renderSellerDocsReadyPurchasedEmail(params: {
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
     ctas: [
-      { label: "Review & Sign", href: signLink, primary: true },
+      { label: "Review & Sign", href: safeSignLink, primary: true },
       ...(viewLink ? [{ label: "View Details", href: viewLink }] : []),
     ],
     logoUrl: DEFAULT_LOGO,
@@ -565,10 +583,12 @@ export function renderSellerNeedsSignatureEmail(params: {
   sellerName?: string | null;
   buyerName?: string | null;
   offer: OfferSummary;
-  signLink: string;     // /sign/:id?role=seller
+  signLink: string;     // should be /api/signing/seller?tx=:id (coerced if necessary)
   viewLink?: string;    // optional details link
 }) {
   const { sellerName, buyerName, offer, signLink, viewLink } = params;
+  const safeSignLink = coerceSellerSignLink(signLink);
+
   const html = renderEmailLayout({
     title: "Please review & sign",
     subtitle: sellerName ? `Hi ${sellerName}, it’s your turn to sign.` : "It’s your turn to sign.",
@@ -584,7 +604,7 @@ export function renderSellerNeedsSignatureEmail(params: {
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
     ctas: [
-      { label: "Review & Sign", href: signLink, primary: true },
+      { label: "Review & Sign", href: safeSignLink, primary: true },
       ...(viewLink ? [{ label: "View Details", href: viewLink }] : []),
     ],
     logoUrl: DEFAULT_LOGO,
