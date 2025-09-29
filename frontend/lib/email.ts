@@ -10,6 +10,7 @@
  *  - renderSellerCounterEmail
  *  - renderBuyerDeclinedEmail
  *  - renderDocsKickoffEmail
+ *  - renderSellerDocsReadyPurchasedEmail   <-- NEW
  *  - renderSellerNeedsSignatureEmail
  *  - renderBuyerSignedAckEmail
  *  - renderFullyExecutedEmail
@@ -519,6 +520,45 @@ export function renderDocsKickoffEmail(params: {
 }
 
 /* ---------------- Additional signing-phase emails ---------------- */
+
+/** SELLER → docs ready after the BUYER uses Buy Now (explicit purchase mention) */
+export function renderSellerDocsReadyPurchasedEmail(params: {
+  sellerName?: string | null;
+  buyerName?: string | null;
+  offer: OfferSummary;
+  signLink: string;     // /sign/:id?role=seller or provider deep link
+  viewLink?: string;    // optional details link
+}) {
+  const { sellerName, buyerName, offer, signLink, viewLink } = params;
+
+  const price = offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf);
+
+  const html = renderEmailLayout({
+    title: "Documents ready — review & sign",
+    subtitle: sellerName ? `Hi ${sellerName},` : undefined,
+    intro:
+      `${buyerName || "A buyer"} just bought your water for ${price} on “${offer.listingTitle}.” ` +
+      `Please review and sign to continue.`,
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: price },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: [
+      { label: "Review & Sign", href: signLink, primary: true },
+      ...(viewLink ? [{ label: "View Details", href: viewLink }] : []),
+    ],
+    logoUrl: DEFAULT_LOGO,
+  });
+
+  return {
+    html,
+    preheader: "Buyer purchased at your set price — please review and sign.",
+  };
+}
 
 /** SELLER → needs to sign after the BUYER signs */
 export function renderSellerNeedsSignatureEmail(params: {
