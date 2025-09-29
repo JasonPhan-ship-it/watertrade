@@ -51,8 +51,8 @@ model User {
   @@index([role])
   @@index([subscriptionStatus])
   @@index([clerkId])
-  @@index([verifiedBuyerAt])
-  @@index([verifiedSellerAt])
+  // @@index([verifiedBuyerAt])
+  // @@index([verifiedSellerAt])
 }
 
 /* ========================= Listings & Bids ========================= */
@@ -72,8 +72,8 @@ model Listing {
   availability String
 
   // Real dates for sorting/filters
-  availabilityStart DateTime  @default(now())
-  availabilityEnd   DateTime  @default(now())
+  // availabilityStart DateTime  @default(now())
+  // availabilityEnd   DateTime  @default(now())
 
   acreFeet     Int
   pricePerAF   Int                 // cents
