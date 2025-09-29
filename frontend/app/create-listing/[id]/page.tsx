@@ -7,6 +7,8 @@ import BuyNow from "./parts/BuyNow";
 import MakeOffer from "./parts/MakeOffer";
 import AuctionBid from "./parts/AuctionBid";
 
+export const revalidate = 0; // always fresh
+
 export default async function ListingDetailPage({
   params,
 }: {
@@ -16,13 +18,12 @@ export default async function ListingDetailPage({
     where: { id: params.id },
     select: {
       id: true,
-      sellerId: true,              // needed to compute ownership
+      sellerId: true, // needed to compute ownership
       title: true,
       district: true,
       acreFeet: true,
-      pricePerAF: true,            // cents
-      availabilityStart: true,     // Date
-      availabilityEnd: true,       // Date
+      pricePerAF: true, // cents
+      availability: true, // string label (e.g., "Through Sep 2025")
       waterType: true,
       createdAt: true,
       isAuction: true,
@@ -46,7 +47,7 @@ export default async function ListingDetailPage({
     }
   }
 
-  const priceDollars = (listing.pricePerAF / 100).toLocaleString(undefined, {
+  const priceDollars = ((listing.pricePerAF ?? 0) / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -96,7 +97,7 @@ export default async function ListingDetailPage({
             <div>
               <dt className="text-xs text-slate-500">Availability</dt>
               <dd className="text-sm font-medium text-slate-900">
-                {formatWindow(listing.availabilityStart, listing.availabilityEnd)}
+                {listing.availability ?? "—"}
               </dd>
             </div>
             <div>
@@ -129,7 +130,7 @@ export default async function ListingDetailPage({
               id: listing.id,
               title: listing.title || undefined,
               acreFeet: listing.acreFeet,
-              pricePerAF: listing.pricePerAF, // cents; component shows dollars
+              pricePerAF: listing.pricePerAF ?? 0, // cents; component shows dollars
             }}
           />
 
@@ -138,7 +139,7 @@ export default async function ListingDetailPage({
             <AuctionBid
               listing={{
                 id: listing.id,
-                pricePerAF: listing.pricePerAF, // cents
+                pricePerAF: listing.pricePerAF ?? 0, // cents
               }}
             />
           ) : null}
@@ -146,15 +147,4 @@ export default async function ListingDetailPage({
       </div>
     </main>
   );
-}
-
-/* ---------- Helpers ---------- */
-function formatWindow(start: Date | string, end: Date | string) {
-  const s = new Date(start);
-  const e = new Date(end);
-  const sameYear = s.getFullYear() === e.getFullYear();
-  const mm = (d: Date) => d.toLocaleString("en-US", { month: "short" });
-  return sameYear
-    ? `${mm(s)}–${mm(e)} ${s.getFullYear()}`
-    : `${mm(s)} ${s.getFullYear()} – ${mm(e)} ${e.getFullYear()}`;
 }
