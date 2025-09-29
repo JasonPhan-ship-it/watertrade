@@ -25,7 +25,7 @@ model User {
   stripeCustomerId       String?   @unique
   stripeSubscriptionId   String?   @unique
 
-  // --- Admin verification gates ---
+  // Admin verification gates
   verifiedBuyerAt  DateTime?
   verifiedSellerAt DateTime?
 
@@ -35,7 +35,7 @@ model User {
   sellerTransactions  Transaction[] @relation("SellerTransactions")
   bids                Bid[]                                 // back-relation for Bid.bidder
   notifications       Notification[]                        // in-app notifications (optional)
-  profile             UserProfile?                          // one-to-one profile created via onboarding
+  profile             UserProfile?                          // one-to-one profile
   farms               Farm[]                                // farms owned by the user
 
   // Negotiations
@@ -83,7 +83,7 @@ model Listing {
 
   status       ListingStatus   @default(ACTIVE)
 
-  // Seller (optional for seed)
+  // Seller
   seller       User?           @relation(fields: [sellerId], references: [id], onDelete: SetNull)
   sellerId     String?
 
@@ -135,7 +135,7 @@ model Trade {
   buyer              User          @relation("TradeBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
   buyerUserId        String
 
-  // Snapshot fields (denormalized for emails/audits & immutability per round)
+  // Snapshot fields (denormalized for emails/audits)
   district           String
   waterType          String?
   volumeAf           Int
@@ -146,7 +146,7 @@ model Trade {
   round              Int           @default(1)
   lastActor          Party?
 
-  // Magic-link tokens for email access (store hashed if desired)
+  // Magic-link tokens
   sellerToken        String        @default(uuid())
   buyerToken         String        @default(uuid())
 
@@ -156,7 +156,7 @@ model Trade {
   buyerSignUrl       String?
   sellerSignUrl      String?
 
-  // Final doc once fully executed (or stored on Transaction)
+  // Final doc once fully executed
   agreementUrl       String?
 
   // Optional link into escrow/payments pipeline (1:1)
@@ -182,7 +182,7 @@ model TradeEvent {
   tradeId    String
 
   actor      String   // "buyer" | "seller" | "system"
-  kind       String   // "OFFER" | "COUNTER" | "ACCEPT" | "DECLINE" | "SIGN_REQUEST" | "SIGNED" | ...
+  kind       String   // "OFFER" | "COUNTER" | "ACCEPT" | ...
   payload    Json
   createdAt  DateTime @default(now())
 
@@ -225,13 +225,13 @@ model Transaction {
   complianceApprovedBy String?
   complianceApprovedAt DateTime?
 
-  // Final docs (duplicated here if you prefer Transaction-centric doc storage)
+  // Final docs (Transaction-centric doc storage)
   agreementUrl String?
 
-  // ---- DocuSign integration (kept for routes that read tx.docusignEnvelopeId) ----
+  // ---- DocuSign integration (used by signing routes) ----
   docusignEnvelopeId   String?   // envelope id for this transaction
-  sellerClientUserId   String?   // embedded signer id used for seller
-  buyerClientUserId    String?   // embedded signer id used for buyer
+  sellerClientUserId   String?   // embedded signer id for seller
+  buyerClientUserId    String?   // embedded signer id for buyer
   sellerSignUrl        String?   // optional cached embedded URL
   buyerSignUrl         String?   // optional cached embedded URL
 
@@ -278,15 +278,14 @@ model UserProfile {
   // Onboarding-friendly fields
   firstName        String?
   lastName         String?
-  fullName         String       // required single source of truth
+  fullName         String
   address          String?
   email            String?
-  // phone          String?      // intentionally removed from UI; keep or drop DB column per your migration plan
   cellPhone        String?
   smsOptIn         Boolean      @default(false)
   districts        String[]     @default([])
 
-  // Legacy/optional fields retained for back-compat
+  // Legacy/optional fields
   company          String?
   tradeRole        ProfileRole  @default(BOTH)
   primaryDistrict  String?
