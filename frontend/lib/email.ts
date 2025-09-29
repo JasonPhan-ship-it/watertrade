@@ -10,7 +10,7 @@
  *  - renderSellerCounterEmail
  *  - renderBuyerDeclinedEmail
  *  - renderDocsKickoffEmail
- *  - renderSellerDocsReadyPurchasedEmail   <-- NEW
+ *  - renderSellerDocsReadyPurchasedEmail   <-- For Buy Now SELLER
  *  - renderSellerNeedsSignatureEmail
  *  - renderBuyerSignedAckEmail
  *  - renderFullyExecutedEmail
@@ -86,20 +86,39 @@ export function appUrl(path = "/") {
   return `${base}${suffix}`;
 }
 
-/* --- Safety rail: coerce accidental in-app #sign links to the DocuSign redirect endpoint --- */
+/* --- Safety rail: normalize any seller sign link to the DocuSign *creator/redirector* endpoint --- */
 function extractTxIdFromUrl(u: string) {
   try {
     const url = new URL(u, appUrl("/"));
-    const m = url.pathname.match(/\/transactions\/([^/]+)/);
-    return m?.[1] || null;
+    // /transactions/<id>#sign
+    const m1 = url.pathname.match(/\/transactions\/([^/]+)/)?.[1];
+    if (m1) return m1;
+    // /api/signing/seller?tx=<id>
+    const txParam = url.searchParams.get("tx");
+    if (txParam) return txParam;
+    // /api/sign-url?id=<id>
+    const idParam = url.searchParams.get("id");
+    if (idParam) return idParam;
+    return null;
   } catch {
     return null;
   }
 }
+
+/**
+ * Always return /api/sign-url?id=<txId>&role=seller&redirect=1
+ * so we create the envelope on-demand and 302 to DocuSign.
+ */
 function coerceSellerSignLink(signLink: string): string {
-  if (signLink.includes("/transactions/") && signLink.includes("#sign")) {
-    const txId = extractTxIdFromUrl(signLink);
-    if (txId) return appUrl(`/api/signing/seller?tx=${txId}`);
+  const txId =
+    extractTxIdFromUrl(signLink) ||
+    // last-ditch split if someone passed a bare tx param
+    signLink.split("tx=").pop()?.split("&")[0] ||
+    signLink.split("id=").pop()?.split("&")[0] ||
+    "";
+
+  if (txId) {
+    return appUrl(`/api/sign-url?id=${txId}&role=seller&redirect=1`);
   }
   return signLink;
 }
@@ -316,7 +335,7 @@ function renderEmailLayout(params: {
   </table>`;
 }
 
-/* --------- Negotiation Templates (the ones your routes import) --------- */
+/* --------- Negotiation Templates --------- */
 
 type OfferSummary = {
   listingTitle: string;
@@ -496,7 +515,8 @@ export function renderBuyerDeclinedEmail(params: {
   return { html, preheader: "Offer declined—browse similar opportunities." };
 }
 
-/** Branded email for doc/signature kickoff (generic) */
+/** Branded email for doc/signature kickoff (generic).
+ * For Buy Now, prefer renderSellerDocsReadyPurchasedEmail instead. */
 export function renderDocsKickoffEmail(params: {
   title: string;
   subtitle?: string;
@@ -544,7 +564,7 @@ export function renderSellerDocsReadyPurchasedEmail(params: {
   sellerName?: string | null;
   buyerName?: string | null;
   offer: OfferSummary;
-  signLink: string;     // should be /api/signing/seller?tx=:id (coerced if necessary)
+  signLink: string;     // can be any form; coerced to /api/sign-url?id=:id&role=seller&redirect=1
   viewLink?: string;    // optional details link
 }) {
   const { sellerName, buyerName, offer, signLink, viewLink } = params;
@@ -552,7 +572,7 @@ export function renderSellerDocsReadyPurchasedEmail(params: {
   const price = offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf);
 
   const html = renderEmailLayout({
-    title: "Documents ready — review & sign",
+    title: "Buyer purchased at your set price — documents ready to sign",
     subtitle: sellerName ? `Hi ${sellerName},` : undefined,
     intro:
       `${buyerName || "A buyer"} just bought your water for ${price} on “${offer.listingTitle}.” ` +
@@ -583,7 +603,7 @@ export function renderSellerNeedsSignatureEmail(params: {
   sellerName?: string | null;
   buyerName?: string | null;
   offer: OfferSummary;
-  signLink: string;     // should be /api/signing/seller?tx=:id (coerced if necessary)
+  signLink: string;     // coerced to /api/sign-url?id=:id&role=seller&redirect=1
   viewLink?: string;    // optional details link
 }) {
   const { sellerName, buyerName, offer, signLink, viewLink } = params;
