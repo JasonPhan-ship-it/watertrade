@@ -316,13 +316,16 @@ export async function GET(req: NextRequest) {
     await loadDocuSign();
 
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id") || "";
+    const id = searchParams.get("tx") || searchParams.get("id") || "";
     const debug = searchParams.get("debug") === "1";
-    const forceRedirect = searchParams.get("redirect") === "1";
+    const format = (searchParams.get("format") || "").toLowerCase(); // "json" to prevent redirect
     const wantConsent = searchParams.get("consent") === "1";
     const wantRolesOnly = searchParams.get("roles") === "1";
     const useSample = searchParams.get("sample") === "1";
     const roleParam = (searchParams.get("role") || "").toLowerCase();
+
+    // Emails should land in DocuSign immediately; default to redirect unless caller asks for JSON.
+    const forceRedirect = format !== "json" && !debug;
 
     // Utility: return consent URL on demand
     if (wantConsent) {
@@ -332,7 +335,7 @@ export async function GET(req: NextRequest) {
       return json({ ok: true, consentUrl });
     }
 
-    if (!id) return fail(400, "Missing id");
+    if (!id) return fail(400, "Missing id|tx");
 
     PHASE = "trade.load";
     const trade = await ensureTradeFromAnyIdOrCreate(id);
@@ -674,8 +677,8 @@ export async function GET(req: NextRequest) {
     const signUrl = recipientView?.url;
     if (!signUrl) return fail(500, "No sign URL returned", recipientView);
 
-    /* -------- Option A: return JSON; optionally allow redirect with ?redirect=1 -------- */
-    if (forceRedirect && !debug) {
+    /* -------- Default: redirect to DocuSign; JSON if requested -------- */
+    if (forceRedirect) {
       const res = NextResponse.redirect(signUrl, 302);
       return noCacheHeaders(res);
     }
