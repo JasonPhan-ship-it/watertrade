@@ -25,7 +25,7 @@ model User {
   stripeCustomerId       String?   @unique
   stripeSubscriptionId   String?   @unique
 
-  // --- NEW: Admin verification gates ---
+  // --- Admin verification gates ---
   verifiedBuyerAt  DateTime?
   verifiedSellerAt DateTime?
 
@@ -38,11 +38,11 @@ model User {
   profile             UserProfile?                          // one-to-one profile created via onboarding
   farms               Farm[]                                // farms owned by the user
 
-  // Negotiations (new)
+  // Negotiations
   tradesAsBuyer       Trade[] @relation("TradeBuyer")
   tradesAsSeller      Trade[] @relation("TradeSeller")
 
-  // --- NEW: Verification requests back-relation ---
+  // Verification requests back-relation
   verificationRequests VerificationRequest[]
 
   createdAt DateTime @default(now())
@@ -94,7 +94,7 @@ model Listing {
 
   bids          Bid[]
   transactions  Transaction[]  // escrow/payments pipeline
-  trades        Trade[]        // negotiations pipeline (new)
+  trades        Trade[]        // negotiations pipeline
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -121,9 +121,7 @@ model Bid {
   @@index([bidderId, createdAt])
 }
 
-/* ========================= Negotiations (NEW) =========================
-   This runs the offer ↔ counter loop, acceptance, and signature requests.
-   When both parties sign, you can create/attach a Transaction record. */
+/* ========================= Negotiations ========================= */
 
 model Trade {
   id                 String        @id @default(cuid())
@@ -152,7 +150,7 @@ model Trade {
   sellerToken        String        @default(uuid())
   buyerToken         String        @default(uuid())
 
-  // Signature progression (simple flags; full details in Signature/Transaction if you prefer)
+  // Signature progression
   buyerSignStatus    SignatureProgress @default(NONE)
   sellerSignStatus   SignatureProgress @default(NONE)
   buyerSignUrl       String?
@@ -161,7 +159,7 @@ model Trade {
   // Final doc once fully executed (or stored on Transaction)
   agreementUrl       String?
 
-  // Optional link into escrow/payments pipeline (1:1) — FK must be unique
+  // Optional link into escrow/payments pipeline (1:1)
   transaction   Transaction? @relation("TradeToTransaction", fields: [transactionId], references: [id], onDelete: SetNull)
   transactionId String?      @unique
 
@@ -191,9 +189,7 @@ model TradeEvent {
   @@index([tradeId, createdAt])
 }
 
-/* ========================= Escrow / Payments =========================
-   Keep your existing Transaction/Signature for the payment/compliance side.
-   (Trade ↔ Transaction link is named "TradeToTransaction".) */
+/* ========================= Escrow / Payments ========================= */
 
 model Transaction {
   id          String            @id @default(cuid())
@@ -232,6 +228,13 @@ model Transaction {
   // Final docs (duplicated here if you prefer Transaction-centric doc storage)
   agreementUrl String?
 
+  // ---- DocuSign integration (kept for routes that read tx.docusignEnvelopeId) ----
+  docusignEnvelopeId   String?   // envelope id for this transaction
+  sellerClientUserId   String?   // embedded signer id used for seller
+  buyerClientUserId    String?   // embedded signer id used for buyer
+  sellerSignUrl        String?   // optional cached embedded URL
+  buyerSignUrl         String?   // optional cached embedded URL
+
   // Back-relation to Trade (no extra FK here)
   trade Trade? @relation("TradeToTransaction")
 
@@ -244,6 +247,7 @@ model Transaction {
   @@index([status])
   @@index([listingId])
   @@index([createdAt])
+  @@index([docusignEnvelopeId])
 }
 
 model Signature {
@@ -256,8 +260,8 @@ model Signature {
   docusignEnvelopeId String?
   status             SignatureStatus @default(PENDING)
   completedAt        DateTime?
-  signerUrl          String?         // optional convenience
-  documentUrl        String?         // optional convenience
+  signerUrl          String?
+  documentUrl        String?
 
   @@index([transactionId, party])
 }
@@ -324,7 +328,7 @@ model Notification {
 
   relatedListingId     String?
   relatedTransactionId String?
-  relatedTradeId       String?    // NEW (optional cross-link)
+  relatedTradeId       String?
 
   createdAt            DateTime @default(now())
 
@@ -335,7 +339,7 @@ model Notification {
   @@index([kind, createdAt])
 }
 
-/* ========================= Verification (NEW) ========================= */
+/* ========================= Verification ========================= */
 
 model VerificationRequest {
   id         String             @id @default(cuid())
@@ -428,7 +432,7 @@ enum NotificationKind {
   PAYMENT_CONFIRMED
 }
 
-/* ---- NEW (Negotiations) ---- */
+/* ---- Negotiations ---- */
 
 enum TradeStatus {
   OFFERED
@@ -448,7 +452,7 @@ enum SignatureProgress {
   SIGNED
 }
 
-/* ---- NEW (Verification) ---- */
+/* ---- Verification ---- */
 
 enum VerificationType {
   BUY
