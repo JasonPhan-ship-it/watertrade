@@ -1,4 +1,4 @@
-// components/BuyNowButton.tsx
+// components/transactions/BuyNowButton.tsx
 "use client";
 
 import * as React from "react";
@@ -6,19 +6,31 @@ import { useTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
-type ServerActionResult =
-  | void
-  | { confirmationUrl?: string } // preferred: return this from your server action
-  | string;                      // also allow a raw string URL
+type ServerActionResult = void | { confirmationUrl?: string } | string;
 
-type Props = {
-  transactionId: string;                                // ⬅️ use transactionId
-  action: (formData: FormData) => Promise<ServerActionResult>; // server action
-  label?: string;
-  className?: string;
-};
+type Props =
+  | {
+      /** Transaction id (required in both modes) */
+      transactionId: string;
+      /** OPTIONAL: server action to run purchase. If omitted, falls back to REST POST /api/transactions/:id/buy */
+      action?: (formData: FormData) => Promise<ServerActionResult>;
+      label?: string;
+      className?: string;
+      redirectDelayMs?: number;
+      fallbackUrl?: string;
+    }
+  | never;
 
-export default function BuyNowButton({ transactionId, action, label, className }: Props) {
+export default function BuyNowButton(props: Props) {
+  const {
+    transactionId,
+    action,
+    label,
+    className,
+    redirectDelayMs = 3500,
+    fallbackUrl = "/dashboard",
+  } = props as Props;
+
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -26,34 +38,46 @@ export default function BuyNowButton({ transactionId, action, label, className }
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isPending || done) return; // double-submit guard
+    if (isPending || done) return;
     setError(null);
-
-    const fd = new FormData();
-    fd.set("transactionId", transactionId); // ⬅️ pass tx id
 
     startTransition(async () => {
       try {
-        const result = await action(fd);
-        // If the server action calls redirect(), code below won't run (that’s fine).
+        // MODE A: Server Action (if provided)
+        if (action) {
+          const fd = new FormData();
+          fd.set("transactionId", transactionId);
+          const result = await action(fd);
+          const url =
+            typeof result === "string"
+              ? result
+              : (result && typeof result === "object" && (result as any).confirmationUrl) || undefined;
 
-        // If action returned a URL (object or string), navigate there.
-        const url =
-          (typeof result === "string" && result) ||
-          ((result && typeof result === "object" && "confirmationUrl" in result && result.confirmationUrl) as
-            | string
-            | undefined);
-
-        if (url) {
-          router.push(url);
+          if (url) {
+            router.push(url);
+            return;
+          }
+          setDone(true);
+          setTimeout(() => router.push(fallbackUrl), redirectDelayMs);
           return;
         }
 
-        // Fallback behavior: show success then go to dashboard.
+        // MODE B: REST API fallback (no server action provided)
+        const res = await fetch(`/api/transactions/${transactionId}/buy`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j?.error || `Purchase failed (${res.status})`);
+        }
+        const j = (await res.json().catch(() => ({}))) as { confirmationUrl?: string };
+        if (j?.confirmationUrl) {
+          router.push(j.confirmationUrl);
+          return;
+        }
+        // No URL? fallback redirect
         setDone(true);
-        setTimeout(() => {
-          router.push("/dashboard");
-        }, 3500);
+        setTimeout(() => router.push(fallbackUrl), redirectDelayMs);
       } catch (err: any) {
         const msg =
           err?.message ||
@@ -65,15 +89,18 @@ export default function BuyNowButton({ transactionId, action, label, className }
     });
   };
 
+  const disabled = isPending || done;
+
   return (
-    <form onSubmit={onSubmit} className="space-y-2">
+    <form onSubmit={onSubmit} className="space-y-2" data-buy-now="primary">
       <input type="hidden" name="transactionId" value={transactionId} />
       <Button
         type="submit"
-        disabled={isPending || done}
-        className={className ? `w-full ${className}` : "w-full"}
+        disabled={disabled}
         aria-busy={isPending}
+        aria-disabled={disabled}
         aria-live="polite"
+        className={`w-full ${disabled ? "pointer-events-none" : ""} ${className ?? ""}`}
       >
         {isPending
           ? "Processing..."
@@ -81,7 +108,11 @@ export default function BuyNowButton({ transactionId, action, label, className }
           ? "Purchased — redirecting…"
           : label ?? "Buy Now"}
       </Button>
-      {error && <div className="text-sm text-red-600" role="alert">{error}</div>}
+      {error && (
+        <div className="text-sm text-red-600" role="alert">
+          {error}
+        </div>
+      )}
     </form>
   );
 }
