@@ -9,14 +9,16 @@ import type { Prisma } from "@prisma/client";
 import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
-import BuyNowConfirmButton from "@/components/trade/BuyNowConfirmButton"; // ← NEW
+import BuyNowConfirmButton from "@/components/trade/BuyNowConfirmButton";
 
 // ---------- Types ----------
 type Props = {
-  tradeId: string; // can be a Transaction.id OR a Trade.id
-  role?: string;   // "buyer" | "seller" | (optional hint, case-insensitive)
-  token?: string;  // optional magic token for server actions
-  action?: string; // "review" | ...
+  tradeId: string;             // Transaction.id OR Trade.id
+  role?: string;               // "buyer" | "seller" | (hint, case-insensitive)
+  token?: string;              // optional magic token for server actions
+  action?: string;             // "review" | ...
+  /** Hide the inline/legacy Buy Now button rendered by TradeShell */
+  hideInlineBuyNow?: boolean;  // NEW
 };
 
 const signatureSelect = {
@@ -114,7 +116,12 @@ function buildUrl(base: string, opts: { token?: string; role?: "buyer" | "seller
 }
 
 // ---------- Component ----------
-export default async function TradeShell({ tradeId, role = "", token = "" }: Props) {
+export default async function TradeShell({
+  tradeId,
+  role = "",
+  token = "",
+  hideInlineBuyNow = false, // default false → only hide when asked
+}: Props) {
   if (!tradeId || typeof tradeId !== "string" || tradeId.trim().length === 0) {
     return uiError("Transaction not found", "Missing or invalid transaction id.", tradeId);
   }
@@ -245,10 +252,12 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
 
       {/* Actions */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        {/* BUY NOW → ONLY this one button; hide hints */}
+        {/* BUY NOW → ONLY show this inline button when not hidden */}
         {isBuyNow ? (
           <div className="flex flex-wrap items-center gap-3">
-            <BuyNowConfirmButton transactionId={tx.id} />
+            {!hideInlineBuyNow && (
+              <BuyNowConfirmButton transactionId={tx.id} />
+            )}
           </div>
         ) : (
           <>
@@ -311,7 +320,8 @@ export default async function TradeShell({ tradeId, role = "", token = "" }: Pro
           </>
         )}
       </div>
-            {/* Disclaimer */}
+
+      {/* Disclaimer */}
       <div className="mt-6 text-xs text-slate-500">
         Prices shown are dollars per acre-foot. Final settlement may vary with conveyance and district fees.
       </div>
