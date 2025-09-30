@@ -6,54 +6,64 @@ import { auth } from "@clerk/nextjs/server";
 import { Info } from "lucide-react";
 import dynamic from "next/dynamic";
 
-export const revalidate = 0; // always fresh
-export const runtime = "nodejs"; // ensure Prisma runs on Node, not Edge
+export const revalidate = 0;
+export const runtime = "nodejs"; // ensure Prisma runs on Node
 
-type PageProps = { params: { id: string } };
+// 🚫 Do NOT import types from client modules.
+// Define local types instead to avoid accidental client-module resolution.
+type OfferSide = "received" | "sent";
+type OfferStatus = "pending" | "accepted" | "declined" | "expired" | "countered";
+type DealStage =
+  | "OFFER_SENT"
+  | "OFFER_ACCEPTED"
+  | "CONTRACTS_DRAFTED"
+  | "SIGNING_IN_PROGRESS"
+  | "ESCROW_OPENED"
+  | "DUE_DILIGENCE"
+  | "CLOSING_SCHEDULED"
+  | "CLOSED";
 
-// ✅ Load client components only on the client to avoid server-render crashes
+type Offer = {
+  id: string;
+  side: OfferSide;
+  fromParty: string;
+  amount: number;
+  terms?: string;
+  createdAt: string;
+  expiresAt?: string;
+  status: OfferStatus;
+  unread?: boolean;
+  notes?: string;
+};
+
+// ✅ Load client components only on the client
 const ListingActions = dynamic(() => import("@/components/ListingActions"), { ssr: false });
 const OffersPanelWithActions = dynamic(
   () => import("@/components/listings/OffersPanelWithActions"),
   { ssr: false }
 );
 
+type PageProps = { params: { id: string } };
+
 export default async function ListingDetailPage({ params }: PageProps) {
-  /** Identify viewer (non-fatal if this fails) */
-  let viewerDbUserId: string | null = null;
   try {
-    const { userId: clerkId } = auth();
-    if (clerkId) {
-      const viewer = await prisma.user.findUnique({
-        where: { clerkId },
-        select: { id: true },
-      });
-      viewerDbUserId = viewer?.id ?? null;
-    }
-  } catch (e) {
-    console.error("[listing page] auth/prisma user lookup failed", e);
-  }
-
-  /** Listing core details */
-  let row:
-    | {
-        id: string;
-        title: string | null;
-        description: string | null;
-        district: string | null;
-        waterType: string | null;
-        acreFeet: number;
-        pricePerAF: number | null; // cents
-        kind: "SELL" | "BUY";
-        status: "ACTIVE" | "UNDER_CONTRACT" | "SOLD" | "ARCHIVED" | string;
-        createdAt: Date;
-        updatedAt: Date;
-        sellerId: string | null;
+    /** Identify viewer (non-fatal if this fails) */
+    let viewerDbUserId: string | null = null;
+    try {
+      const { userId: clerkId } = auth();
+      if (clerkId) {
+        const viewer = await prisma.user.findUnique({
+          where: { clerkId },
+          select: { id: true },
+        });
+        viewerDbUserId = viewer?.id ?? null;
       }
-    | null = null;
+    } catch (e) {
+      console.error("[listing page] auth/prisma user lookup failed", e);
+    }
 
-  try {
-    row = await prisma.listing.findUnique({
+    /** Listing core details */
+    const row = await prisma.listing.findUnique({
       where: { id: params.id },
       select: {
         id: true,
@@ -70,226 +80,215 @@ export default async function ListingDetailPage({ params }: PageProps) {
         sellerId: true,
       },
     });
-  } catch (e) {
-    console.error("[listing page] prisma.listing.findUnique failed", e);
-    return <ServerError where="listing" />;
-  }
 
-  if (!row) return notFound();
+    if (!row) return notFound();
 
-  const isOwner = !!viewerDbUserId && row.sellerId === viewerDbUserId;
-  const pricePerAfDollars = Number(row.pricePerAF ?? 0) / 100;
+    const isOwner = !!viewerDbUserId && row.sellerId === viewerDbUserId;
+    const pricePerAfDollars = Number(row.pricePerAF ?? 0) / 100;
 
-  const rawTitle = (row.title || "").trim();
-  const description = (row.description || "").trim() || "No description provided.";
+    const rawTitle = (row.title || "").trim();
+    const description = (row.description || "").trim() || "No description provided.";
 
-  // Smart display title: nicer heading if DB title is very short / acronym (e.g., "AEWD")
-  function isSkimpyTitle(t: string) {
-    if (!t) return true;
-    const trimmed = t.trim();
-    const looksLikeAcronym = /^[A-Z]{2,6}$/.test(trimmed);
-    return trimmed.length < 6 || looksLikeAcronym;
-  }
-  const displayTitle =
-    !isSkimpyTitle(rawTitle)
-      ? rawTitle
-      : [
-          row.kind === "BUY" ? "Buyer Request" : "For Sale",
-          row.acreFeet ? `${new Intl.NumberFormat("en-US").format(row.acreFeet)} AF` : null,
-          row.waterType || null,
-          row.district || null,
-        ]
-          .filter(Boolean)
-          .join(" · ") || "Listing";
+    function isSkimpyTitle(t: string) {
+      if (!t) return true;
+      const trimmed = t.trim();
+      const looksLikeAcronym = /^[A-Z]{2,6}$/.test(trimmed);
+      return trimmed.length < 6 || looksLikeAcronym;
+    }
+    const displayTitle =
+      !isSkimpyTitle(rawTitle)
+        ? rawTitle
+        : [
+            row.kind === "BUY" ? "Buyer Request" : "For Sale",
+            row.acreFeet ? `${new Intl.NumberFormat("en-US").format(row.acreFeet)} AF` : null,
+            row.waterType || null,
+            row.district || null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "Listing";
 
-  /** Hide skimpy/duplicative descriptions (prevents <p>AEWD</p>) */
-  const shouldShowDescription = (() => {
-    const d = (description || "").trim();
-    if (!d) return false;
-    if (/^[A-Z]{2,6}$/.test(d)) return false;
-    if (d === rawTitle || d === displayTitle) return false;
-    if (d === "No description provided.") return false;
-    return true;
-  })();
+    const shouldShowDescription = (() => {
+      const d = (description || "").trim();
+      if (!d) return false;
+      if (/^[A-Z]{2,6}$/.test(d)) return false;
+      if (d === rawTitle || d === displayTitle) return false;
+      if (d === "No description provided.") return false;
+      return true;
+    })();
 
-  /** Fetch trades/offers for the Offers & Activity Panel */
-  let trades: any[] = [];
-  try {
-    trades = await prisma.trade.findMany({
-      where: { listingId: row.id },
-      orderBy: { createdAt: "desc" },
-      // Keep includes lightweight; optional chaining below guards missing relations/fields
-      include: { buyer: true, seller: true },
+    /** Fetch trades/offers (guard includes in case relations differ) */
+    let trades: any[] = [];
+    try {
+      trades = await prisma.trade.findMany({
+        where: { listingId: row.id },
+        orderBy: { createdAt: "desc" },
+        include: {
+          // If your schema doesn’t have these relations, set to false to avoid throwing.
+          buyer: true as any,
+          seller: true as any,
+        },
+      });
+    } catch (e) {
+      console.error("[listing page] prisma.trade.findMany failed", e);
+      trades = [];
+    }
+
+    /** Map trades -> Offer[] (defensive on field names/types) */
+    const offers: Offer[] = trades.map((t: any) => {
+      const price = Number(t?.pricePerAf ?? t?.pricePerAF ?? t?.totalAmount ?? 0) || 0;
+      const createdAt = toIso(t?.createdAt);
+      const expiresAt = t?.expiresAt ? toIso(t.expiresAt) : undefined;
+
+      const side: OfferSide =
+        t?.sellerUserId && viewerDbUserId
+          ? t.sellerUserId === viewerDbUserId
+            ? "received"
+            : "sent"
+          : "received";
+
+      const status: OfferStatus =
+        t?.status === "ACCEPTED"
+          ? "accepted"
+          : t?.status === "DECLINED"
+          ? "declined"
+          : t?.status === "COUNTERED"
+          ? "countered"
+          : t?.status === "EXPIRED"
+          ? "expired"
+          : "pending";
+
+      return {
+        id: String(t?.id),
+        side,
+        fromParty:
+          side === "received"
+            ? t?.buyer?.name ?? t?.buyerName ?? "Buyer"
+            : t?.seller?.name ?? t?.sellerName ?? "Seller",
+        amount: Math.round(price),
+        terms: t?.terms ?? undefined,
+        createdAt,
+        expiresAt,
+        status,
+        unread: Boolean(t?.viewerHasSeen === false),
+        notes: t?.note ?? undefined,
+      };
     });
-  } catch (e) {
-    console.error("[listing page] prisma.trade.findMany failed", e);
-  }
 
-  /** Map trades -> panel Offer[] shape (tolerant to field name differences) */
-  type Offer = import("@/components/listings/ListingOffersPanel").Offer;
-  const offers: Offer[] = trades.map((t: any) => {
-    const price =
-      Number(
-        t.pricePerAf ??
-          t.pricePerAF ??
-          t.totalAmount ??
-          0
-      ) || 0;
+    const currentStage: DealStage | null = null;
 
-    const createdAt: string = toIso(t.createdAt);
-    const expiresAt: string | undefined = t.expiresAt ? toIso(t.expiresAt) : undefined;
-
-    const side: "received" | "sent" =
-      t?.sellerUserId && viewerDbUserId
-        ? t.sellerUserId === viewerDbUserId
-          ? "received"
-          : "sent"
-        : "received";
-
-    const status: Offer["status"] =
-      t.status === "ACCEPTED"
-        ? "accepted"
-        : t.status === "DECLINED"
-        ? "declined"
-        : t.status === "COUNTERED"
-        ? "countered"
-        : t.status === "EXPIRED"
-        ? "expired"
-        : "pending";
-
-    return {
-      id: String(t.id),
-      side,
-      fromParty:
-        side === "received"
-          ? t?.buyer?.name ?? t?.buyerName ?? "Buyer"
-          : t?.seller?.name ?? t?.sellerName ?? "Seller",
-      amount: Math.round(price),
-      terms: t?.terms ?? undefined,
-      createdAt,
-      expiresAt,
-      status,
-      unread: Boolean(t?.viewerHasSeen === false),
-      notes: t?.note ?? undefined,
-    } as Offer;
-  });
-
-  /** Progress bar: temporarily disabled (no transactionStatus on Listing) */
-  type DealStage = import("@/components/listings/ListingOffersPanel").DealStage;
-  const currentStage: DealStage | null = null;
-
-  return (
-    <div className="mx-auto max-w-6xl">
-      {/* Sticky summary header */}
-      <nav className="sticky top-0 z-30 border-b bg-white/85 backdrop-blur">
-        <div className="px-6 py-3 flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Breadcrumbs />
-              <span className="text-slate-300">/</span>
-              <h1 className="truncate text-lg font-semibold text-slate-900">{displayTitle}</h1>
-              <StatusPill status={row.status} />
-            </div>
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-              <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
-              <Meta label="Transaction Type" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
-              <Meta label="Created" value={formatDate(row.createdAt)} />
-            </div>
-          </div>
-
-          {/* Right-aligned Back to Listings button */}
-          <div className="shrink-0">
-            <Link
-              href="/dashboard"
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Back to Listings
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      {/* Body */}
-      <div className="p-6">
-        {/* Intro blurb (hidden for acronyms/duplicates) */}
-        {shouldShowDescription && <p className="text-sm text-slate-600">{description}</p>}
-
-        {/* Details + Action panel */}
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr,380px]">
-          {/* Left: Offers & Activity */}
-          <section className="space-y-6">
-            <OffersPanelWithActions
-              listingId={row.id}
-              unitLabel="Total ($)"
-              offers={offers}
-              currentStage={currentStage}
-            />
-          </section>
-
-          {/* Right: stacked cards (Buy/Offer + Seller-only help + Footer buttons) */}
-          <div className="space-y-6">
-            {/* Buy / Offer (only when viewer isn't owner and listing is SELL) */}
-            {!isOwner && row.kind === "SELL" && (
-              <aside id="buy-now" className="sticky top-24 h-fit">
-                <div className="mb-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
-                  <div className="mt-1 text-xs text-slate-500">Submit an offer or purchase now.</div>
-                </div>
-
-                <ListingActions
-                  listingId={row.id}
-                  kind="SELL"
-                  pricePerAf={pricePerAfDollars}
-                  isAuction={false}
-                  reservePrice={null}
-                />
-
-                {/* Formal helper note (subtle text + larger icon) */}
-                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                  <div className="flex items-start gap-2">
-                    <Info aria-hidden className="mt-0.5 h-7 w-7 text-emerald-600" />
-                    <p className="leading-relaxed">
-                      All funds are securely held in escrow and the final settlement amount may vary based on conveyance
-                      and applicable district fees.
-                    </p>
-                  </div>
-                </div>
-              </aside>
-            )}
-
-            {/* How actions work — visible to SELLER (owner) only */}
-            {isOwner && (
-              <aside>
-                <div className="text-sm font-semibold text-slate-900">How actions work</div>
-                <p className="mt-1 text-xs text-slate-600">
-                  <strong>Accept</strong> locks the price and moves the deal to contracts.{" "}
-                  <strong>Decline</strong> closes the thread. <strong>Counter</strong> lets you revise price/terms and
-                  re-send.
-                </p>
-              </aside>
-            )}
-
-            {/* Footer actions (no white-box chrome) */}
-            <aside>
-              <div className="flex flex-wrap items-center gap-3">
-                {isOwner && (
-                  <Link
-                    href={`/listings/${row.id}/edit`}
-                    className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] "
-                  >
-                    Edit Listing
-                  </Link>
-                )}
+    return (
+      <div className="mx-auto max-w-6xl">
+        {/* Sticky summary header */}
+        <nav className="sticky top-0 z-30 border-b bg-white/85 backdrop-blur">
+          <div className="px-6 py-3 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Breadcrumbs />
+                <span className="text-slate-300">/</span>
+                <h1 className="truncate text-lg font-semibold text-slate-900">{displayTitle}</h1>
+                <StatusPill status={row.status} />
               </div>
-            </aside>
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
+                <Meta label="Transaction Type" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
+                <Meta label="Created" value={formatDate(row.createdAt)} />
+              </div>
+            </div>
+
+            <div className="shrink-0">
+              <Link
+                href="/dashboard"
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Back to Listings
+              </Link>
+            </div>
+          </div>
+        </nav>
+
+        {/* Body */}
+        <div className="p-6">
+          {shouldShowDescription && <p className="text-sm text-slate-600">{description}</p>}
+
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr,380px]">
+            {/* Left: Offers & Activity */}
+            <section className="space-y-6">
+              {/* client component, SSR disabled */}
+              <OffersPanelWithActions
+                listingId={row.id}
+                unitLabel="Total ($)"
+                offers={offers}
+                currentStage={currentStage}
+              />
+            </section>
+
+            {/* Right: stacked cards */}
+            <div className="space-y-6">
+              {!isOwner && row.kind === "SELL" && (
+                <aside id="buy-now" className="sticky top-24 h-fit">
+                  <div className="mb-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="text-sm font-semibold text-slate-900">Buy / Offer</div>
+                    <div className="mt-1 text-xs text-slate-500">Submit an offer or purchase now.</div>
+                  </div>
+
+                  {/* client component, SSR disabled */}
+                  <ListingActions
+                    listingId={row.id}
+                    kind="SELL"
+                    pricePerAf={pricePerAfDollars}
+                    isAuction={false}
+                    reservePrice={null}
+                  />
+
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                    <div className="flex items-start gap-2">
+                      <Info aria-hidden className="mt-0.5 h-7 w-7 text-emerald-600" />
+                      <p className="leading-relaxed">
+                        All funds are securely held in escrow and the final settlement amount may vary based on
+                        conveyance and applicable district fees.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              )}
+
+              {isOwner && (
+                <aside>
+                  <div className="text-sm font-semibold text-slate-900">How actions work</div>
+                  <p className="mt-1 text-xs text-slate-600">
+                    <strong>Accept</strong> locks the price and moves the deal to contracts.{" "}
+                    <strong>Decline</strong> closes the thread. <strong>Counter</strong> lets you revise price/terms and
+                    re-send.
+                  </p>
+                </aside>
+              )}
+
+              <aside>
+                <div className="flex flex-wrap items-center gap-3">
+                  {isOwner && (
+                    <Link
+                      href={`/listings/${row.id}/edit`}
+                      className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] "
+                    >
+                      Edit Listing
+                    </Link>
+                  )}
+                </div>
+              </aside>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  } catch (err) {
+    // Ensure we log *something* server-side for Vercel logs
+    console.error("[listing page] fatal render error:", err);
+    // Re-throw so app/listings/[id]/error.tsx can render a friendly UI if present
+    throw err;
+  }
 }
 
-/* ---------- Helpers & small UI atoms (no shadcn) ---------- */
+/* ---------- Helpers ---------- */
 
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -351,20 +350,8 @@ function formatDate(d: Date) {
     return new Date(d).toLocaleString();
   }
 }
-
 function toIso(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
   const d = new Date(v as any);
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-}
-
-/* ---------- Inline server error helper ---------- */
-function ServerError({ where }: { where: string }) {
-  return (
-    <div className="mx-auto max-w-3xl p-6">
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        Something went wrong loading the {where}. Check server logs for details.
-      </div>
-    </div>
-  );
 }
