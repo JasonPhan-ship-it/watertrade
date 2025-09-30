@@ -1,4 +1,4 @@
-// components/transactions/BuyNowButton.tsx
+// components/BuyNowButton.tsx
 "use client";
 
 import * as React from "react";
