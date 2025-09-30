@@ -1,6 +1,6 @@
 // app/transactions/[id]/page.tsx
 import TradeShell from "@/components/trade/TradeShell";
-import BuyNowButton from "@/components/BuyNowButton"; // lives at frontend/components/BuyNowButton.tsx
+import BuyNowButton from "@/components/BuyNowButton";
 import { purchaseAction } from "./actions";
 
 export const runtime = "nodejs";
@@ -24,6 +24,8 @@ export default async function Page({ params, searchParams }: PageProps) {
     const role = (asString(searchParams?.role) || "").toLowerCase();
     const action = (asString(searchParams?.action) || "").toLowerCase();
     const token = asString(searchParams?.token) || undefined;
+    const forceError = asString(searchParams?.forceError);
+    const safe = asString(searchParams?.safe);
 
     if (!id) {
       return (
@@ -44,6 +46,38 @@ export default async function Page({ params, searchParams }: PageProps) {
       );
     }
 
+    // Diagnostic: force the route to throw (to test error boundaries)
+    if (forceError === "1") {
+      throw new Error("Forced error for testing");
+    }
+
+    // Diagnostic: safe mode (render minimal page to isolate crashes happening in TradeShell/imports)
+    if (safe === "1") {
+      return (
+        <div className="mx-auto max-w-2xl p-6">
+          <h1 className="text-xl font-semibold">Transaction (Safe Mode)</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Skipping TradeShell to isolate a server render error. If this renders, the issue is likely inside TradeShell
+            or its imports. Remove <code>?safe=1</code> to return to normal view.
+          </p>
+          <div className="mt-4 text-xs text-slate-600 space-y-1">
+            <div><strong>ID:</strong> {id}</div>
+            <div><strong>role:</strong> {role || "—"}</div>
+            <div><strong>action:</strong> {action || "—"}</div>
+            <div><strong>token:</strong> {token || "—"}</div>
+          </div>
+          <div className="mt-4 flex gap-3">
+            <a href={`/transactions/${id}?action=review`} className="rounded-lg border px-3 py-2 text-sm">
+              Back to normal
+            </a>
+            <a href="/dashboard" className="rounded-lg border px-3 py-2 text-sm">
+              Dashboard
+            </a>
+          </div>
+        </div>
+      );
+    }
+
     // Bind server action for this specific transaction id
     const boundPurchase = async (_fd: FormData) => {
       "use server";
@@ -55,7 +89,7 @@ export default async function Page({ params, searchParams }: PageProps) {
 
     return (
       <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
-        {/* On review pages, ensure only ONE Buy button exists:
+        {/* On review, guarantee only ONE Buy button:
             1) Ask TradeShell to hide any inline/legacy Buy Now
             2) Render the single canonical button below */}
         <TradeShell
@@ -68,10 +102,8 @@ export default async function Page({ params, searchParams }: PageProps) {
 
         {onReview && (
           <>
-            {/* Defensive CSS: if anything else tries to inject a full-width submit
-               inside the actions box, hide it on review pages. */}
+            {/* Defensive CSS: hide any stray full-width submit buttons inside TradeShell on review */}
             <style
-              // scoped to this page render
               dangerouslySetInnerHTML={{
                 __html: `
                   [data-trade-actions] button[type="submit"].w-full { display: none !important; }
@@ -86,7 +118,6 @@ export default async function Page({ params, searchParams }: PageProps) {
       </div>
     );
   } catch (e: any) {
-    // Log and render a friendly fallback instead of the opaque digest page
     // eslint-disable-next-line no-console
     console.error("[transactions/[id]/page] render error", {
       message: e?.message,
