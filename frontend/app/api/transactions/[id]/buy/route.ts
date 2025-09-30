@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { sendPurchaseEmail } from "@/lib/email";
+import { sendPurchaseEmails } from "@/lib/email";
 
 export async function POST(
   _req: Request,
