@@ -2,21 +2,29 @@
 
 import * as React from "react";
 import { useTransition, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+
+type ServerActionResult =
+  | void
+  | { confirmationUrl?: string } // preferred: return this from your server action
+  | string; // also allow a raw string URL
 
 type Props = {
   listingId: string;
-  action: (formData: FormData) => Promise<void>; // server action
+  action: (formData: FormData) => Promise<ServerActionResult>; // server action
   label?: string;
 };
 
 export default function BuyNowButton({ listingId, action, label }: Props) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isPending || done) return; // double-submit guard
     setError(null);
 
     const fd = new FormData();
@@ -24,10 +32,34 @@ export default function BuyNowButton({ listingId, action, label }: Props) {
 
     startTransition(async () => {
       try {
-        await action(fd);
+        const result = await action(fd);
+        // NOTE: if the server action calls redirect(), code below won't run (that's OK).
+
+        // If action returned a URL (object or string), navigate there.
+        const url =
+          (typeof result === "string" && result) ||
+          ((result && typeof result === "object" && "confirmationUrl" in result && result.confirmationUrl) as
+            | string
+            | undefined);
+
+        if (url) {
+          router.push(url);
+          return;
+        }
+
+        // Fallback behavior: show success then go to dashboard.
         setDone(true);
+        setTimeout(() => {
+          router.push("/dashboard");
+        }, 3500);
       } catch (err: any) {
-        setError(err?.message ?? "Something went wrong.");
+        // Normalize common error shapes
+        const msg =
+          err?.message ||
+          err?.cause?.message ||
+          (typeof err === "string" ? err : "") ||
+          "Something went wrong.";
+        setError(msg);
       }
     });
   };
@@ -35,8 +67,17 @@ export default function BuyNowButton({ listingId, action, label }: Props) {
   return (
     <form onSubmit={onSubmit} className="space-y-2">
       <input type="hidden" name="listingId" value={listingId} />
-      <Button type="submit" disabled={isPending || done} className="w-full">
-        {isPending ? "Processing..." : done ? "Purchased" : (label ?? "Buy Now")}
+      <Button
+        type="submit"
+        disabled={isPending || done}
+        className="w-full"
+        aria-busy={isPending}
+      >
+        {isPending
+          ? "Processing..."
+          : done
+          ? "Purchased — redirecting…"
+          : label ?? "Buy Now"}
       </Button>
       {error ? <div className="text-sm text-red-600">{error}</div> : null}
     </form>
