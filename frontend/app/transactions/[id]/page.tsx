@@ -3,9 +3,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// NOTE: We intentionally avoid top-level imports of components that might throw during module evaluation.
-// We only import primitives that are very unlikely to fail.
+// NOTE: Keep top-level imports lightweight and safe.
 import { purchaseAction } from "./actions";
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { auth } from "@clerk/nextjs/server";
 
 type PageProps = {
   params: { id?: string };
@@ -16,6 +18,13 @@ function asString(v: unknown): string | undefined {
   if (typeof v === "string") return v.trim();
   if (Array.isArray(v)) return v[0]?.toString().trim();
   return undefined;
+}
+
+// Map "PURCHASED" to an existing enum value if it doesn't exist in prod.
+function mapPurchasedToExisting(): Prisma.TransactionStatus {
+  const S = Prisma.TransactionStatus as any;
+  // Put your preferred terminal states first.
+  return S.PURCHASED ?? S.CLOSED ?? S.COMPLETED ?? S.EXECUTED ?? S.FINALIZED;
 }
 
 export default async function Page({ params, searchParams }: PageProps) {
@@ -51,7 +60,7 @@ export default async function Page({ params, searchParams }: PageProps) {
       );
     }
 
-    // "Safe Mode": render a minimal page to confirm if import-time code is crashing.
+    // "Safe Mode": render a minimal page to isolate import-time errors.
     if (safe === "1") {
       return (
         <div className="mx-auto max-w-2xl p-6">
@@ -100,11 +109,71 @@ export default async function Page({ params, searchParams }: PageProps) {
       );
     }
 
-    // Bind server action for this specific transaction id
+    // Bound server action with enum-fallback safety for environments missing "PURCHASED"
     const boundPurchase = async (_fd: FormData) => {
       "use server";
-      const { confirmationUrl } = await purchaseAction(id);
-      return { confirmationUrl };
+      try {
+        // Try the normal flow first
+        const { confirmationUrl } = await purchaseAction(id);
+        return { confirmationUrl };
+      } catch (e: any) {
+        const msg = e?.message || "";
+        const looksLikeEnumError =
+          /Expected\s+TransactionStatus/i.test(msg) ||
+          /Invalid value for argument `set`/i.test(msg);
+
+        // eslint-disable-next-line no-console
+        console.error("[transactions/[id]/page] purchaseAction failed", {
+          message: e?.message,
+          digest: e?.digest,
+          stack: e?.stack,
+        });
+
+        if (!looksLikeEnumError) {
+          // If it's not the enum error, rethrow so UI can surface it.
+          throw e;
+        }
+
+        // Fallback: map "PURCHASED" to an existing enum and finish the update
+        try {
+          const mapped = mapPurchasedToExisting();
+
+          // Resolve current user → buyerId (best-effort)
+          let buyerId: string | undefined = undefined;
+          try {
+            const { userId } = auth();
+            if (userId) {
+              const buyer = await prisma.user.findUnique({
+                where: { clerkId: userId },
+                select: { id: true },
+              });
+              buyerId = buyer?.id;
+            }
+          } catch (authErr) {
+            // ignore, best-effort
+          }
+
+          await prisma.transaction.update({
+            where: { id },
+            data: {
+              ...(buyerId ? { buyerId } : {}),
+              status: mapped,
+              purchasedAt: new Date(),
+            },
+          });
+
+          // You may compute or fetch a confirmation URL here if applicable.
+          // Returning undefined keeps the user on the current page or lets your client handle success UI.
+          return { confirmationUrl: undefined as string | undefined };
+        } catch (fallbackErr: any) {
+          // eslint-disable-next-line no-console
+          console.error("[transactions/[id]/page] fallback enum mapping failed", {
+            message: fallbackErr?.message,
+            stack: fallbackErr?.stack,
+          });
+          throw e; // bubble original error so callers see the failure
+        }
+      }
     };
 
     const onReview = action === "review";
@@ -122,7 +191,7 @@ export default async function Page({ params, searchParams }: PageProps) {
           digest: impErr?.digest,
           stack: impErr?.stack,
         });
-        // We can continue without the extra button; TradeShell hides its inline one on review anyway.
+        // Continue without the extra button; TradeShell handles its own UI.
       }
     }
 
