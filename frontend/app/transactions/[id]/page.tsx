@@ -1,6 +1,6 @@
 // app/transactions/[id]/page.tsx
 import TradeShell from "@/components/trade/TradeShell";
-import BuyNowButton from "@/components/BuyNowButton";
+import BuyNowButton from "@/components/BuyNowButton"; // your file at frontend/components/BuyNowButton.tsx
 import { purchaseAction } from "./actions";
 
 export const runtime = "nodejs";
@@ -24,8 +24,7 @@ export default async function Page({ params, searchParams }: PageProps) {
   const action = (asString(searchParams?.action) || "").toLowerCase();
   const token = asString(searchParams?.token) || undefined;
 
-  // Bind a server action for this transaction id so the client button can call it.
-  // The button expects a `(fd: FormData) => Promise<{ confirmationUrl?: string } | void | string>`.
+  // Bind server action for this specific transaction id
   const boundPurchase = async (_fd: FormData) => {
     "use server";
     const { confirmationUrl } = await purchaseAction(id);
@@ -36,14 +35,9 @@ export default async function Page({ params, searchParams }: PageProps) {
     <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <TradeShell tradeId={id} role={role} action={action} token={token} />
 
-      {/* Only show the Buy Now button on the review screen */}
       {action === "review" && id && (
-        <div className="mt-6 max-w-md">
-          <BuyNowButton
-            transactionId={id}
-            action={boundPurchase}
-            label="Buy Now"
-          />
+        <div className="mt-6 max-w-md" id="primary-buy">
+          <BuyNowButton transactionId={id} action={boundPurchase} label="Buy Now" />
         </div>
       )}
     </div>
