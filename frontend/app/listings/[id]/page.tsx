@@ -4,11 +4,19 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import { Info } from "lucide-react";
+import dynamic from "next/dynamic";
 
 export const revalidate = 0; // always fresh
-// export const runtime = "nodejs"; // uncomment if anything accidentally pushed you to edge
+export const runtime = "nodejs"; // ensure Prisma runs on Node, not Edge
 
 type PageProps = { params: { id: string } };
+
+// ✅ Load client components only on the client to avoid server-render crashes
+const ListingActions = dynamic(() => import("@/components/ListingActions"), { ssr: false });
+const OffersPanelWithActions = dynamic(
+  () => import("@/components/listings/OffersPanelWithActions"),
+  { ssr: false }
+);
 
 export default async function ListingDetailPage({ params }: PageProps) {
   /** Identify viewer (non-fatal if this fails) */
@@ -70,7 +78,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
   if (!row) return notFound();
 
   const isOwner = !!viewerDbUserId && row.sellerId === viewerDbUserId;
-  const pricePerAfDollars = (row.pricePerAF ?? 0) / 100;
+  const pricePerAfDollars = Number(row.pricePerAF ?? 0) / 100;
 
   const rawTitle = (row.title || "").trim();
   const description = (row.description || "").trim() || "No description provided.";
@@ -110,45 +118,59 @@ export default async function ListingDetailPage({ params }: PageProps) {
     trades = await prisma.trade.findMany({
       where: { listingId: row.id },
       orderBy: { createdAt: "desc" },
+      // Keep includes lightweight; optional chaining below guards missing relations/fields
       include: { buyer: true, seller: true },
     });
   } catch (e) {
     console.error("[listing page] prisma.trade.findMany failed", e);
   }
 
-  /** Map trades -> panel Offer[] shape */
+  /** Map trades -> panel Offer[] shape (tolerant to field name differences) */
   type Offer = import("@/components/listings/ListingOffersPanel").Offer;
   const offers: Offer[] = trades.map((t: any) => {
-    const price = Number(t.pricePerAf ?? t.pricePerAF ?? t.totalAmount ?? 0);
-    const createdAt: string = (t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt)).toISOString();
+    const price =
+      Number(
+        t.pricePerAf ??
+          t.pricePerAF ??
+          t.totalAmount ??
+          0
+      ) || 0;
 
-    const expiresAt: string | undefined = t.expiresAt
-      ? (t.expiresAt instanceof Date ? t.expiresAt : new Date(t.expiresAt)).toISOString()
-      : undefined;
+    const createdAt: string = toIso(t.createdAt);
+    const expiresAt: string | undefined = t.expiresAt ? toIso(t.expiresAt) : undefined;
 
-    const side =
-      t.sellerUserId && viewerDbUserId ? (t.sellerUserId === viewerDbUserId ? "received" : "sent") : "received";
+    const side: "received" | "sent" =
+      t?.sellerUserId && viewerDbUserId
+        ? t.sellerUserId === viewerDbUserId
+          ? "received"
+          : "sent"
+        : "received";
 
-    const status =
-      t.status === "ACCEPTED" ? "accepted" :
-      t.status === "DECLINED" ? "declined" :
-      t.status === "COUNTERED" ? "countered" :
-      "pending";
+    const status: Offer["status"] =
+      t.status === "ACCEPTED"
+        ? "accepted"
+        : t.status === "DECLINED"
+        ? "declined"
+        : t.status === "COUNTERED"
+        ? "countered"
+        : t.status === "EXPIRED"
+        ? "expired"
+        : "pending";
 
     return {
       id: String(t.id),
       side,
       fromParty:
         side === "received"
-          ? (t.buyer?.name ?? t.buyerName ?? "Buyer")
-          : (t.seller?.name ?? t.sellerName ?? "Seller"),
+          ? t?.buyer?.name ?? t?.buyerName ?? "Buyer"
+          : t?.seller?.name ?? t?.sellerName ?? "Seller",
       amount: Math.round(price),
-      terms: t.terms ?? undefined,
+      terms: t?.terms ?? undefined,
       createdAt,
       expiresAt,
       status,
-      unread: Boolean(t.viewerHasSeen === false),
-      notes: t.note ?? undefined,
+      unread: Boolean(t?.viewerHasSeen === false),
+      notes: t?.note ?? undefined,
     } as Offer;
   });
 
@@ -330,9 +352,11 @@ function formatDate(d: Date) {
   }
 }
 
-/* ---------- Lazy imports so this file stays a Server Component ---------- */
-import ListingActions from "@/components/ListingActions";
-import OffersPanelWithActions from "@/components/listings/OffersPanelWithActions";
+function toIso(v: unknown): string {
+  if (v instanceof Date) return v.toISOString();
+  const d = new Date(v as any);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+}
 
 /* ---------- Inline server error helper ---------- */
 function ServerError({ where }: { where: string }) {
