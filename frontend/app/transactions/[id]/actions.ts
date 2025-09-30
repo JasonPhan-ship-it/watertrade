@@ -1,51 +1,63 @@
+// app/transactions/[id]/actions.ts
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { sendPurchaseEmails } from "@/lib/email";
 
-export async function purchaseAction(txId: string): Promise<{ confirmationUrl: string }> {
-  const { userId } = auth();
-  if (!userId) throw new Error("Unauthorized");
+/** Map our desired "PURCHASED" state onto whatever actually exists in TransactionStatus */
+function mapPurchasedToExisting(): Prisma.TransactionStatus {
+  const S = Prisma.TransactionStatus as any;
 
-  // Viewer (buyer)
-  const viewer = await prisma.user.findFirst({
-    where: { clerkId: userId },
-    select: { id: true, email: true, name: true },
-  });
-  if (!viewer) throw new Error("Viewer not found");
+  // Put your preferred final states first; fall back to a sensible existing value.
+  // Adjust the order below to match your schema semantics.
+  return (
+    S.PURCHASED ??
+    S.CLOSED ??
+    S.COMPLETED ??
+    S.EXECUTED ??
+    S.SOLD ??
+    // last resort: pick the last enum value (often the most "final" in many schemas)
+    (Object.values(S)[Object.values(S).length - 1] as Prisma.TransactionStatus)
+  );
+}
 
-  // Transaction + parties
-  const tx = await prisma.transaction.findUnique({
-    where: { id: txId },
-    include: {
-      listing: true,
-      buyer: { select: { id: true, email: true, name: true } },
-      seller: { select: { id: true, email: true, name: true } },
-    },
-  });
-  if (!tx) throw new Error("Transaction not found");
-
-  const STATUS_PURCHASED: any = (Prisma as any)?.TransactionStatus?.PURCHASED ?? "PURCHASED";
-
-  // Idempotent: if already purchased, just return the confirmation URL
-  // @ts-ignore schema drift tolerant
-  if (tx.status === STATUS_PURCHASED || String((tx as any).status) === "PURCHASED") {
-    return { confirmationUrl: `/transactions/${tx.id}/confirmation` };
+/** Resolve the current app user id from Clerk (best-effort). */
+async function getCurrentDbUserId(): Promise<string | null> {
+  try {
+    const { userId } = auth();
+    if (!userId) return null;
+    const u = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      select: { id: true },
+    });
+    return u?.id ?? null;
+  } catch {
+    return null;
   }
+}
 
-  // Update → mark purchased
-  const data: any = {
-    buyerId: tx.buyerId ?? viewer.id,
-    status: { set: STATUS_PURCHASED },
-  };
-  // Optional: won’t compile on branches lacking this field, so keep under any
-  data.purchasedAt = new Date();
+/**
+ * purchaseAction
+ * - marks the transaction as purchased using an enum value that exists in prod
+ * - stamps purchasedAt
+ * - sets buyerId to the current user (if available)
+ * - returns an optional confirmationUrl (leave undefined if you don't have one)
+ */
+export async function purchaseAction(transactionId: string): Promise<{ confirmationUrl?: string }> {
+  if (!transactionId) throw new Error("Missing transaction id");
 
-  const updated = await prisma.transaction.update({
-    where: { id: txId },
-    data,
+  const buyerId = await getCurrentDbUserId();
+  const mapped = mapPurchasedToExisting();
+
+  // IMPORTANT: assign the enum directly (avoid `{ set: ... }` to keep logs cleaner)
+  const tx = await prisma.transaction.update({
+    where: { id: transactionId },
+    data: {
+      ...(buyerId ? { buyerId } : {}),
+      status: mapped,
+      purchasedAt: new Date(),
+    },
     include: {
       listing: true,
       buyer: { select: { id: true, email: true, name: true } },
@@ -53,39 +65,13 @@ export async function purchaseAction(txId: string): Promise<{ confirmationUrl: s
     },
   });
 
-  // Build email payload defensively from listing
-  const L = updated.listing as any;
-  const cents: number =
-    (typeof L?.pricePerUnitCents === "number" && L.pricePerUnitCents) ??
-    (typeof L?.pricePerAfCents === "number" && L.pricePerAfCents) ??
-    (typeof L?.priceCents === "number" && L.priceCents) ??
-    (typeof L?.pricePerUnit === "number" && Math.round(L.pricePerUnit * 100)) ??
-    (typeof L?.price === "number" && Math.round(L.price * 100)) ??
-    0;
+  // If you have an external confirmation flow (Stripe, Docusign, etc.), build its URL here.
+  // Otherwise, return undefined and keep the user on the same page.
+  const confirmationUrl: string | undefined = undefined;
 
-  const priceLabel: string | undefined =
-    typeof L?.pricePerUnit === "number"
-      ? `$${Number(L.pricePerUnit).toLocaleString(undefined, { maximumFractionDigits: 2 })}/AF`
-      : undefined;
+  // Optional: log what we set for easier debugging in Vercel logs
+  // eslint-disable-next-line no-console
+  console.log("[purchaseAction] mapped status used:", mapped, "for tx", transactionId);
 
-  await sendPurchaseEmails({
-    buyerEmail: updated.buyer?.email ?? viewer.email!,
-    buyerName: updated.buyer?.name ?? viewer.name ?? undefined,
-    sellerEmail: updated.seller?.email ?? undefined,
-    sellerName: updated.seller?.name ?? undefined,
-    transactionId: updated.id,
-    offer: {
-      listingTitle: L?.title ?? "Listing",
-      district: L?.district ?? L?.districtName ?? "—",
-      waterType: L?.waterType ?? L?.type ?? null,
-      volumeAf: Number(L?.volumeAf ?? L?.quantityAf ?? 0),
-      pricePerAf: cents,           // cents
-      priceLabel,                  // pretty label if available
-      windowLabel: L?.windowLabel ?? L?.transferWindow ?? undefined,
-    },
-    buyerViewLink: `/transactions/${updated.id}`,
-    sellerViewLink: `/transactions/${updated.id}`,
-  });
-
-  return { confirmationUrl: `/transactions/${updated.id}/confirmation` };
+  return { confirmationUrl };
 }
