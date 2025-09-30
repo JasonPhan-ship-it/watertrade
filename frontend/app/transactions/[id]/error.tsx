@@ -1,7 +1,7 @@
 // app/transactions/[id]/error.tsx
 "use client";
 
-import * as React from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function Error({
   error,
@@ -10,61 +10,63 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  // Log full details for debugging (visible in browser devtools)
-  // Avoid putting stack/message in the UI in production.
-  // eslint-disable-next-line no-console
-  console.error("[transactions/[id]] error boundary", {
-    message: error?.message,
-    digest: (error as any)?.digest,
-    stack: error?.stack,
-  });
+  const [debug, setDebug] = useState(false);
 
-  const digest = error?.digest ?? "—";
-  const isDev = process.env.NODE_ENV !== "production";
+  // Show full message only when you add ?debug=1 to the URL
+  useEffect(() => {
+    const qs = new URLSearchParams(window.location.search);
+    setDebug(qs.get("debug") === "1");
+  }, []);
+
+  useEffect(() => {
+    // This will appear in Vercel → Functions logs
+    // Includes the digest to correlate with the generic page
+    // eslint-disable-next-line no-console
+    console.error("[transactions/[id]] error boundary", {
+      message: error?.message,
+      digest: (error as any)?.digest,
+      stack: error?.stack,
+    });
+  }, [error]);
+
+  const digest = useMemo(() => (error as any)?.digest ?? "—", [error]);
 
   return (
-    <div className="mx-auto max-w-2xl p-6" role="alert" aria-live="polite">
-      <h1 className="text-xl font-semibold">Something went wrong</h1>
+    <div className="mx-auto max-w-2xl p-6">
+      <h1 className="text-xl font-semibold">Transaction error</h1>
       <p className="mt-2 text-sm text-slate-600">
-        We couldn’t render this transaction. Try again, or go back to your dashboard.
+        Something went wrong rendering this transaction. Use the digest when checking server logs.
       </p>
 
-      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-600">
-        <div>
-          <strong>Digest:</strong> {digest}
-        </div>
-        {isDev && error?.message ? (
-          <div className="mt-2">
-            <strong>Message (dev only):</strong> {error.message}
-          </div>
-        ) : null}
+      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+        <div><span className="text-slate-500">Digest:</span> <code>{digest}</code></div>
+        {debug && (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-slate-700">Show error message</summary>
+            <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs text-slate-800">
+{error?.message}
+            </pre>
+          </details>
+        )}
       </div>
 
       <div className="mt-4 flex gap-3">
         <button
-          onClick={reset}
-          className="rounded-xl bg-[#004434] px-5 py-2 text-white hover:bg-[#003a2f]"
+          onClick={() => reset()}
+          className="rounded-lg bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#00392f]"
         >
-          Try again
+          Retry
         </button>
         <a
           href="/dashboard"
-          className="rounded-xl border border-slate-300 px-5 py-2 text-slate-700 hover:bg-slate-50"
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
         >
-          Back to dashboard
-        </a>
-        <a
-          href={`mailto:support@watertraders.com?subject=Transaction%20render%20error&body=Digest:%20${encodeURIComponent(
-            digest
-          )}%0AURL:%20${encodeURIComponent(typeof window !== "undefined" ? window.location.href : "")}`}
-          className="rounded-xl border border-slate-300 px-5 py-2 text-slate-700 hover:bg-slate-50"
-        >
-          Contact support
+          Dashboard
         </a>
       </div>
 
-      <p className="mt-3 text-[11px] text-slate-500">
-        The digest helps our team trace the underlying issue without exposing sensitive details.
+      <p className="mt-4 text-xs text-slate-500">
+        Tip: append <code>?debug=1</code> to the URL to reveal the error message here.
       </p>
     </div>
   );
