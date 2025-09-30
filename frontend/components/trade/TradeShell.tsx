@@ -120,6 +120,7 @@ export default async function TradeShell({
   tradeId,
   role = "",
   token = "",
+  action = "",
   hideInlineBuyNow = false, // default false → only hide when asked
 }: Props) {
   if (!tradeId || typeof tradeId !== "string" || tradeId.trim().length === 0) {
@@ -251,13 +252,14 @@ export default async function TradeShell({
       </div>
 
       {/* Actions */}
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div
+        className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+        data-trade-actions // <-- stable hook to target from the page
+      >
         {/* BUY NOW → ONLY show this inline button when not hidden */}
         {isBuyNow ? (
-          <div className="flex flex-wrap items-center gap-3">
-            {!hideInlineBuyNow && (
-              <BuyNowConfirmButton transactionId={tx.id} />
-            )}
+          <div className="flex flex-wrap items-center gap-3" id="inline-buy-now">
+            {!hideInlineBuyNow && <BuyNowConfirmButton transactionId={tx.id} />}
           </div>
         ) : (
           <>
