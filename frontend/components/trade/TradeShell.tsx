@@ -18,7 +18,7 @@ type Props = {
   token?: string;              // optional magic token for server actions
   action?: string;             // "review" | ...
   /** Hide the inline/legacy Buy Now button rendered by TradeShell */
-  hideInlineBuyNow?: boolean;  // NEW
+  hideInlineBuyNow?: boolean;
 };
 
 const signatureSelect = {
@@ -121,7 +121,7 @@ export default async function TradeShell({
   role = "",
   token = "",
   action = "",
-  hideInlineBuyNow = false, // default false → only hide when asked
+  hideInlineBuyNow = false,
 }: Props) {
   if (!tradeId || typeof tradeId !== "string" || tradeId.trim().length === 0) {
     return uiError("Transaction not found", "Missing or invalid transaction id.", tradeId);
@@ -203,6 +203,10 @@ export default async function TradeShell({
 
   const showPermsHint = viewerRole === "guest";
 
+  // === NEW: force-hide inline Buy Now on review pages ===
+  const isReview = action?.toLowerCase?.() === "review";
+  const hideInlineBuyNowFinal = hideInlineBuyNow || isReview;
+
   return (
     <div className="mx-auto max-w-3xl p-6">
       {/* Header */}
@@ -254,12 +258,12 @@ export default async function TradeShell({
       {/* Actions */}
       <div
         className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-        data-trade-actions // <-- stable hook to target from the page
+        data-trade-actions
       >
         {/* BUY NOW → ONLY show this inline button when not hidden */}
         {isBuyNow ? (
           <div className="flex flex-wrap items-center gap-3" id="inline-buy-now">
-            {!hideInlineBuyNow && <BuyNowConfirmButton transactionId={tx.id} />}
+            {!hideInlineBuyNowFinal && <BuyNowConfirmButton transactionId={tx.id} />}
           </div>
         ) : (
           <>
