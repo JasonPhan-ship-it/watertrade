@@ -14,6 +14,8 @@
  *  - renderSellerNeedsSignatureEmail
  *  - renderBuyerSignedAckEmail
  *  - renderFullyExecutedEmail
+ *  - renderBuyerPurchasedEmail             <-- NEW For Buy Now BUYER
+ *  - sendPurchaseEmails                    <-- NEW One-call helper
  */
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
@@ -696,4 +698,119 @@ export function renderFullyExecutedEmail(params: {
     logoUrl: DEFAULT_LOGO,
   });
   return { html, preheader: "Fully executed agreement attached." };
+}
+
+/* ---------------- BUY NOW: Buyer receipt (NEW) ---------------- */
+
+/** BUYER → instant purchase confirmation (no signing required yet for buyer) */
+export function renderBuyerPurchasedEmail(params: {
+  buyerName?: string | null;
+  sellerName?: string | null;
+  offer: OfferSummary;
+  dashboardLink?: string; // defaults to /dashboard
+  viewLink?: string;      // optional transaction/details link
+}) {
+  const { buyerName, sellerName, offer, dashboardLink, viewLink } = params;
+  const price = offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf);
+
+  const html = renderEmailLayout({
+    title: "Purchase confirmed 🎉",
+    subtitle: buyerName ? `Hi ${buyerName}, we’ve recorded your purchase.` : "We’ve recorded your purchase.",
+    intro: sellerName
+      ? `We’ve notified ${sellerName}. We’ll email you as documents progress.`
+      : "We’ve notified the seller. We’ll email you as documents progress.",
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: price },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: [
+      { label: "Go to Dashboard", href: dashboardLink || appUrl("/dashboard"), primary: true },
+      ...(viewLink ? [{ label: "View Details", href: viewLink }] : []),
+    ],
+    logoUrl: DEFAULT_LOGO,
+  });
+
+  return { html, preheader: "Thanks for your purchase—details inside." };
+}
+
+/* ---------------- BUY NOW: One-call sender (NEW) ---------------- */
+
+export async function sendPurchaseEmails(params: {
+  // Buyer
+  buyerEmail: string;
+  buyerName?: string | null;
+  // Seller
+  sellerEmail?: string | null;
+  sellerName?: string | null;
+  // Offer/Listing summary
+  offer: OfferSummary;
+  // Transaction + links
+  transactionId: string;
+  sellerSignLink?: string;  // any form; coerced to /api/sign-url?id=:id&role=seller&redirect=1
+  buyerViewLink?: string;   // e.g. /transactions/:id
+  sellerViewLink?: string;  // e.g. /transactions/:id
+  buyerDashboardLink?: string; // defaults to /dashboard
+}) {
+  const {
+    buyerEmail,
+    buyerName,
+    sellerEmail,
+    sellerName,
+    offer,
+    transactionId,
+    sellerSignLink,
+    buyerViewLink,
+    sellerViewLink,
+    buyerDashboardLink,
+  } = params;
+
+  // Buyer: receipt
+  const buyerTpl = renderBuyerPurchasedEmail({
+    buyerName,
+    sellerName,
+    offer,
+    dashboardLink: buyerDashboardLink,
+    viewLink: buyerViewLink,
+  });
+  const buyerSubject = `Purchase confirmed: ${offer.listingTitle}`;
+  const buyerIdem = `tx:${transactionId}:buyer-purchase`;
+
+  const buyerSend = await sendEmail({
+    to: buyerEmail,
+    subject: buyerSubject,
+    html: buyerTpl.html,
+    preheader: buyerTpl.preheader,
+    idempotencyKey: buyerIdem,
+  });
+
+  // Seller: docs ready
+  let sellerSend: { id?: string } | undefined;
+  if (sellerEmail) {
+    const sellerTpl = renderSellerDocsReadyPurchasedEmail({
+      sellerName,
+      buyerName: buyerName || "Buyer",
+      offer,
+      signLink: sellerSignLink || appUrl(`/api/sign-url?id=${transactionId}&role=seller&redirect=1`),
+      viewLink: sellerViewLink || buyerViewLink,
+    });
+    const sellerSubject = `Buyer purchased: ${offer.listingTitle}`;
+    const sellerIdem = `tx:${transactionId}:seller-docs-ready`;
+
+    sellerSend = await sendEmail({
+      to: sellerEmail,
+      subject: sellerSubject,
+      html: sellerTpl.html,
+      preheader: sellerTpl.preheader,
+      idempotencyKey: sellerIdem,
+    });
+  }
+
+  return {
+    buyerEmailId: buyerSend.id,
+    sellerEmailId: sellerSend?.id,
+  };
 }
