@@ -7,6 +7,8 @@ import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 
+type Plan = "free" | "premium";
+
 export default function PricingPage() {
   const { user, isSignedIn } = useUser();
   const router = useRouter();
@@ -14,7 +16,23 @@ export default function PricingPage() {
   const [expandedFaq, setExpandedFaq] = React.useState<number | null>(null);
   const [isAnnual, setIsAnnual] = React.useState(false);
 
+  // Existing premium flag
   const isPremium = Boolean(user?.publicMetadata?.premium);
+
+  // Derive the user's selected plan from publicMetadata (flexible keys) or fall back to isPremium
+  const userPlan = React.useMemo<Plan | undefined>(() => {
+    const meta = (user?.publicMetadata ?? {}) as Record<string, any>;
+    const m =
+      (meta.plan as string | undefined) ??
+      (meta.membershipPlan as string | undefined) ??
+      (meta.membership?.plan as string | undefined);
+
+    if (m === "premium" || m === "free") return m;
+    if (isPremium) return "premium";
+    return undefined;
+  }, [user, isPremium]);
+
+  const hasPlan = Boolean(userPlan);
 
   // Pricing calculations
   const monthlyPrice = 25;
@@ -116,7 +134,6 @@ export default function PricingPage() {
             }`}
           >
             <span>Annual</span>
-            {/* Save % pill moved next to Annual and centered; slight upward nudge */}
             <span className="inline-flex items-center rounded-full bg-green-500 text-white text-xs px-1.5 py-0.5 relative -translate-y-0.5">
               Save {savingsPercentage}%
             </span>
@@ -154,18 +171,43 @@ export default function PricingPage() {
           </ul>
 
           <div className="mt-8">
-            {!isPremium ? (
+            {/* CTA logic:
+               - Signed out: Get Started (go sign-up)
+               - Signed in with NO plan: Start Free
+               - Signed in with plan === "free": disabled "Active plan"
+               - Signed in with plan === "premium": disabled "Included with Premium"
+            */}
+            {!isSignedIn ? (
+              <Link
+                href="/sign-up"
+                className="inline-flex h-12 w-full items-center justify-center rounded-xl border-2 border-slate-300 bg-white px-6 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+              >
+                Get Started
+              </Link>
+            ) : !hasPlan ? (
               <button
                 onClick={handleFreePlan}
                 disabled={busy}
                 className="inline-flex h-12 w-full items-center justify-center rounded-xl border-2 border-slate-300 bg-white px-6 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50"
               >
-                {busy ? "Activating..." : isSignedIn ? "Start Free" : "Get Started"}
+                {busy ? "Activating..." : "Start Free"}
+              </button>
+            ) : userPlan === "free" ? (
+              <button
+                disabled
+                aria-disabled="true"
+                className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-slate-100 px-6 text-sm font-medium text-slate-500 cursor-not-allowed"
+              >
+                Active plan
               </button>
             ) : (
-              <div className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-slate-100 px-6 text-sm font-medium text-slate-500">
-                Your current plan
-              </div>
+              <button
+                disabled
+                aria-disabled="true"
+                className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-slate-100 px-6 text-sm font-medium text-slate-500 cursor-not-allowed"
+              >
+                Included with Premium
+              </button>
             )}
           </div>
         </div>
@@ -178,9 +220,6 @@ export default function PricingPage() {
               MOST POPULAR
             </span>
           </div>
-
-          {/* Removed the empty green "Annual Savings Badge" block that created a light green pill */}
-          {/* (It used to render when isAnnual === true) */}
 
           <div className="rounded-2xl border-2 border-[#0A6B58] bg-white p-6 sm:p-8 shadow-sm">
             <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -219,10 +258,14 @@ export default function PricingPage() {
             </ul>
 
             <div className="mt-8">
-              {isPremium ? (
-                <div className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-[#0A6B58] px-6 text-sm font-semibold text-white">
-                  ✓ Currently Active
-                </div>
+              {userPlan === "premium" ? (
+                <button
+                  disabled
+                  aria-disabled="true"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-[#0A6B58] px-6 text-sm font-semibold text-white opacity-90 cursor-not-allowed"
+                >
+                  ✓ Active plan
+                </button>
               ) : (
                 <button
                   onClick={handlePremiumUpgrade}
