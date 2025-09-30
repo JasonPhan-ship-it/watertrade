@@ -40,16 +40,12 @@ export async function POST(
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
 
-    // Compute "PURCHASED" value in a schema-tolerant way
-    // Prefer the generated enum if it exists, else fall back to string.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // Compute PURCHASED status in a schema-tolerant way
     const STATUS_PURCHASED: any =
-      // @ts-expect-error tolerate projects where enum doesn't exist yet
       (Prisma as any)?.TransactionStatus?.PURCHASED ?? "PURCHASED";
 
     // If already purchased, don't double-process—just return confirmation URL
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((tx as any).status === STATUS_PURCHASED || (tx as any).status === "PURCHASED") {
+    if ((tx as any).status === STATUS_PURCHASED || String((tx as any).status) === "PURCHASED") {
       const confirmationUrl = `/transactions/${tx.id}/confirmation`;
       return NextResponse.json({ ok: true, confirmationUrl });
     }
@@ -59,9 +55,9 @@ export async function POST(
       where: { id: txId },
       data: {
         buyerId: tx.buyerId ?? viewer.id,
-        // Use update-operator form to satisfy EnumTransactionStatusFieldUpdateOperationsInput
+        // Use operator form to satisfy EnumTransactionStatusFieldUpdateOperationsInput
         status: { set: STATUS_PURCHASED },
-        // If your schema doesn't have purchasedAt, Prisma will error; remove this line in that case.
+        // Remove this line if your schema doesn't have purchasedAt
         purchasedAt: new Date(),
       },
       include: {
