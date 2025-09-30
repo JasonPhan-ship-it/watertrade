@@ -1,6 +1,6 @@
 // app/transactions/[id]/page.tsx
 import TradeShell from "@/components/trade/TradeShell";
-import BuyNowButton from "@/components/transactions/BuyNowButton";
+import BuyNowButton from "@/components/BuyNowButton";
 import { purchaseAction } from "./actions";
 
 export const runtime = "nodejs";
