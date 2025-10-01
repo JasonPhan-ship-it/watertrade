@@ -3,11 +3,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// NOTE: Keep top-level imports lightweight and safe.
 import { purchaseAction } from "./actions";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
+import dynamic from "next/dynamic";
 
 type PageProps = {
   params: { id?: string };
@@ -23,9 +23,11 @@ function asString(v: unknown): string | undefined {
 // Map "PURCHASED" to an existing enum value if it doesn't exist in prod.
 function mapPurchasedToExisting(): Prisma.TransactionStatus {
   const S = Prisma.TransactionStatus as any;
-  // Put your preferred terminal states first.
   return S.PURCHASED ?? S.CLOSED ?? S.COMPLETED ?? S.EXECUTED ?? S.FINALIZED;
 }
+
+// Client-only portal that mounts children into #inline-buy-now
+const InlinePortal = dynamic(() => import("@/components/InlinePortal"), { ssr: false });
 
 export default async function Page({ params, searchParams }: PageProps) {
   try {
@@ -34,12 +36,9 @@ export default async function Page({ params, searchParams }: PageProps) {
     const action = (asString(searchParams?.action) || "").toLowerCase();
     const token = asString(searchParams?.token) || undefined;
 
-    // Diagnostics (optional; keep while debugging)
     const forceError = asString(searchParams?.forceError);
     const safe = asString(searchParams?.safe);
-    if (forceError === "1") {
-      throw new Error("Forced error for testing (page)");
-    }
+    if (forceError === "1") throw new Error("Forced error for testing (page)");
 
     if (!id) {
       return (
@@ -60,7 +59,6 @@ export default async function Page({ params, searchParams }: PageProps) {
       );
     }
 
-    // "Safe Mode": render a minimal page to isolate import-time errors.
     if (safe === "1") {
       return (
         <div className="mx-auto max-w-2xl p-6">
@@ -83,13 +81,12 @@ export default async function Page({ params, searchParams }: PageProps) {
       );
     }
 
-    // Dynamically import TradeShell so we can catch module-evaluation errors
+    // Load TradeShell safely
     let TradeShell: any;
     try {
       const mod = await import("@/components/trade/TradeShell");
       TradeShell = mod.default;
     } catch (impErr: any) {
-      // eslint-disable-next-line no-console
       console.error("[transactions/[id]/page] TradeShell import failed", {
         message: impErr?.message,
         digest: impErr?.digest,
@@ -109,11 +106,10 @@ export default async function Page({ params, searchParams }: PageProps) {
       );
     }
 
-    // Bound server action with enum-fallback safety for environments missing "PURCHASED"
+    // Bound server action with enum-fallback safety
     const boundPurchase = async (_fd: FormData) => {
       "use server";
       try {
-        // Try the normal flow first
         const { confirmationUrl } = await purchaseAction(id);
         return { confirmationUrl };
       } catch (e: any) {
@@ -122,23 +118,17 @@ export default async function Page({ params, searchParams }: PageProps) {
           /Expected\s+TransactionStatus/i.test(msg) ||
           /Invalid value for argument `set`/i.test(msg);
 
-        // eslint-disable-next-line no-console
         console.error("[transactions/[id]/page] purchaseAction failed", {
           message: e?.message,
           digest: e?.digest,
           stack: e?.stack,
         });
 
-        if (!looksLikeEnumError) {
-          // If it's not the enum error, rethrow so UI can surface it.
-          throw e;
-        }
+        if (!looksLikeEnumError) throw e;
 
-        // Fallback: map "PURCHASED" to an existing enum and finish the update
         try {
           const mapped = mapPurchasedToExisting();
 
-          // Resolve current user → buyerId (best-effort)
           let buyerId: string | undefined = undefined;
           try {
             const { userId } = auth();
@@ -149,9 +139,7 @@ export default async function Page({ params, searchParams }: PageProps) {
               });
               buyerId = buyer?.id;
             }
-          } catch (authErr) {
-            // ignore, best-effort
-          }
+          } catch {}
 
           await prisma.transaction.update({
             where: { id },
@@ -162,16 +150,13 @@ export default async function Page({ params, searchParams }: PageProps) {
             },
           });
 
-          // You may compute or fetch a confirmation URL here if applicable.
-          // Returning undefined keeps the user on the current page or lets your client handle success UI.
           return { confirmationUrl: undefined as string | undefined };
         } catch (fallbackErr: any) {
-          // eslint-disable-next-line no-console
           console.error("[transactions/[id]/page] fallback enum mapping failed", {
             message: fallbackErr?.message,
             stack: fallbackErr?.stack,
           });
-          throw e; // bubble original error so callers see the failure
+          throw e;
         }
       }
     };
@@ -185,30 +170,28 @@ export default async function Page({ params, searchParams }: PageProps) {
         const mod = await import("@/components/BuyNowButton");
         BuyNowButton = mod.default;
       } catch (impErr: any) {
-        // eslint-disable-next-line no-console
         console.error("[transactions/[id]/page] BuyNowButton import failed", {
           message: impErr?.message,
           digest: impErr?.digest,
           stack: impErr?.stack,
         });
-        // Continue without the extra button; TradeShell handles its own UI.
       }
     }
 
     return (
       <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
-        {/* Ask TradeShell to hide any inline/legacy Buy Now on review */}
+        {/* Keep TradeShell's inline area present but hide any legacy button on review */}
         <TradeShell
           tradeId={id}
           role={role}
           action={action}
           token={token}
-          hideInlineBuyNow={onReview}
+          hideInlineBuyNow={onReview} // hides TradeShell’s own button if it renders one
         />
 
         {onReview && BuyNowButton && (
           <>
-            {/* Defensive CSS: hide any stray full-width submit buttons inside TradeShell on review */}
+            {/* Hide any stray full-width submit inside TradeShell on review */}
             <style
               dangerouslySetInnerHTML={{
                 __html: `
@@ -216,15 +199,18 @@ export default async function Page({ params, searchParams }: PageProps) {
                 `,
               }}
             />
-            <div className="mt-6 max-w-md" id="primary-buy">
-              <BuyNowButton transactionId={id} action={boundPurchase} label="Buy Now" />
-            </div>
+            {/* Mount our Buy Now directly into the original spot */}
+            <InlinePortal targetId="inline-buy-now">
+              {/* Match legacy sizing: inline, not full-width */}
+              <div className="flex flex-wrap items-center gap-3">
+                <BuyNowButton transactionId={id} action={boundPurchase} label="Buy Now" />
+              </div>
+            </InlinePortal>
           </>
         )}
       </div>
     );
   } catch (e: any) {
-    // eslint-disable-next-line no-console
     console.error("[transactions/[id]/page] render error", {
       message: e?.message,
       digest: e?.digest,
