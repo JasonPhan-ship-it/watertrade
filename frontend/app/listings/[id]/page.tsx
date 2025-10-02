@@ -36,9 +36,9 @@ type Offer = {
   notes?: string;
 };
 
-// ✅ Load client components only on the client
-const ListingActions = dynamic(() => import("@/components/ListingActions"), { ssr: false });
-const OffersPanelWithActions = dynamic(
+// ✅ Load client components only on the client (alias avoids clash with route option `dynamic`)
+const ListingActions = NextDynamic(() => import("@/components/ListingActions"), { ssr: false });
+const OffersPanelWithActions = NextDynamic(
   () => import("@/components/listings/OffersPanelWithActions"),
   { ssr: false }
 );
@@ -123,7 +123,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
         where: { listingId: row.id },
         orderBy: { createdAt: "desc" },
         include: {
-          // If your schema doesn’t have these relations, set to false to avoid throwing.
           buyer: true as any,
           seller: true as any,
         },
