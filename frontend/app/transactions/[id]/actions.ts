@@ -1,77 +1,68 @@
 // app/transactions/[id]/actions.ts
-"use server";
-
-import { auth } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import type { Prisma as PrismaNS } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { auth } from "@clerk/nextjs/server";
 
-/** Map our desired "PURCHASED" state onto whatever actually exists in TransactionStatus */
-function mapPurchasedToExisting(): Prisma.TransactionStatus {
-  const S = Prisma.TransactionStatus as any;
+export const runtime = "nodejs";
 
-  // Put your preferred final states first; fall back to a sensible existing value.
-  // Adjust the order below to match your schema semantics.
+/** ---- Cross-version-safe enum typing (Prisma v5/v6) ---- */
+type TxStatus = PrismaNS["$Enums"] extends { TransactionStatus: infer E } ? E : string;
+
+/** Access the runtime enum map across Prisma versions */
+function txEnumMap(): Record<string, string> {
   return (
-    S.PURCHASED ??
-    S.CLOSED ??
-    S.COMPLETED ??
-    S.EXECUTED ??
-    S.SOLD ??
-    // last resort: pick the last enum value (often the most "final" in many schemas)
-    (Object.values(S)[Object.values(S).length - 1] as Prisma.TransactionStatus)
+    (Prisma as any).TransactionStatus || // older Prisma
+    (Prisma as any).$Enums?.TransactionStatus || // Prisma v6
+    {}
   );
 }
 
-/** Resolve the current app user id from Clerk (best-effort). */
-async function getCurrentDbUserId(): Promise<string | null> {
+/** Map desired "PURCHASED" to whatever enum value actually exists */
+function mapPurchasedToExisting(): TxStatus {
+  const S = txEnumMap();
+  const candidates = ["PURCHASED", "CLOSED", "COMPLETED", "EXECUTED", "FINALIZED"];
+  for (const c of candidates) if (S[c]) return S[c] as TxStatus;
+  const first = Object.values(S)[0] as string | undefined;
+  return (first ?? "CLOSED") as TxStatus;
+}
+
+async function resolveBuyerId(): Promise<string | undefined> {
   try {
     const { userId } = auth();
-    if (!userId) return null;
-    const u = await prisma.user.findUnique({
+    if (!userId) return undefined;
+    const user = await prisma.user.findUnique({
       where: { clerkId: userId },
       select: { id: true },
     });
-    return u?.id ?? null;
+    return user?.id;
   } catch {
-    return null;
+    return undefined;
   }
 }
 
 /**
- * purchaseAction
- * - marks the transaction as purchased using an enum value that exists in prod
- * - stamps purchasedAt
- * - sets buyerId to the current user (if available)
- * - returns an optional confirmationUrl (leave undefined if you don't have one)
+ * Server action to mark a transaction as purchased (or closest terminal state available),
+ * set purchasedAt, and optionally attach the buyerId.
  */
-export async function purchaseAction(transactionId: string): Promise<{ confirmationUrl?: string }> {
+export async function purchaseAction(
+  transactionId: string
+): Promise<{ confirmationUrl?: string }> {
+  "use server";
   if (!transactionId) throw new Error("Missing transaction id");
 
-  const buyerId = await getCurrentDbUserId();
-  const mapped = mapPurchasedToExisting();
+  const status = mapPurchasedToExisting();
+  const buyerId = await resolveBuyerId();
 
-  // IMPORTANT: assign the enum directly (avoid `{ set: ... }` to keep logs cleaner)
-  const tx = await prisma.transaction.update({
+  await prisma.transaction.update({
     where: { id: transactionId },
     data: {
       ...(buyerId ? { buyerId } : {}),
-      status: mapped,
+      status: status as any, // TS cross-version safety
       purchasedAt: new Date(),
-    },
-    include: {
-      listing: true,
-      buyer: { select: { id: true, email: true, name: true } },
-      seller: { select: { id: true, email: true, name: true } },
     },
   });
 
-  // If you have an external confirmation flow (Stripe, Docusign, etc.), build its URL here.
-  // Otherwise, return undefined and keep the user on the same page.
-  const confirmationUrl: string | undefined = undefined;
-
-  // Optional: log what we set for easier debugging in Vercel logs
-  // eslint-disable-next-line no-console
-  console.log("[purchaseAction] mapped status used:", mapped, "for tx", transactionId);
-
-  return { confirmationUrl };
+  // Keep user on page; page.tsx can handle success UI
+  return { confirmationUrl: undefined };
 }
