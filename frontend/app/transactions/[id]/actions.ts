@@ -38,7 +38,7 @@ async function resolveBuyerId(): Promise<string | undefined> {
 
 /**
  * Mark a transaction as purchased (or closest terminal state),
- * set purchasedAt, and attach buyerId when available.
+ * set purchasedAt when the column exists, and attach buyerId when available.
  */
 export async function purchaseAction(
   transactionId: string
@@ -49,15 +49,39 @@ export async function purchaseAction(
   const status = mapPurchasedToExisting();
   const buyerId = await resolveBuyerId();
 
-  await prisma.transaction.update({
-    where: { id: transactionId },
-    data: {
-      ...(buyerId ? { buyerId } : {}),
-      status: status as any, // TS cross-version safety
-      purchasedAt: new Date(),
-    },
-  });
+  // Build data dynamically to bypass TS complaining about unknown fields across schemas
+  const data: any = {
+    ...(buyerId ? { buyerId } : {}),
+    status, // value is one of the runtime enum strings
+  };
 
-  // Keep user on the page; page.tsx handles success UI/redirect if needed
+  // Try to set purchasedAt, but gracefully fall back if the field doesn't exist in this schema
+  data.purchasedAt = new Date();
+
+  try {
+    await prisma.transaction.update({
+      where: { id: transactionId },
+      data,
+    });
+  } catch (e: any) {
+    const msg = String(e?.message ?? "");
+    const looksLikeNoPurchasedAt =
+      /Unknown (arg|field)\s+`purchasedAt`/i.test(msg) ||
+      /Unknown argument `purchasedAt`/i.test(msg);
+
+    if (looksLikeNoPurchasedAt) {
+      // Remove and retry without purchasedAt
+      delete data.purchasedAt;
+      await prisma.transaction.update({
+        where: { id: transactionId },
+        data,
+      });
+    } else {
+      // Bubble anything else
+      throw e;
+    }
+  }
+
+  // Keep user on the page; the page can decide to redirect or show success
   return { confirmationUrl: undefined };
 }
