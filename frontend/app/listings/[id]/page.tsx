@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import { Info } from "lucide-react";
-import dynamic from "next/dynamic";
+import NextDynamic from "next/dynamic";
 
 export const revalidate = 0;
 export const runtime = "nodejs"; // ensure Prisma runs on Node
