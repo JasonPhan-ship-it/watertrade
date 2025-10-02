@@ -5,10 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 
 export const runtime = "nodejs";
 
-/** Prisma v6 enum type */
-type TxStatus = Prisma.$Enums.TransactionStatus;
-
-/** Get the runtime enum map (works with v6 and older) */
+/** Runtime enum map (works across Prisma versions) */
 function txEnumMap(): Record<string, string> {
   return (
     (Prisma as any).$Enums?.TransactionStatus || // Prisma v6
@@ -17,15 +14,12 @@ function txEnumMap(): Record<string, string> {
   );
 }
 
-/** Map desired "PURCHASED" to whatever exists in the enum */
-function mapPurchasedToExisting(): TxStatus {
+/** Map desired "PURCHASED" to whatever actually exists in your enum */
+function mapPurchasedToExisting(): string {
   const S = txEnumMap();
   const candidates = ["PURCHASED", "CLOSED", "COMPLETED", "EXECUTED", "FINALIZED"];
-  for (const c of candidates) {
-    if (S[c]) return S[c] as TxStatus;
-  }
-  const first = Object.values(S)[0] as string | undefined;
-  return (first ?? "CLOSED") as TxStatus;
+  for (const c of candidates) if (S[c]) return S[c];
+  return Object.values(S)[0] ?? "CLOSED";
 }
 
 async function resolveBuyerId(): Promise<string | undefined> {
@@ -43,7 +37,7 @@ async function resolveBuyerId(): Promise<string | undefined> {
 }
 
 /**
- * Mark a transaction as purchased (or the nearest terminal state),
+ * Mark a transaction as purchased (or closest terminal state),
  * set purchasedAt, and attach buyerId when available.
  */
 export async function purchaseAction(
@@ -64,6 +58,6 @@ export async function purchaseAction(
     },
   });
 
-  // Keep user on current page; page.tsx handles success UI / redirect if needed
+  // Keep user on the page; page.tsx handles success UI/redirect if needed
   return { confirmationUrl: undefined };
 }
