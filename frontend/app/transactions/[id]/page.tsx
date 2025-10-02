@@ -27,7 +27,7 @@ function mapPurchasedToExisting(): Prisma.TransactionStatus {
 }
 
 // Client-only portal that mounts children into #inline-buy-now
-const InlinePortal = dynamic(() => import("@/components/InlinePortal"), { ssr: false });
+const InlinePortal = NextDynamic(() => import("@/components/InlinePortal"), { ssr: false });
 
 export default async function Page({ params, searchParams }: PageProps) {
   try {
