@@ -7,7 +7,7 @@ import { purchaseAction } from "./actions";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import Nextdynamic from "next/dynamic";
+import NextDynamic from "next/dynamic";
 
 type PageProps = {
   params: { id?: string };
