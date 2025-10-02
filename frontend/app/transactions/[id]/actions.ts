@@ -1,28 +1,29 @@
 // app/transactions/[id]/actions.ts
 import { Prisma } from "@prisma/client";
-import type { Prisma as PrismaNS } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 
 export const runtime = "nodejs";
 
-/** ---- Cross-version-safe enum typing (Prisma v5/v6) ---- */
-type TxStatus = PrismaNS["$Enums"] extends { TransactionStatus: infer E } ? E : string;
+/** Prisma v6 enum type */
+type TxStatus = Prisma.$Enums.TransactionStatus;
 
-/** Access the runtime enum map across Prisma versions */
+/** Get the runtime enum map (works with v6 and older) */
 function txEnumMap(): Record<string, string> {
   return (
-    (Prisma as any).TransactionStatus || // older Prisma
     (Prisma as any).$Enums?.TransactionStatus || // Prisma v6
+    (Prisma as any).TransactionStatus || // older Prisma
     {}
   );
 }
 
-/** Map desired "PURCHASED" to whatever enum value actually exists */
+/** Map desired "PURCHASED" to whatever exists in the enum */
 function mapPurchasedToExisting(): TxStatus {
   const S = txEnumMap();
   const candidates = ["PURCHASED", "CLOSED", "COMPLETED", "EXECUTED", "FINALIZED"];
-  for (const c of candidates) if (S[c]) return S[c] as TxStatus;
+  for (const c of candidates) {
+    if (S[c]) return S[c] as TxStatus;
+  }
   const first = Object.values(S)[0] as string | undefined;
   return (first ?? "CLOSED") as TxStatus;
 }
@@ -42,8 +43,8 @@ async function resolveBuyerId(): Promise<string | undefined> {
 }
 
 /**
- * Server action to mark a transaction as purchased (or closest terminal state available),
- * set purchasedAt, and optionally attach the buyerId.
+ * Mark a transaction as purchased (or the nearest terminal state),
+ * set purchasedAt, and attach buyerId when available.
  */
 export async function purchaseAction(
   transactionId: string
@@ -63,6 +64,6 @@ export async function purchaseAction(
     },
   });
 
-  // Keep user on page; page.tsx can handle success UI
+  // Keep user on current page; page.tsx handles success UI / redirect if needed
   return { confirmationUrl: undefined };
 }
