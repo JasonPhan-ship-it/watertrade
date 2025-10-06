@@ -5,7 +5,7 @@ export const revalidate = 0;
 
 import { purchaseAction } from "./actions";
 import { Prisma } from "@prisma/client";
-import type { Prisma as PrismaNS } from "@prisma/client";
+import type { Prisma as PrismaType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import NextDynamic from "next/dynamic";
@@ -21,19 +21,27 @@ function asString(v: unknown): string | undefined {
   return undefined;
 }
 
-// ---- Cross-version-safe enum typing (Prisma v5/6) ----
-type TxStatus = PrismaNS["$Enums"] extends { TransactionStatus: infer E } ? E : string;
+/** ---------- Cross-version-safe enum typing (Prisma v5/v6) ---------- */
+type TxStatus =
+  // Prisma v5 exposes enum types under Prisma.$Enums
+  PrismaType extends { $Enums: { TransactionStatus: infer E } }
+    ? E
+    // Prisma v6 exposes enum types directly under Prisma.TransactionStatus
+    : PrismaType.TransactionStatus;
 
-// Map "PURCHASED" to an existing enum value if it doesn't exist in prod.
+/** Runtime enum object finder (works on v5 and v6) */
+const TxStatusEnum: Record<string, string> | undefined =
+  // Some builds may not expose $Enums at runtime; guard both ways.
+  (Prisma as any).$Enums?.TransactionStatus ?? (Prisma as any).TransactionStatus;
+
+/** Map "PURCHASED" to an existing enum value if it doesn't exist */
 function mapPurchasedToExisting(): TxStatus {
-  const S: Record<string, string> | undefined =
-    (Prisma as any).TransactionStatus ?? (Prisma as any).$Enums?.TransactionStatus;
-
-  const candidates = ["PURCHASED", "CLOSED", "COMPLETED", "EXECUTED", "FINALIZED"];
+  const candidates = ["PURCHASED", "COMPLETED", "CLOSED", "EXECUTED", "FINALIZED"];
   for (const c of candidates) {
-    if (S?.[c]) return S[c] as TxStatus;
+    const found = TxStatusEnum?.[c];
+    if (found) return found as TxStatus;
   }
-  const first = S ? (Object.values(S)[0] as string | undefined) : undefined;
+  const first = TxStatusEnum ? (Object.values(TxStatusEnum)[0] as string | undefined) : undefined;
   return (first ?? "CLOSED") as TxStatus;
 }
 
