@@ -5,8 +5,15 @@ import * as React from "react";
 import { useTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-type ServerActionResult = void | { confirmationUrl?: string } | string;
+type ServerActionResult =
+  | void
+  | string
+  | {
+      confirmationUrl?: string;
+      error?: string;
+    };
 
 type Props =
   | {
@@ -16,6 +23,7 @@ type Props =
       action?: (formData: FormData) => Promise<ServerActionResult>;
       label?: string;
       className?: string;
+      formClassName?: string;
       redirectDelayMs?: number;
       fallbackUrl?: string;
     }
@@ -27,12 +35,13 @@ export default function BuyNowButton(props: Props) {
     action,
     label,
     className,
+    formClassName,
     redirectDelayMs = 3500,
     fallbackUrl = "/dashboard",
   } = props as Props;
 
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  the const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
@@ -52,6 +61,18 @@ export default function BuyNowButton(props: Props) {
             typeof result === "string"
               ? result
               : (result && typeof result === "object" && (result as any).confirmationUrl) || undefined;
+
+          const serverError =
+            result &&
+            typeof result === "object" &&
+            typeof (result as any).error === "string"
+              ? ((result as any).error as string)
+              : undefined;
+
+          if (serverError) {
+            setError(serverError);
+            return;
+          }
 
           if (url) {
             router.push(url);
@@ -92,7 +113,11 @@ export default function BuyNowButton(props: Props) {
   const disabled = isPending || done;
 
   return (
-    <form onSubmit={onSubmit} className="space-y-2" data-buy-now="primary">
+    <form
+      onSubmit={onSubmit}
+      className={cn("space-y-2", formClassName)}
+      data-buy-now="primary"
+    >
       <input type="hidden" name="transactionId" value={transactionId} />
       <Button
         type="submit"
@@ -100,7 +125,7 @@ export default function BuyNowButton(props: Props) {
         aria-busy={isPending}
         aria-disabled={disabled}
         aria-live="polite"
-        className={`w-full ${disabled ? "pointer-events-none" : ""} ${className ?? ""}`}
+        className={cn("w-full", disabled && "pointer-events-none", className)}
       >
         {isPending
           ? "Processing..."
