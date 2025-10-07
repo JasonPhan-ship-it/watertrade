@@ -127,22 +127,33 @@ export default async function Page({ params, searchParams }: PageProps) {
     // Bound server action with enum-fallback safety
     const boundPurchase = async (_fd: FormData) => {
       "use server";
+      const logError = (err: unknown, context: string) => {
+        const anyErr = err as any;
+        console.error(`[transactions/[id]/page] ${context}`, {
+          message: anyErr?.message,
+          digest: anyErr?.digest,
+          stack: anyErr?.stack,
+        });
+      };
+
       try {
         const { confirmationUrl } = await purchaseAction(id);
         return { confirmationUrl };
-      } catch (e: any) {
-        const msg = e?.message || "";
+      } catch (err: any) {
+        logError(err, "purchaseAction failed");
+
+        const msg = err?.message || "";
         const looksLikeEnumError =
           /Expected\s+TransactionStatus/i.test(msg) ||
           /Invalid value for argument `set`/i.test(msg);
 
-        console.error("[transactions/[id]/page] purchaseAction failed", {
-          message: e?.message,
-          digest: e?.digest,
-          stack: e?.stack,
-        });
-
-        if (!looksLikeEnumError) throw e;
+        if (!looksLikeEnumError) {
+          const fallbackMessage =
+            msg && msg !== "Record to update not found"
+              ? msg
+              : "We couldn’t complete the purchase. Please refresh and try again.";
+          return { error: fallbackMessage };
+        }
 
         try {
           const mapped = mapPurchasedToExisting();
@@ -157,7 +168,9 @@ export default async function Page({ params, searchParams }: PageProps) {
               });
               buyerId = buyer?.id;
             }
-          } catch {}
+          } catch (authErr) {
+            logError(authErr, "resolve buyer in fallback failed");
+          }
 
           const baseData: Record<string, unknown> = {
             ...(buyerId ? { buyerId } : {}),
@@ -175,23 +188,26 @@ export default async function Page({ params, searchParams }: PageProps) {
           try {
             await runUpdate(dataWithPurchasedAt);
           } catch (innerErr: any) {
-            const msg = String(innerErr?.message ?? "");
+            const innerMsg = String(innerErr?.message ?? "");
             const looksLikeNoPurchasedAt =
-              /Unknown (arg|field)\s+`purchasedAt`/i.test(msg) ||
-              /Unknown argument `purchasedAt`/i.test(msg);
+              /Unknown (arg|field)\s+`purchasedAt`/i.test(innerMsg) ||
+              /Unknown argument `purchasedAt`/i.test(innerMsg);
 
-            if (!looksLikeNoPurchasedAt) throw innerErr;
+            if (!looksLikeNoPurchasedAt) {
+              logError(innerErr, "fallback purchasedAt update failed");
+              throw innerErr;
+            }
 
             await runUpdate(baseData);
           }
 
           return { confirmationUrl: undefined as string | undefined };
         } catch (fallbackErr: any) {
-          console.error("[transactions/[id]/page] fallback enum mapping failed", {
-            message: fallbackErr?.message,
-            stack: fallbackErr?.stack,
-          });
-          throw e;
+          logError(fallbackErr, "fallback enum mapping failed");
+          const fallbackMessage =
+            fallbackErr?.message ||
+            "We couldn’t complete the purchase. Please refresh and try again.";
+          return { error: fallbackMessage };
         }
       }
     };
