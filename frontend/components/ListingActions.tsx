@@ -32,20 +32,29 @@ export default function ListingActions({
   );
 
   // Inputs ONLY for OFFER / BID
-  const [acreFeet, setAcreFeet] = React.useState<number>(1);
-  const [price, setPrice] = React.useState<number>(() => {
+  const [acreFeetInput, setAcreFeetInput] = React.useState<string>("1");
+  const parsedAcreFeet = React.useMemo(() => parseIntegerInput(acreFeetInput), [acreFeetInput]);
+  const acreFeet = React.useMemo(() => {
+    if (parsedAcreFeet == null) return 0;
+    return Math.max(0, parsedAcreFeet);
+  }, [parsedAcreFeet]);
+  const [priceInput, setPriceInput] = React.useState<string>(() => {
     const base = isAuction ? (reservePrice ?? pricePerAf) : pricePerAf;
-    return round2(base);
+    return round2(base).toFixed(2);
   });
+  const parsedPrice = React.useMemo(() => parsePriceInput(priceInput), [priceInput]);
 
   const [submitting, setSubmitting] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
 
-  const total = React.useMemo(() => round2(acreFeet * price), [acreFeet, price]);
+  const total = React.useMemo(
+    () => round2(Math.max(0, acreFeet) * (parsedPrice ?? 0)),
+    [acreFeet, parsedPrice]
+  );
 
   React.useEffect(() => {
-    if (mode === "OFFER") setPrice(round2(pricePerAf));
-    if (mode === "BID") setPrice(round2(reservePrice ?? pricePerAf));
+    if (mode === "OFFER") setPriceInput(round2(pricePerAf).toFixed(2));
+    if (mode === "BID") setPriceInput(round2(reservePrice ?? pricePerAf).toFixed(2));
   }, [mode, pricePerAf, reservePrice]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -56,6 +65,28 @@ export default function ListingActions({
     setMessage(null);
 
     try {
+      if (mode === "OFFER" || mode === "BID") {
+        if (parsedAcreFeet == null || parsedAcreFeet < 1) {
+          setMessage("Enter at least 1 acre-foot.");
+          return;
+        }
+
+        if (parsedPrice == null) {
+          setMessage("Enter a valid price per acre-foot.");
+          return;
+        }
+
+        if (parsedPrice <= 0) {
+          setMessage("Enter a valid price per acre-foot.");
+          return;
+        }
+
+        if (mode === "BID" && parsedPrice < minBid) {
+          setMessage(`Your bid must be at least ${format2(minBid)} / AF.`);
+          return;
+        }
+      }
+
       if (mode === "BUY_NOW" || mode === "SELL_NOW") {
         const res = await fetch(
           `/api/transactions/buy-now?listingId=${encodeURIComponent(listingId)}`,
@@ -90,8 +121,8 @@ export default function ListingActions({
           body: JSON.stringify({
             type: "OFFER",
             listingId,
-            acreFeet: Number(acreFeet),
-            pricePerAF: Number(price),
+            acreFeet: parsedAcreFeet!,
+            pricePerAF: parsedPrice!,
           }),
         });
         const data = await safeJson(res);
@@ -107,8 +138,8 @@ export default function ListingActions({
           credentials: "include",
           body: JSON.stringify({
             listingId,
-            acreFeet: Number(acreFeet),
-            pricePerAF: Number(price),
+            acreFeet: parsedAcreFeet!,
+            pricePerAF: parsedPrice!,
           }),
         });
         const data = await safeJson(res);
@@ -192,24 +223,27 @@ export default function ListingActions({
           <>
             <Field label="Acre-Feet">
               <input
-                type="number"
-                min={1}
-                step={1}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 required
-                value={acreFeet}
-                onChange={(e) => setAcreFeet(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                value={acreFeetInput}
+                placeholder="1"
+                onChange={(e) => setAcreFeetInput(sanitizeIntegerInput(e.target.value))}
+                onBlur={() => setAcreFeetInput((prev) => normalizeIntegerInput(prev))}
                 className="w-full rounded-lg border border-emerald-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               />
             </Field>
 
             <Field label={mode === "BID" ? "Your Bid $/AF" : "Price $/AF"}>
               <input
-                type="number"
-                min={mode === "BID" ? minBid : 0}
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 required
-                value={price}
-                onChange={(e) => setPrice(Math.max(0, Number(e.target.value) || 0))}
+                value={priceInput}
+                placeholder={round2(mode === "BID" ? minBid : pricePerAf).toFixed(2)}
+                onChange={(e) => setPriceInput(sanitizeDecimalInput(e.target.value))}
+                onBlur={() => setPriceInput((prev) => normalizeDecimalInput(prev))}
                 className="w-full rounded-lg border border-emerald-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               />
               {mode === "BID" && (
@@ -298,6 +332,54 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="mt-1">{children}</div>
     </label>
   );
+}
+
+function sanitizeIntegerInput(value: string) {
+  return value.replace(/\D+/g, "");
+}
+
+function normalizeIntegerInput(value: string) {
+  const digits = sanitizeIntegerInput(value);
+  if (!digits) return "";
+  return String(Number.parseInt(digits, 10));
+}
+
+function parseIntegerInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+function sanitizeDecimalInput(value: string) {
+  const cleaned = value.replace(/[^0-9.]/g, "");
+  const firstDot = cleaned.indexOf(".");
+  if (firstDot === -1) return cleaned;
+  const whole = cleaned.slice(0, firstDot);
+  const decimals = cleaned
+    .slice(firstDot + 1)
+    .replace(/\./g, "")
+    .slice(0, 2);
+  return `${whole}.${decimals}`;
+}
+
+function normalizeDecimalInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (!/[0-9]/.test(trimmed)) return "";
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return "";
+  return round2(parsed).toFixed(2);
+}
+
+function parsePriceInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/[0-9]/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return null;
+  return round2(parsed);
 }
 
 function round2(n: number) {
