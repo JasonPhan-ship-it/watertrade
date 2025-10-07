@@ -1,4 +1,4 @@
-// components/transactions/BuyNowButton.tsx
+// components/BuyNowButton.tsx
 "use client";
 
 import * as React from "react";
@@ -15,19 +15,17 @@ type ServerActionResult =
       error?: string;
     };
 
-type Props =
-  | {
-      /** Transaction id (required in both modes) */
-      transactionId: string;
-      /** OPTIONAL: server action to run purchase. If omitted, falls back to REST POST /api/transactions/:id/buy */
-      action?: (formData: FormData) => Promise<ServerActionResult>;
-      label?: string;
-      className?: string;
-      formClassName?: string;
-      redirectDelayMs?: number;
-      fallbackUrl?: string;
-    }
-  | never;
+type Props = {
+  /** Transaction id (required in both modes) */
+  transactionId: string;
+  /** OPTIONAL: server action to run purchase. If omitted, falls back to REST POST /api/transactions/:id/buy */
+  action?: (formData: FormData) => Promise<ServerActionResult>;
+  label?: string;
+  className?: string;
+  formClassName?: string;
+  redirectDelayMs?: number;
+  fallbackUrl?: string;
+};
 
 export default function BuyNowButton(props: Props) {
   const {
@@ -38,10 +36,10 @@ export default function BuyNowButton(props: Props) {
     formClassName,
     redirectDelayMs = 3500,
     fallbackUrl = "/dashboard",
-  } = props as Props;
+  } = props;
 
   const router = useRouter();
-  the const [isPending, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
