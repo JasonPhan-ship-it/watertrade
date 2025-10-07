@@ -82,6 +82,7 @@ export async function purchaseAction(
     }
   }
 
-  // Keep user on the page; the page can decide to redirect or show success
-  return { confirmationUrl: undefined };
+  const confirmationUrl = `/transactions/${transactionId}/confirmation`;
+
+  return { confirmationUrl };
 }
