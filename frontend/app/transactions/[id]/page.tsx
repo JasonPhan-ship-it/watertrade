@@ -241,28 +241,14 @@ export default async function Page({ params, searchParams }: PageProps) {
         />
 
         {onReview && BuyNowButton && (
-          <>
-            {/* Mount Buy Now button for mobile inside the actions card */}
-            <InlinePortal targetId="inline-buy-now">
-              <BuyNowButton
-                transactionId={id}
-                action={boundPurchase}
-                label="Buy Now"
-                formClassName="sm:hidden"
-              />
-            </InlinePortal>
-
-            {/* Desktop Buy Now button renders in the header next to badges */}
-            <InlinePortal targetId="buy-now-header-slot">
-              <BuyNowButton
-                transactionId={id}
-                action={boundPurchase}
-                label="Buy Now"
-                formClassName="hidden sm:block"
-                className="sm:w-auto"
-              />
-            </InlinePortal>
-          </>
+          <InlinePortal targetId="inline-buy-now">
+            <BuyNowButton
+              transactionId={id}
+              action={boundPurchase}
+              label="Buy Now"
+              className="sm:w-auto"
+            />
+          </InlinePortal>
         )}
       </div>
     );
