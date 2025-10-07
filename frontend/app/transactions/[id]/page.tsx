@@ -159,14 +159,31 @@ export default async function Page({ params, searchParams }: PageProps) {
             }
           } catch {}
 
-          await prisma.transaction.update({
-            where: { id },
-            data: {
-              ...(buyerId ? { buyerId } : {}),
-              status: mapped as any, // cross-version TS safety
-              purchasedAt: new Date(),
-            },
-          });
+          const baseData: Record<string, unknown> = {
+            ...(buyerId ? { buyerId } : {}),
+            status: mapped as any,
+          };
+
+          const dataWithPurchasedAt: Record<string, unknown> = {
+            ...baseData,
+            purchasedAt: new Date(),
+          };
+
+          const runUpdate = async (data: Record<string, unknown>) =>
+            prisma.transaction.update({ where: { id }, data: data as any });
+
+          try {
+            await runUpdate(dataWithPurchasedAt);
+          } catch (innerErr: any) {
+            const msg = String(innerErr?.message ?? "");
+            const looksLikeNoPurchasedAt =
+              /Unknown (arg|field)\s+`purchasedAt`/i.test(msg) ||
+              /Unknown argument `purchasedAt`/i.test(msg);
+
+            if (!looksLikeNoPurchasedAt) throw innerErr;
+
+            await runUpdate(baseData);
+          }
 
           return { confirmationUrl: undefined as string | undefined };
         } catch (fallbackErr: any) {
