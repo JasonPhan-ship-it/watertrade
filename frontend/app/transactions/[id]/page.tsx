@@ -226,20 +226,25 @@ export default async function Page({ params, searchParams }: PageProps) {
 
         {onReview && BuyNowButton && (
           <>
-            {/* Hide any stray full-width submit inside TradeShell on review */}
-            <style
-              dangerouslySetInnerHTML={{
-                __html: `
-                  [data-trade-actions] button[type="submit"].w-full { display: none !important; }
-                `,
-              }}
-            />
-            {/* Mount our Buy Now directly into the original spot */}
+            {/* Mount Buy Now button for mobile inside the actions card */}
             <InlinePortal targetId="inline-buy-now">
-              {/* Match legacy sizing: inline, not full-width */}
-              <div className="flex flex-wrap items-center gap-3">
-                <BuyNowButton transactionId={id} action={boundPurchase} label="Buy Now" />
-              </div>
+              <BuyNowButton
+                transactionId={id}
+                action={boundPurchase}
+                label="Buy Now"
+                formClassName="sm:hidden"
+              />
+            </InlinePortal>
+
+            {/* Desktop Buy Now button renders in the header next to badges */}
+            <InlinePortal targetId="buy-now-header-slot">
+              <BuyNowButton
+                transactionId={id}
+                action={boundPurchase}
+                label="Buy Now"
+                formClassName="hidden sm:block"
+                className="sm:w-auto"
+              />
             </InlinePortal>
           </>
         )}
