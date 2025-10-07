@@ -85,7 +85,8 @@ export default async function ConfirmationPage({ params }: PageProps) {
   const qty = tx.acreFeet ?? 0;
   const priceAf = tx.pricePerAF ?? 0;
   const total = (tx.totalAmount ?? qty * priceAf) || 0;
-  const purchasedAt = formatDate(tx.purchasedAt ?? new Date());
+  const purchasedAtRaw = (tx as any)?.purchasedAt ?? tx.updatedAt ?? tx.createdAt ?? new Date();
+  const purchasedAt = formatDate(purchasedAtRaw);
 
   return (
     <div className="mx-auto max-w-3xl p-6">
