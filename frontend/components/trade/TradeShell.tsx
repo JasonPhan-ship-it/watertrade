@@ -200,11 +200,14 @@ export default async function TradeShell(props: Props) {
     return (
       <div className="mx-auto max-w-3xl p-6">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          <div className="flex items-center gap-2">
-            <Badge tone={toneForStatus(status)}>{status}</Badge>
-            <Badge tone="slate">{kind}</Badge>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center gap-2">
+              <Badge tone={toneForStatus(status)}>{status}</Badge>
+              <Badge tone="slate">{kind}</Badge>
+            </div>
+            {isBuyNow ? <div className="flex items-center sm:ml-3" id="buy-now-header-slot" /> : null}
           </div>
         </div>
 
