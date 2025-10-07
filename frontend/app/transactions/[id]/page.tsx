@@ -201,7 +201,7 @@ export default async function Page({ params, searchParams }: PageProps) {
             await runUpdate(baseData);
           }
 
-          return { confirmationUrl: undefined as string | undefined };
+          return { confirmationUrl: `/transactions/${id}/confirmation` };
         } catch (fallbackErr: any) {
           logError(fallbackErr, "fallback enum mapping failed");
           const fallbackMessage =
@@ -246,6 +246,7 @@ export default async function Page({ params, searchParams }: PageProps) {
               transactionId={id}
               action={boundPurchase}
               label="Buy Now"
+              fallbackUrl={`/transactions/${id}/confirmation`}
               className="sm:w-auto"
             />
           </InlinePortal>
