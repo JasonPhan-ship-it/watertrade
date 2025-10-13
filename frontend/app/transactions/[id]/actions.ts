@@ -1,26 +1,12 @@
 // app/transactions/[id]/actions.ts
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
+import { archiveListingIfTransactionClosed } from "@/lib/transactions/listing";
+import { preferredClosedTransactionStatus } from "@/lib/transactions/status";
 
 export const runtime = "nodejs";
 
-/** Runtime enum map (works across Prisma versions) */
-function txEnumMap(): Record<string, string> {
-  return (
-    (Prisma as any).$Enums?.TransactionStatus || // Prisma v6
-    (Prisma as any).TransactionStatus || // older Prisma
-    {}
-  );
-}
-
-/** Map desired "PURCHASED" to whatever actually exists in your enum */
-function mapPurchasedToExisting(): string {
-  const S = txEnumMap();
-  const candidates = ["PURCHASED", "CLOSED", "COMPLETED", "EXECUTED", "FINALIZED"];
-  for (const c of candidates) if (S[c]) return S[c];
-  return Object.values(S)[0] ?? "CLOSED";
-}
+const TARGET_TRANSACTION_STATUS = preferredClosedTransactionStatus();
 
 async function resolveBuyerId(): Promise<string | undefined> {
   try {
@@ -37,7 +23,7 @@ async function resolveBuyerId(): Promise<string | undefined> {
 }
 
 /**
- * Mark a transaction as purchased (or closest terminal state),
+ * Mark a transaction as completed using the closest matching terminal status,
  * set purchasedAt when the column exists, and attach buyerId when available.
  */
 export async function purchaseAction(
@@ -46,23 +32,48 @@ export async function purchaseAction(
   "use server";
   if (!transactionId) throw new Error("Missing transaction id");
 
-  const status = mapPurchasedToExisting();
   const buyerId = await resolveBuyerId();
 
-  // Build data dynamically to bypass TS complaining about unknown fields across schemas
+  const transaction = await prisma.transaction.findUnique({
+    where: { id: transactionId },
+    select: { id: true, status: true, listingId: true },
+  });
+
+  if (!transaction) {
+    throw new Error("Transaction not found");
+  }
+
+  await archiveListingIfTransactionClosed(
+    transaction.listingId,
+    transaction.status,
+    "[transactions/[id]/actions]"
+  );
+
   const data: any = {
     ...(buyerId ? { buyerId } : {}),
-    status, // value is one of the runtime enum strings
   };
 
-  // Try to set purchasedAt, but gracefully fall back if the field doesn't exist in this schema
+  if (
+    TARGET_TRANSACTION_STATUS &&
+    TARGET_TRANSACTION_STATUS !== transaction.status
+  ) {
+    data.status = { set: TARGET_TRANSACTION_STATUS };
+  }
+
   data.purchasedAt = new Date();
 
-  try {
-    await prisma.transaction.update({
+  const runUpdate = (updateData: Record<string, unknown>) =>
+    prisma.transaction.update({
       where: { id: transactionId },
-      data,
+      data: updateData as any,
+      select: { listingId: true, status: true },
     });
+
+  let updateResult: { listingId: string | null; status: unknown } | null =
+    null;
+
+  try {
+    updateResult = await runUpdate(data);
   } catch (e: any) {
     const msg = String(e?.message ?? "");
     const looksLikeNoPurchasedAt =
@@ -70,17 +81,19 @@ export async function purchaseAction(
       /Unknown argument `purchasedAt`/i.test(msg);
 
     if (looksLikeNoPurchasedAt) {
-      // Remove and retry without purchasedAt
       delete data.purchasedAt;
-      await prisma.transaction.update({
-        where: { id: transactionId },
-        data,
-      });
+      updateResult = await runUpdate(data);
     } else {
-      // Bubble anything else
       throw e;
     }
   }
+
+  const finalStatus = updateResult?.status ?? data.status ?? transaction.status;
+  await archiveListingIfTransactionClosed(
+    updateResult?.listingId ?? transaction.listingId,
+    finalStatus,
+    "[transactions/[id]/actions]"
+  );
 
   const confirmationUrl = `/transactions/${transactionId}/confirmation`;
 
