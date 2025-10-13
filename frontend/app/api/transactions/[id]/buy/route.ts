@@ -2,8 +2,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 import { sendPurchaseEmails } from "@/lib/email";
+import { archiveListingIfTransactionClosed } from "@/lib/transactions/listing";
+import {
+  isClosedTransactionStatus,
+  preferredClosedTransactionStatus,
+} from "@/lib/transactions/status";
+
+const TARGET_TRANSACTION_STATUS = preferredClosedTransactionStatus();
 
 export async function POST(
   _req: Request,
@@ -17,7 +23,6 @@ export async function POST(
 
     const txId = params.id;
 
-    // Identify viewer (buyer)
     const viewer = await prisma.user.findFirst({
       where: { clerkId: userId },
       select: { id: true, email: true, name: true },
@@ -26,11 +31,10 @@ export async function POST(
       return NextResponse.json({ error: "Viewer not found" }, { status: 404 });
     }
 
-    // Pull the transaction + related parties
     const tx = await prisma.transaction.findUnique({
       where: { id: txId },
       include: {
-        listing: true, // include full listing to avoid field name drift issues
+        listing: true,
         buyer: { select: { id: true, email: true, name: true } },
         seller: { select: { id: true, email: true, name: true } },
       },
@@ -40,40 +44,66 @@ export async function POST(
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
 
-    // Compute PURCHASED status in a schema-tolerant way
-    const STATUS_PURCHASED: any =
-      (Prisma as any)?.TransactionStatus?.PURCHASED ?? "PURCHASED";
+    await archiveListingIfTransactionClosed(
+      tx.listingId,
+      tx.status,
+      "[transactions/:id/buy]"
+    );
 
-    // If already purchased, don't double-process—just return confirmation URL
-    if ((tx as any).status === STATUS_PURCHASED || String((tx as any).status) === "PURCHASED") {
-      const confirmationUrl = `/transactions/${tx.id}/confirmation`;
-      return NextResponse.json({ ok: true, confirmationUrl });
+    if (isClosedTransactionStatus(tx.status)) {
+      return NextResponse.json(
+        { error: "Transaction is closed" },
+        { status: 409 }
+      );
     }
 
-    // Build update data in a way that won't trip type errors across schema variants
     const data: any = {
       buyerId: tx.buyerId ?? viewer.id,
-      // Enum update operator satisfies EnumTransactionStatusFieldUpdateOperationsInput shape
-      status: { set: STATUS_PURCHASED },
     };
-    // If your schema has this field, DB will accept; if not, Prisma will ignore unknown key at runtime.
-    // Casting `data` to any avoids compile-time error in branches without this field.
+
+    if (TARGET_TRANSACTION_STATUS && TARGET_TRANSACTION_STATUS !== tx.status) {
+      data.status = { set: TARGET_TRANSACTION_STATUS };
+    }
+
     data.purchasedAt = new Date();
 
-    const updated = await prisma.transaction.update({
-      where: { id: txId },
-      data, // typed as any to avoid compile-time schema drift errors
-      include: {
-        listing: true,
-        buyer: { select: { id: true, email: true, name: true } },
-        seller: { select: { id: true, email: true, name: true } },
-      },
-    });
+    const runUpdate = (updateData: Record<string, unknown>) =>
+      prisma.transaction.update({
+        where: { id: txId },
+        data: updateData as any,
+        include: {
+          listing: true,
+          buyer: { select: { id: true, email: true, name: true } },
+          seller: { select: { id: true, email: true, name: true } },
+        },
+      });
 
-    // ---- Build robust email payload from listing (handles schema variations) ----
-    const L = updated.listing as any;
+    let updatedTx: typeof tx | null = null;
 
-    // Prefer explicit cents fields; otherwise derive from dollars
+    try {
+      updatedTx = await runUpdate(data);
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      const looksLikeNoPurchasedAt =
+        /Unknown (arg|field)\s+`purchasedAt`/i.test(msg) ||
+        /Unknown argument `purchasedAt`/i.test(msg);
+
+      if (looksLikeNoPurchasedAt) {
+        delete data.purchasedAt;
+        updatedTx = await runUpdate(data);
+      } else {
+        throw e;
+      }
+    }
+
+    await archiveListingIfTransactionClosed(
+      updatedTx?.listingId ?? tx.listingId,
+      updatedTx?.status ?? data.status,
+      "[transactions/:id/buy]"
+    );
+
+    const L = (updatedTx?.listing ?? tx.listing) as any;
+
     const pricePerAfCents: number =
       (typeof L?.pricePerUnitCents === "number" && L.pricePerUnitCents) ??
       (typeof L?.pricePerAfCents === "number" && L.pricePerAfCents) ??
@@ -92,28 +122,26 @@ export async function POST(
     const volumeAf: number = Number(L?.volumeAf ?? L?.quantityAf ?? 0);
     const windowLabel: string | undefined = L?.windowLabel ?? L?.transferWindow ?? undefined;
 
-    // ---- Send emails (buyer receipt + seller docs ready) ----
     await sendPurchaseEmails({
-      buyerEmail: updated.buyer?.email ?? viewer.email!,
-      buyerName: updated.buyer?.name ?? viewer.name ?? undefined,
-      sellerEmail: updated.seller?.email ?? undefined,
-      sellerName: updated.seller?.name ?? undefined,
-      transactionId: updated.id,
+      buyerEmail: updatedTx?.buyer?.email ?? viewer.email!,
+      buyerName: updatedTx?.buyer?.name ?? viewer.name ?? undefined,
+      sellerEmail: updatedTx?.seller?.email ?? undefined,
+      sellerName: updatedTx?.seller?.name ?? undefined,
+      transactionId: updatedTx?.id ?? tx.id,
       offer: {
         listingTitle: L?.title ?? "Listing",
         district,
         waterType,
         volumeAf,
-        pricePerAf: pricePerAfCents, // cents
-        priceLabel,                  // pretty $/AF if available
+        pricePerAf: pricePerAfCents,
+        priceLabel,
         windowLabel,
       },
-      buyerViewLink: `/transactions/${updated.id}`,
-      sellerViewLink: `/transactions/${updated.id}`,
-      // sellerSignLink optional; helper will coerce if omitted
+      buyerViewLink: `/transactions/${updatedTx?.id ?? tx.id}`,
+      sellerViewLink: `/transactions/${updatedTx?.id ?? tx.id}`,
     });
 
-    const confirmationUrl = `/transactions/${updated.id}/confirmation`;
+    const confirmationUrl = `/transactions/${updatedTx?.id ?? tx.id}/confirmation`;
     return NextResponse.json({ ok: true, confirmationUrl });
   } catch (err) {
     console.error("Buy route error:", err);
