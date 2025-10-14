@@ -21,7 +21,7 @@ type Row = {
   seller?: { name: string | null; email: string | null } | null;
 };
 
-type DisplayRow = Row & {
+type DisplayRow = Omit<Row, "buyer" | "seller"> & {
   listingTitle: string;
   buyer: string;
   seller: string;
