@@ -141,10 +141,16 @@ export default function DashboardPage() {
     const scopeParam = params.get("scope");
     const tabParam = params.get("tab");
     const nocreateParam = params.get("nocreate") === "1";
+    const path = window.location.pathname;
+    const isListingsPath = path.startsWith("/dashboard/listings");
 
-    // scope: prefer explicit "scope", fallback to legacy "tab=listings"
+    // scope: prefer explicit "scope", fallback to legacy "tab=listings" or listings path
     const initialScope: Scope =
-      scopeParam === "mine" || tabParam === "listings" ? "mine" : "market";
+      scopeParam === "mine" ||
+      tabParam === "listings" ||
+      isListingsPath
+        ? "mine"
+        : "market";
 
     setScope(initialScope);
     setNoCreate(nocreateParam);
@@ -157,7 +163,15 @@ export default function DashboardPage() {
     params.set("scope", scope);
     if (nocreate) params.set("nocreate", "1");
     else params.delete("nocreate");
-    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+
+    const path = scope === "mine" ? "/dashboard/listings" : "/dashboard";
+    const queryString = params.toString();
+    const target = queryString ? `${path}?${queryString}` : path;
+    const current = `${window.location.pathname}${window.location.search}`;
+
+    if (current !== target) {
+      router.replace(target, { scroll: false });
+    }
   }, [scope, nocreate, router]);
 
   const qs = useMemo(() => {
@@ -237,16 +251,8 @@ export default function DashboardPage() {
     setPage(1);
   }
 
-  // Change scope AND keep nocreate flag in the URL so middleware won’t redirect to create-listing
   const handleScopeChange = (next: Scope) => {
     setScope(next);
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      params.set("scope", next);
-      if (nocreate) params.set("nocreate", "1");
-      else params.delete("nocreate");
-      router.replace(`/dashboard?${params.toString()}`, { scroll: false });
-    }
   };
 
   const pageTitle = scope === "market" ? "Active Water Sales" : "Your Listings";
