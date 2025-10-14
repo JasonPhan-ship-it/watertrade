@@ -1,4 +1,3 @@
-// frontend/app/admin/transactions/page.tsx
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth, clerkClient } from "@clerk/nextjs/server";
@@ -6,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type Party = { name: string | null; email: string | null };
 
 type Row = {
   id: string;
@@ -17,11 +18,11 @@ type Row = {
   totalAmount: number; // cents
   listingTitleSnapshot: string | null;
   listing?: { title: string | null } | null;
-  buyer?: { name: string | null; email: string | null } | null;
-  seller?: { name: string | null; email: string | null } | null;
+  buyer?: Party | null;
+  seller?: Party | null;
 };
 
-type DisplayRow = Omit<Row, "buyer" | "seller"> & {
+export type DisplayRow = Omit<Row, "buyer" | "seller"> & {
   listingTitle: string;
   buyer: string;
   seller: string;
@@ -124,15 +125,16 @@ export default async function AdminTransactionsPage() {
     }));
   }
 
-  const rows: DisplayRow[] = txns.map((t) => {
+  const rows = txns.map<DisplayRow>((t) => {
+    const { buyer: buyerInfo, seller: sellerInfo, ...base } = t;
     const listingTitle = t.listingTitleSnapshot || t.listing?.title || "—";
-    const buyer = t.buyer?.name || t.buyer?.email || "—";
-    const seller = t.seller?.name || t.seller?.email || "—";
+    const buyer = formatParty(buyerInfo);
+    const seller = formatParty(sellerInfo);
     const created = formatDate(t.createdAt);
     const shortId = t.id.length > 12 ? `${t.id.slice(0, 8)}…` : t.id;
 
     return {
-      ...t,
+      ...base,
       listingTitle,
       buyer,
       seller,
@@ -318,6 +320,10 @@ function usdCents(cents: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function formatParty(party?: Party | null) {
+  return party?.name || party?.email || "—";
 }
 
 function formatDate(date: Date) {
