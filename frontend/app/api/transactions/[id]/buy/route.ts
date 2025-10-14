@@ -3,11 +3,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { sendPurchaseEmails } from "@/lib/email";
-import { archiveListingIfTransactionClosed } from "@/lib/transactions/listing";
 import {
+  archiveListingIfTransactionClosed,
   isClosedTransactionStatus,
   preferredClosedTransactionStatus,
-} from "@/lib/transactions/status";
+} from "@/lib/transactions/listing";
 
 const TARGET_TRANSACTION_STATUS = preferredClosedTransactionStatus();
 
@@ -57,12 +57,15 @@ export async function POST(
       );
     }
 
-    const data: any = {
+    const data: Record<string, unknown> = {
       buyerId: tx.buyerId ?? viewer.id,
     };
 
+    let pendingStatus: string | undefined;
+
     if (TARGET_TRANSACTION_STATUS && TARGET_TRANSACTION_STATUS !== tx.status) {
       data.status = { set: TARGET_TRANSACTION_STATUS };
+      pendingStatus = TARGET_TRANSACTION_STATUS;
     }
 
     data.purchasedAt = new Date();
@@ -96,9 +99,11 @@ export async function POST(
       }
     }
 
+    const updatedStatus = updatedTx?.status ?? pendingStatus ?? tx.status;
+
     await archiveListingIfTransactionClosed(
       updatedTx?.listingId ?? tx.listingId,
-      updatedTx?.status ?? data.status,
+      updatedStatus,
       "[transactions/:id/buy]"
     );
 
