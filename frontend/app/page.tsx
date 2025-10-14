@@ -5,6 +5,8 @@ import Link from "next/link";
 import Image from "next/image";
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { CheckCircle2, X } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import Footer from "@/components/Footer";
 
@@ -116,10 +118,28 @@ export default function HomePage() {
   if (typeof window !== "undefined") console.debug("[Render] / HomePage");
 
   const { isSignedIn } = useUser();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [showLogoutMessage, setShowLogoutMessage] = useState(false);
+
+  const logoutStatus = searchParams.get("logout");
+
+  useEffect(() => {
+    if (logoutStatus !== "success") return;
+
+    setShowLogoutMessage(true);
+
+    // Clear the query parameter from the address bar without reloading the page
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("logout");
+    const search = params.toString();
+    const nextPath = search ? `/?${search}` : "/";
+    router.replace(nextPath, { scroll: false });
+  }, [logoutStatus, router, searchParams]);
 
   useEffect(() => {
     let active = true;
@@ -155,6 +175,31 @@ export default function HomePage() {
     <div className="min-h-screen bg-white flex flex-col">
       {/* Hero */}
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 flex-1">
+        {showLogoutMessage && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-10 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 shadow-sm"
+          >
+            <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#004434]/10 text-[#004434]">
+              <CheckCircle2 className="h-4 w-4" aria-hidden />
+            </span>
+            <div className="flex-1">
+              <p className="font-semibold text-[#004434]">Signed out successfully</p>
+              <p className="mt-0.5 text-emerald-900/80">
+                You're now signed out. Come back anytime to manage your listings.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowLogoutMessage(false)}
+              className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-full text-[#004434] transition hover:bg-[#004434]/5 focus:outline-none focus:ring-2 focus:ring-[#004434]/40 focus:ring-offset-1"
+              aria-label="Dismiss logout confirmation"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        )}
         <div className="grid items-center gap-10 md:grid-cols-2">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
