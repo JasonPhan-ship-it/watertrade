@@ -1,4 +1,5 @@
 // frontend/app/admin/transactions/page.tsx
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
@@ -12,12 +13,20 @@ type Row = {
   type: string;
   status: string;
   acreFeet: number;
-  pricePerAF: number;   // cents
-  totalAmount: number;  // cents
+  pricePerAF: number; // cents
+  totalAmount: number; // cents
   listingTitleSnapshot: string | null;
   listing?: { title: string | null } | null;
   buyer?: { name: string | null; email: string | null } | null;
   seller?: { name: string | null; email: string | null } | null;
+};
+
+type DisplayRow = Row & {
+  listingTitle: string;
+  buyer: string;
+  seller: string;
+  created: string;
+  shortId: string;
 };
 
 export default async function AdminTransactionsPage() {
@@ -29,7 +38,7 @@ export default async function AdminTransactionsPage() {
   if (!me) {
     const cu = await clerkClient.users.getUser(userId);
     const email =
-      cu?.emailAddresses?.find(e => e.id === cu.primaryEmailAddressId)?.emailAddress ||
+      cu?.emailAddresses?.find((e) => e.id === cu.primaryEmailAddressId)?.emailAddress ||
       cu?.emailAddresses?.[0]?.emailAddress ||
       `${userId}@example.local`;
     const name = [cu?.firstName, cu?.lastName].filter(Boolean).join(" ") || cu?.username || null;
@@ -48,7 +57,7 @@ export default async function AdminTransactionsPage() {
     orderBy: { createdAt: "desc" },
     take: 500,
   });
-  const listingSpotCents = median(activeSell.map(x => x.pricePerAF).filter(isFiniteNumber));
+  const listingSpotCents = median(activeSell.map((x) => x.pricePerAF).filter(isFiniteNumber));
 
   // Transacted Spot: median of completed transactions' pricePerAF (cents)
   const completed = await prisma.transaction.findMany({
@@ -57,9 +66,11 @@ export default async function AdminTransactionsPage() {
     orderBy: { createdAt: "desc" },
     take: 500,
   });
-  const transactedSpotCents = median(completed.map(x => x.pricePerAF).filter(isFiniteNumber));
+  const transactedSpotCents = median(completed.map((x) => x.pricePerAF).filter(isFiniteNumber));
 
   // --- Transactions table (with degraded fallback) ---
+  const MAX_RECENT_TRANSACTIONS = 300;
+
   let txns: Row[] = [];
   let degraded = false;
   let loadError: string | null = null;
@@ -68,7 +79,7 @@ export default async function AdminTransactionsPage() {
     // Full query (includes snapshots + relations)
     txns = await prisma.transaction.findMany({
       orderBy: { createdAt: "desc" },
-      take: 300,
+      take: MAX_RECENT_TRANSACTIONS,
       select: {
         id: true,
         createdAt: true,
@@ -91,7 +102,7 @@ export default async function AdminTransactionsPage() {
 
     const basic = await prisma.transaction.findMany({
       orderBy: { createdAt: "desc" },
-      take: 300,
+      take: MAX_RECENT_TRANSACTIONS,
       select: {
         id: true,
         createdAt: true,
@@ -113,39 +124,56 @@ export default async function AdminTransactionsPage() {
     }));
   }
 
+  const rows: DisplayRow[] = txns.map((t) => {
+    const listingTitle = t.listingTitleSnapshot || t.listing?.title || "—";
+    const buyer = t.buyer?.name || t.buyer?.email || "—";
+    const seller = t.seller?.name || t.seller?.email || "—";
+    const created = formatDate(t.createdAt);
+    const shortId = t.id.length > 12 ? `${t.id.slice(0, 8)}…` : t.id;
+
+    return {
+      ...t,
+      listingTitle,
+      buyer,
+      seller,
+      created,
+      shortId,
+    };
+  });
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
-      {/* Header + actions */}
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Admin
-        </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Admin</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Review recent marketplace transactions and spot pricing trends.
+          </p>
+        </div>
         <a
           href="/admin/export"
-          className="inline-flex h-10 items-center rounded-xl bg-[#004434] px-4 text-sm font-medium text-white hover:bg-[#00392f]"
+          className="inline-flex h-10 items-center rounded-xl bg-[#004434] px-4 text-sm font-medium text-white shadow-sm transition hover:bg-[#00392f]"
         >
           Download Excel
         </a>
       </div>
 
-      {/* Simple tabs */}
-      <div className="mb-6 flex gap-2">
+      <nav className="mt-8 flex flex-wrap gap-2 text-sm">
         <a
           href="/admin/transactions"
-          className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800"
+          className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-900 shadow-sm"
         >
           Transactions
         </a>
         <a
           href="/admin/analytics"
-          className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          className="rounded-xl border border-slate-200 px-3 py-1.5 text-slate-600 transition hover:bg-slate-50"
         >
           Water District Analytics
         </a>
-      </div>
+      </nav>
 
-      {/* Spot price cards */}
-      <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <section className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Card
           title="Listing Spot Price"
           value={listingSpotCents != null ? `${usdCents(listingSpotCents)} / AF` : "—"}
@@ -159,61 +187,37 @@ export default async function AdminTransactionsPage() {
       </section>
 
       {degraded && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Running in “degraded” mode. A database error occurred fetching all fields
-          (e.g. missing snapshot columns). Showing a reduced set instead.
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
+          Running in “degraded” mode. A database error occurred fetching all fields (for example, missing snapshot columns).
+          Showing a reduced data set instead.
           {process.env.NODE_ENV !== "production" && loadError ? (
-            <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{loadError}</pre>
+            <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-amber-100 p-2 text-xs text-amber-900">
+              {loadError}
+            </pre>
           ) : null}
         </div>
       )}
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <Th>Created</Th>
-              <Th>Type</Th>
-              <Th>Status</Th>
-              <Th>Listing</Th>
-              <Th>Buyer</Th>
-              <Th>Seller</Th>
-              <Th className="text-right">AF</Th>
-              <Th className="text-right">Price / AF</Th>
-              <Th className="text-right">Total</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {txns.length === 0 ? (
-              <tr>
-                <td className="px-4 py-6 text-center text-slate-500" colSpan={9}>
-                  No transactions yet.
-                </td>
-              </tr>
-            ) : (
-              txns.map((t) => {
-                const listingTitle = t.listingTitleSnapshot || t.listing?.title || "—";
-                const buyer = t.buyer?.name || t.buyer?.email || "—";
-                const seller = t.seller?.name || t.seller?.email || "—";
-                return (
-                  <tr key={t.id} className="border-t border-slate-100">
-                    <Td>{new Date(t.createdAt).toLocaleString()}</Td>
-                    <Td>{t.type}</Td>
-                    <Td>{t.status}</Td>
-                    <Td>{listingTitle}</Td>
-                    <Td>{buyer}</Td>
-                    <Td>{seller}</Td>
-                    <Td align="right">{num(t.acreFeet)}</Td>
-                    <Td align="right">{usdCents(t.pricePerAF)}/AF</Td>
-                    <Td align="right">{usdCents(t.totalAmount)}</Td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+      <section className="mt-8">
+        <header className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Recent Transactions</h2>
+          <span className="text-sm text-slate-500">
+            Showing up to {MAX_RECENT_TRANSACTIONS.toLocaleString()} latest entries
+          </span>
+        </header>
+
+        {rows.length === 0 ? (
+          <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm text-slate-500">
+            No transactions yet.
+          </div>
+        ) : (
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            {rows.map((row) => (
+              <TransactionCard key={row.id} row={row} />
+            ))}
+          </div>
+        )}
+      </section>
     </main>
   );
 }
@@ -222,53 +226,114 @@ export default async function AdminTransactionsPage() {
 function Card({ title, value, subtitle }: { title: string; value: string; subtitle?: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="text-slate-500 text-sm">{title}</div>
+      <div className="text-sm text-slate-500">{title}</div>
       <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
       {subtitle ? <div className="mt-1 text-xs text-slate-500">{subtitle}</div> : null}
     </div>
   );
 }
 
-function Th({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return <th className={`px-4 py-3 font-medium ${className}`}>{children}</th>;
+function TransactionCard({ row }: { row: DisplayRow }) {
+  return (
+    <article className="flex flex-col gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">{row.created}</div>
+          <div className="text-xs text-slate-500">ID: {row.shortId}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusPill label={row.type} tone={row.type === "BUY" ? "sky" : row.type === "SELL" ? "emerald" : "slate"} />
+          <StatusPill label={row.status} tone={statusTone(row.status)} />
+        </div>
+      </header>
+
+      <dl className="grid gap-4">
+        <InfoSection title="Listing" value={row.listingTitle} />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <InfoSection title="Buyer" value={row.buyer} />
+          <InfoSection title="Seller" value={row.seller} />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Metric label="Acre-Feet" value={num(row.acreFeet)} />
+          <Metric label="Price / AF" value={usdCents(row.pricePerAF)} />
+          <Metric label="Total" value={usdCents(row.totalAmount)} emphasized />
+        </div>
+      </dl>
+    </article>
+  );
 }
 
-function Td({
-  children,
-  align,
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right" | "center";
-}) {
+function InfoSection({ title, value }: { title: string; value: ReactNode }) {
   return (
-    <td
-      className={`px-4 py-3 ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : ""
-      }`}
-    >
-      {children}
-    </td>
+    <div>
+      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{title}</dt>
+      <dd className="mt-1 text-sm text-slate-900">{value ?? "—"}</dd>
+    </div>
   );
+}
+
+function Metric({ label, value, emphasized }: { label: string; value: string; emphasized?: boolean }) {
+  return (
+    <div>
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`mt-1 font-semibold text-slate-900 ${emphasized ? "text-base" : "text-sm"}`}>{value}</div>
+    </div>
+  );
+}
+
+function StatusPill({ label, tone }: { label: string; tone: Tone }) {
+  const colors: Record<Tone, string> = {
+    emerald: "bg-emerald-100 text-emerald-800",
+    sky: "bg-sky-100 text-sky-800",
+    amber: "bg-amber-100 text-amber-800",
+    slate: "bg-slate-100 text-slate-700",
+    rose: "bg-rose-100 text-rose-800",
+  };
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${colors[tone]}`}>
+      {label}
+    </span>
+  );
+}
+
+type Tone = "emerald" | "sky" | "amber" | "slate" | "rose";
+
+function statusTone(status: string): Tone {
+  const normalized = status.toUpperCase();
+  if (["APPROVED", "FUNDS_RELEASED", "COMPLETED"].includes(normalized)) return "emerald";
+  if (["PENDING", "IN_REVIEW"].includes(normalized)) return "amber";
+  if (["CANCELLED", "REJECTED", "FAILED"].includes(normalized)) return "rose";
+  return "slate";
 }
 
 function num(n: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
 }
+
 function usdCents(cents: number) {
   return `$${(cents / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
+
+function formatDate(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
+
 function median(ns: number[]) {
   if (!ns.length) return null;
   const arr = [...ns].sort((a, b) => a - b);
