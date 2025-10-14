@@ -569,15 +569,17 @@ export function renderSellerDocsReadyPurchasedEmail(params: {
   signLink: string;     // can be any form; coerced to /api/sign-url?id=:id&role=seller&redirect=1
   viewLink?: string;    // optional details link
 }) {
-  const { sellerName, buyerName, offer, signLink, viewLink } = params;
+  const { sellerName, offer, signLink, viewLink } = params;
   const safeSignLink = coerceSellerSignLink(signLink);
   const price = offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf);
+  const buyerDisplay = "A buyer";
 
   const html = renderEmailLayout({
     title: "Buyer purchased at your set price — documents ready to sign",
     subtitle: sellerName ? `Hi ${sellerName},` : undefined,
     intro:
-      `${buyerName || "A buyer"} just bought your water for ${price} on “${offer.listingTitle}.” ` +
+      `${buyer} just bought your water for ${price} on “${offer.listingTitle}.” ` +
+      `${buyerDisplay} just bought your water for ${price} on “${offer.listingTitle}.” ` +
       `Please review and sign to continue.`,
     keyValues: [
       { label: "Listing", value: offer.listingTitle },
