@@ -54,7 +54,7 @@ type ListingStatusValue = (typeof ListingStatus)[keyof typeof ListingStatus];
 type ListingStatusMap = Record<string, ListingStatusValue>;
 
 const listingStatusByKey = ListingStatus as unknown as ListingStatusMap;
-const archivePreference = ["ARCHIVED", "SOLD"];
+const archivePreference = ["SOLD", "ARCHIVED"];
 
 function resolveArchiveStatus(): ListingStatusValue | null {
   for (const candidate of archivePreference) {
@@ -68,8 +68,8 @@ function resolveArchiveStatus(): ListingStatusValue | null {
  * If a transaction has reached a terminal "successful" status, archive the listing.
  *
  * The exact Listing status depends on what exists in the enum. Preference order:
- * - ARCHIVED
  * - SOLD
+ * - ARCHIVED
  */
 export async function archiveListingIfTransactionClosed(
   listingId: string | null | undefined,
