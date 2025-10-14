@@ -44,7 +44,7 @@ export default async function EditListingPage({ params }: { params: { id: string
     },
   });
 
-  if (!listing) redirect("/dashboard?scope=mine&nocreate=1");
+  if (!listing) redirect("/dashboard/listings?scope=mine&nocreate=1");
   if (listing.sellerId !== me.id) {
     // not owner → view page
     redirect(`/listings/${listing.id}`);
@@ -73,7 +73,7 @@ export default async function EditListingPage({ params }: { params: { id: string
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/dashboard?scope=mine&nocreate=1"
+            href="/dashboard/listings?scope=mine&nocreate=1"
             className="rounded-xl border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
           >
             Cancel
