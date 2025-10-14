@@ -1,7 +1,7 @@
 // app/dashboard/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -122,6 +122,7 @@ export default function DashboardPage() {
   const [scope, setScope] = useState<Scope>("market");
   const [nocreate, setNoCreate] = useState<boolean>(false);
   const [initialized, setInitialized] = useState<boolean>(false);
+  const userSelectedScopeRef = useRef(false);
 
   // Other UI state
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
@@ -153,7 +154,13 @@ export default function DashboardPage() {
         ? "mine"
         : "market";
 
-    setScope(initialScope);
+    setScope((prev) => {
+      if (userSelectedScopeRef.current && initialScope === "market" && prev !== "market") {
+        return prev;
+      }
+
+      return prev === initialScope ? prev : initialScope;
+    });
     setNoCreate(nocreateParam);
     setInitialized(true);
   }, []);
@@ -254,6 +261,7 @@ export default function DashboardPage() {
   }
 
   const handleScopeChange = (next: Scope) => {
+    userSelectedScopeRef.current = true;
     setScope(next);
   };
 
@@ -429,69 +437,46 @@ export default function DashboardPage() {
                         </Td>
                       </tr>
                     ))}
-                    {rows.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
-                          <div className="mx-auto max-w-md">
-                            <div className="text-sm">
-                              {scope === "market"
-                                ? "No listings match your filters."
-                                : "You don’t have any listings yet."}
-                            </div>
-                            <div className="mt-4">
-                              <Link
-                                href="/create-listing"
-                                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
-                              >
-                                Create Listing
-                              </Link>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
 
-              {/* Pagination */}
-              <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row">
-                <div className="text-xs text-slate-500">
-                  Page <span className="font-medium text-slate-700">{page}</span> of{" "}
-                  <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
-                  {data?.total ?? 0} total {scope === "market" ? "listings" : "your listings"}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <select
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setPage(1);
-                    }}
-                    className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs outline-none"
-                  >
-                    {PAGE_SIZES.map((n) => (
-                      <option key={n} value={n}>
-                        {n} / page
-                      </option>
-                    ))}
-                  </select>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page <= 1}
-                      className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
+              <div className="border-t border-slate-200 bg-slate-50 px-6 py-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-xs text-slate-500">
+                    Page {page} of {totalPages}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setPage(1);
+                      }}
+                      className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs outline-none"
                     >
-                      Prev
-                    </button>
-                    <button
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page >= totalPages}
-                      className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
-                    >
-                      Next
-                    </button>
+                      {PAGE_SIZES.map((n) => (
+                        <option key={n} value={n}>
+                          {n} / page
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={page <= 1}
+                        className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={page >= totalPages}
+                        className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
