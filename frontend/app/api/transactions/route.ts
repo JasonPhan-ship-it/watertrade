@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, appUrl } from "@/lib/email";
 import { getOrCreateUserFromClerk } from "@/lib/clerk";
+import { ListingStatus, TransactionStatus, TransactionType } from "@prisma/client";
 
 export const runtime = "nodejs";
 
@@ -59,12 +60,37 @@ export async function POST(req: Request) {
         id: true,
         title: true,
         sellerId: true,
+        status: true,
         seller: { select: { id: true, email: true, name: true } },
       },
     });
     if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
     if (!listing.sellerId || !listing.seller) {
       return NextResponse.json({ error: "Listing has no seller assigned" }, { status: 400 });
+    }
+
+    if (listing.status && listing.status !== ListingStatus.ACTIVE) {
+      return NextResponse.json(
+        { error: "This listing is no longer available for new transactions." },
+        { status: 409 }
+      );
+    }
+
+    if (type === "BUY_NOW") {
+      const existingBuyNow = await prisma.transaction.findFirst({
+        where: {
+          listingId,
+          type: TransactionType.BUY_NOW,
+          status: { not: TransactionStatus.CANCELLED },
+        },
+        select: { id: true },
+      });
+      if (existingBuyNow) {
+        return NextResponse.json(
+          { error: "A Buy Now purchase already exists for this listing." },
+          { status: 409 }
+        );
+      }
     }
 
     // Create the transaction
