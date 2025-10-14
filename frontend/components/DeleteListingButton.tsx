@@ -147,7 +147,7 @@ export default function DeleteListingButton({
               onClick={() => {
                 setShowSuccess(false);
                 if (onSuccess) onSuccess();
-                else router.push("/dashboard?scope=mine&nocreate=1");
+                else router.push("/dashboard/listings?scope=mine&nocreate=1");
               }}
               className="mt-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
             >
