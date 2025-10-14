@@ -54,7 +54,7 @@ function LogoWithFallback({
 }) {
   // Try root first (e.g., /westlands.png), then fallback to /logos/westlands.png
   const primary = `/${file}`;
-  the fallback = `/logos/${file}`;
+  const fallback = `/logos/${file}`;
   const [src, setSrc] = React.useState(primary);
 
   return (
