@@ -6,8 +6,10 @@ import { User, LogOut } from "lucide-react"; // ⬅️ removed Crown
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Navigation() {
+  const router = useRouter();
   const { user, isSignedIn } = useUser();
   const [isPremium, setIsPremium] = useState(false);
   const [premiumLoading, setPremiumLoading] = useState(false);
@@ -137,7 +139,10 @@ export default function Navigation() {
                 )}
 
                 {/* Sign out */}
-                <SignOutButton>
+                <SignOutButton
+                  signOutCallback={() => router.push("/")}
+                  signOutOptions={{ redirectUrl: "/" }}
+                >
                   <Button variant="outline" className="px-3 py-2 text-sm">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign Out
