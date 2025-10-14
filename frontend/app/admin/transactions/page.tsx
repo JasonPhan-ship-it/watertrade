@@ -30,7 +30,11 @@ export type DisplayRow = Omit<Row, "buyer" | "seller"> & {
   shortId: string;
 };
 
-export default async function AdminTransactionsPage() {
+export default async function AdminTransactionsPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   // --- Auth + ensure local user exists
   const { userId } = auth();
   if (!userId) redirect("/sign-in");
@@ -125,6 +129,14 @@ export default async function AdminTransactionsPage() {
     }));
   }
 
+  const search = (() => {
+    const raw = searchParams?.q;
+    if (Array.isArray(raw)) return raw[0]?.trim() ?? "";
+    if (typeof raw === "string") return raw.trim();
+    return "";
+  })();
+  const normalizedSearch = search.toLowerCase();
+
   const rows = txns.map<DisplayRow>((t) => {
     const { buyer: buyerInfo, seller: sellerInfo, ...base } = t;
     const listingTitle = t.listingTitleSnapshot || t.listing?.title || "—";
@@ -142,6 +154,22 @@ export default async function AdminTransactionsPage() {
       shortId,
     };
   });
+
+  const filteredRows = normalizedSearch
+    ? rows.filter((row) =>
+        [
+          row.listingTitle,
+          row.buyer,
+          row.seller,
+          row.type,
+          row.status,
+          row.shortId,
+          row.id,
+        ]
+          .map((value) => value.toLowerCase())
+          .some((value) => value.includes(normalizedSearch)),
+      )
+    : rows;
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
@@ -201,20 +229,56 @@ export default async function AdminTransactionsPage() {
       )}
 
       <section className="mt-8">
-        <header className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Recent Transactions</h2>
-          <span className="text-sm text-slate-500">
-            Showing up to {MAX_RECENT_TRANSACTIONS.toLocaleString()} latest entries
-          </span>
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Recent Transactions</h2>
+            <span className="mt-1 block text-sm text-slate-500">
+              Showing up to {MAX_RECENT_TRANSACTIONS.toLocaleString()} latest entries
+            </span>
+          </div>
+          <form
+            action="/admin/transactions"
+            method="get"
+            className="flex w-full max-w-md items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-[#004434] focus-within:ring-offset-2 sm:w-auto"
+          >
+            <label htmlFor="transaction-search" className="sr-only">
+              Search transactions
+            </label>
+            <input
+              id="transaction-search"
+              type="search"
+              name="q"
+              defaultValue={search}
+              placeholder="Search transactions"
+              className="w-full border-none bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+              autoComplete="off"
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-lg bg-[#004434] px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#00392f]"
+            >
+              Search
+            </button>
+            {search ? (
+              <a
+                href="/admin/transactions"
+                className="text-sm font-medium text-[#004434] transition hover:text-[#00392f]"
+              >
+                Clear
+              </a>
+            ) : null}
+          </form>
         </header>
 
-        {rows.length === 0 ? (
+        {filteredRows.length === 0 ? (
           <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm text-slate-500">
-            No transactions yet.
+            {rows.length === 0
+              ? "No transactions yet."
+              : `No transactions match “${search}”.`}
           </div>
         ) : (
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            {rows.map((row) => (
+            {filteredRows.map((row) => (
               <TransactionCard key={row.id} row={row} />
             ))}
           </div>
