@@ -3,8 +3,21 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/rbac";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const COMPLETED_STATUSES = ["APPROVED", "FUNDS_RELEASED"] as const;
+
+function startOfUtcDay(date: Date) {
+  const normalized = new Date(date);
+  normalized.setUTCHours(0, 0, 0, 0);
+  return normalized;
+}
+
+function addUtcDays(date: Date, days: number) {
+  const shifted = new Date(date);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted;
+}
 
 function toNumber(value: any) {
   if (value == null) return 0;
@@ -133,10 +146,13 @@ function parseVercelPayload(payload: any): SeriesPoint[] | null {
 }
 
 async function buildSignupSeries(start: Date, end: Date): Promise<SeriesPoint[]> {
+  const startDay = startOfUtcDay(start);
+  const endDay = startOfUtcDay(end);
+
   const users = await prisma.user.findMany({
     where: {
       role: { not: "ADMIN" },
-      createdAt: { gte: start },
+      createdAt: { gte: startDay, lt: addUtcDays(endDay, 1) },
     },
     select: { createdAt: true },
   });
@@ -148,7 +164,7 @@ async function buildSignupSeries(start: Date, end: Date): Promise<SeriesPoint[]>
   }
 
   const series: SeriesPoint[] = [];
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+  for (let d = new Date(startDay); d <= endDay; d.setUTCDate(d.getUTCDate() + 1)) {
     const key = d.toISOString().slice(0, 10);
     series.push({ date: key, visitors: bucket.get(key) ?? 0 });
   }
@@ -158,15 +174,12 @@ async function buildSignupSeries(start: Date, end: Date): Promise<SeriesPoint[]>
 export async function GET() {
   await requireAdmin();
 
-  const now = new Date();
-  const range90Start = new Date(now);
-  range90Start.setDate(range90Start.getDate() - 89);
-
-  const range30Start = new Date(now);
-  range30Start.setDate(range30Start.getDate() - 30);
-
-  const prev30Start = new Date(range30Start);
-  prev30Start.setDate(prev30Start.getDate() - 30);
+  const today = startOfUtcDay(new Date());
+  const rangeEndExclusive = addUtcDays(today, 1);
+  const rangeEndInclusive = addUtcDays(rangeEndExclusive, -1);
+  const range90Start = addUtcDays(today, -89);
+  const range30Start = addUtcDays(today, -30);
+  const prev30Start = addUtcDays(range30Start, -30);
 
   const [revenueAllTimeAgg, revenueCurrentAgg, revenuePreviousAgg] = await Promise.all([
     prisma.transaction.aggregate({
@@ -249,8 +262,8 @@ export async function GET() {
     prisma.transaction.count({ where: { status: { in: [...COMPLETED_STATUSES] } } }),
   ]);
 
-  const vercelSeries = await fetchVercelSeries(range90Start, now).catch(() => null);
-  const visitorsSeries = vercelSeries ?? (await buildSignupSeries(range90Start, now));
+  const vercelSeries = await fetchVercelSeries(range90Start, rangeEndExclusive).catch(() => null);
+  const visitorsSeries = vercelSeries ?? (await buildSignupSeries(range90Start, rangeEndInclusive));
   const visitorSource = vercelSeries ? "vercel" : "signups";
 
   return NextResponse.json({
