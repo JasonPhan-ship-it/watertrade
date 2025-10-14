@@ -139,10 +139,7 @@ export default function Navigation() {
                 )}
 
                 {/* Sign out */}
-                <SignOutButton
-                  signOutCallback={() => router.push("/")}
-                  signOutOptions={{ redirectUrl: "/" }}
-                >
+                  <SignOutButton signOutCallback={() => router.push("/")}>
                   <Button variant="outline" className="px-3 py-2 text-sm">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign Out
