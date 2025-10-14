@@ -54,7 +54,7 @@ function LogoWithFallback({
 }) {
   // Try root first (e.g., /westlands.png), then fallback to /logos/westlands.png
   const primary = `/${file}`;
-  const fallback = `/logos/${file}`;
+  the fallback = `/logos/${file}`;
   const [src, setSrc] = React.useState(primary);
 
   return (
@@ -121,15 +121,15 @@ export default function HomePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const logoutStatus = useMemo(() => searchParams?.get("logout"), [searchParams]);
+
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showLogoutMessage, setShowLogoutMessage] = useState(false);
 
-  const logoutStatus = searchParams.get("logout");
-
   useEffect(() => {
-    if (logoutStatus !== "success") return;
+    if (!searchParams || logoutStatus !== "success") return;
 
     setShowLogoutMessage(true);
 
