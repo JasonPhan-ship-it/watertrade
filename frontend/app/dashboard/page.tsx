@@ -121,6 +121,7 @@ export default function DashboardPage() {
   // URL-controlled UI state
   const [scope, setScope] = useState<Scope>("market");
   const [nocreate, setNoCreate] = useState<boolean>(false);
+  const [initialized, setInitialized] = useState<boolean>(false);
 
   // Other UI state
   const [district, setDistrict] = useState<string>(DISTRICTS[0]);
@@ -154,11 +155,12 @@ export default function DashboardPage() {
 
     setScope(initialScope);
     setNoCreate(nocreateParam);
+    setInitialized(true);
   }, []);
 
   // Keep scope + nocreate reflected in the URL for deep-linking (Cancel button, etc.)
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!initialized || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     params.set("scope", scope);
     if (nocreate) params.set("nocreate", "1");
@@ -172,7 +174,7 @@ export default function DashboardPage() {
     if (current !== target) {
       router.replace(target, { scroll: false });
     }
-  }, [scope, nocreate, router]);
+  }, [scope, nocreate, router, initialized]);
 
   const qs = useMemo(() => {
     const u = new URLSearchParams();
@@ -193,7 +195,7 @@ export default function DashboardPage() {
   }, [district, waterType, sortBy, sortDir, page, pageSize, premium, scope]);
 
   useEffect(() => {
-    if (checking) return;
+    if (checking || !initialized) return;
 
     const controller = new AbortController();
     setLoading(true);
@@ -219,7 +221,7 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
 
     return () => controller.abort();
-  }, [qs, checking]);
+  }, [qs, checking, initialized]);
 
   if (checking) {
     return (
