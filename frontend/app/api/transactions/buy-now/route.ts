@@ -2,10 +2,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { TransactionType, TransactionStatus } from "@prisma/client";
+import {
+  ListingStatus,
+  TransactionType,
+  TransactionStatus,
+  Prisma,
+} from "@prisma/client";
 import { appUrl, sendEmail, renderSellerDocsReadyPurchasedEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
+
+class HttpError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const ACTIVE_BUY_NOW_STATUSES = Object.values(TransactionStatus).filter(
+  (status) => status !== TransactionStatus.CANCELLED
+);
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,49 +53,87 @@ export async function POST(req: NextRequest) {
     if (!buyer) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
     // 4) Pull listing from DB (authoritative price & quantity)
-    const listing = await prisma.listing.findUnique({
-      where: { id: listingId },
-      select: {
-        id: true,
-        title: true,
-        sellerId: true,
-        pricePerAF: true, // cents
-        acreFeet: true,   // quantity to purchase
-        // Optional fields if you have them:
-        // districtName: true,
-        // waterType: true,
-        // windowLabel: true,
-      },
-    });
-    if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
-    if (!listing.sellerId) {
-      return NextResponse.json({ error: "Listing is missing sellerId" }, { status: 400 });
-    }
+    const { listing, transaction: tx } = await prisma.$transaction(async (db) => {
+      const conflict = await db.transaction.findFirst({
+        where: {
+          listingId,
+          type: TransactionType.BUY_NOW,
+          status: { in: ACTIVE_BUY_NOW_STATUSES },
+        },
+        select: { id: true, status: true },
+      });
 
-    // 5) Validate price & quantity
-    const pricePerAF = Number(listing.pricePerAF || 0);
-    if (!Number.isFinite(pricePerAF) || pricePerAF <= 0) {
-      return NextResponse.json({ error: "Listing has invalid price" }, { status: 400 });
-    }
-    const acreFeet = Math.max(1, Math.floor(Number(listing.acreFeet) || 1));
-    const totalAmount = pricePerAF * acreFeet; // cents
+      if (conflict) {
+        throw new HttpError(
+          409,
+          "A Buy Now purchase is already in progress for this listing."
+        );
+      }
 
-    // 6) Create transaction
-    const tx = await prisma.transaction.create({
-      data: {
-        type: TransactionType.BUY_NOW,
-        status: TransactionStatus.INITIATED,
-        listingId: listing.id,
-        buyerId: buyer.id,
-        sellerId: listing.sellerId,
-        // Snapshots
-        listingTitleSnapshot: listing.title ?? null,
-        pricePerAF,   // cents
-        acreFeet,     // integer AF
-        totalAmount,  // cents
-      },
-      select: { id: true, acreFeet: true, pricePerAF: true, totalAmount: true, sellerId: true },
+      const listingRow = await db.listing
+        .update({
+          where: { id: listingId, status: ListingStatus.ACTIVE },
+          data: { status: ListingStatus.UNDER_CONTRACT },
+          select: {
+            id: true,
+            title: true,
+            sellerId: true,
+            pricePerAF: true,
+            acreFeet: true,
+            status: true,
+            // Optional fields if you have them:
+            // districtName: true,
+            // waterType: true,
+            // windowLabel: true,
+          },
+        })
+        .catch((err) => {
+          if (
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === "P2025"
+          ) {
+            throw new HttpError(409, "This listing is no longer available to purchase.");
+          }
+          throw err;
+        });
+
+      if (!listingRow.sellerId) {
+        throw new HttpError(400, "Listing is missing sellerId");
+      }
+
+      const pricePerAF = Number(listingRow.pricePerAF || 0);
+      if (!Number.isFinite(pricePerAF) || pricePerAF <= 0) {
+        throw new HttpError(400, "Listing has invalid price");
+      }
+
+      const acreFeet = Math.max(1, Math.floor(Number(listingRow.acreFeet) || 1));
+      const totalAmount = pricePerAF * acreFeet;
+
+      const transaction = await db.transaction.create({
+        data: {
+          type: TransactionType.BUY_NOW,
+          status: TransactionStatus.INITIATED,
+          listingId: listingRow.id,
+          buyerId: buyer.id,
+          sellerId: listingRow.sellerId,
+          listingTitleSnapshot: listingRow.title ?? null,
+          pricePerAF,
+          acreFeet,
+          totalAmount,
+        },
+        select: {
+          id: true,
+          acreFeet: true,
+          pricePerAF: true,
+          totalAmount: true,
+          sellerId: true,
+        },
+      });
+
+      return { listing: listingRow, transaction };
     });
+
+    const { acreFeet, pricePerAF, totalAmount } = tx;
 
     // 7) Load seller (for email)
     const seller = await prisma.user.findUnique({
@@ -127,6 +183,9 @@ export async function POST(req: NextRequest) {
     res.headers.set("Location", `/transactions/${tx.id}?action=review`);
     return res;
   } catch (e: any) {
+    if (e instanceof HttpError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error("[buy-now] error", e);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
