@@ -543,7 +543,7 @@ export async function GET(req: NextRequest) {
       sellerRole.tabs = new docusign.Tabs();
       sellerRole.tabs.textTabs = toTextTabs(customPairs);
       // optional sequencing (buyer first, then seller)
-      sellerRole.routingOrder = "2";
+      sellerRole.routingOrder = "1";
 
       const buyerRole = new docusign.TemplateRole();
       buyerRole.roleName = buyerRoleName;
