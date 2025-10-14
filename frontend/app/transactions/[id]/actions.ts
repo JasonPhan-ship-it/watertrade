@@ -1,8 +1,10 @@
 // app/transactions/[id]/actions.ts
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import { archiveListingIfTransactionClosed } from "@/lib/transactions/listing";
-import { preferredClosedTransactionStatus } from "@/lib/transactions/status";
+import {
+  archiveListingIfTransactionClosed,
+  preferredClosedTransactionStatus,
+} from "@/lib/transactions/listing";
 
 export const runtime = "nodejs";
 
@@ -49,15 +51,18 @@ export async function purchaseAction(
     "[transactions/[id]/actions]"
   );
 
-  const data: any = {
+  const data: Record<string, unknown> = {
     ...(buyerId ? { buyerId } : {}),
   };
+
+  let pendingStatus: string | undefined;
 
   if (
     TARGET_TRANSACTION_STATUS &&
     TARGET_TRANSACTION_STATUS !== transaction.status
   ) {
     data.status = { set: TARGET_TRANSACTION_STATUS };
+    pendingStatus = TARGET_TRANSACTION_STATUS;
   }
 
   data.purchasedAt = new Date();
@@ -88,7 +93,7 @@ export async function purchaseAction(
     }
   }
 
-  const finalStatus = updateResult?.status ?? data.status ?? transaction.status;
+  const finalStatus = updateResult?.status ?? pendingStatus ?? transaction.status;
   await archiveListingIfTransactionClosed(
     updateResult?.listingId ?? transaction.listingId,
     finalStatus,
