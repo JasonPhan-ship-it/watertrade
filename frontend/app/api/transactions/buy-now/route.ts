@@ -136,8 +136,12 @@ export async function POST(req: NextRequest) {
     const { acreFeet, pricePerAF, totalAmount } = tx;
 
     // 7) Load seller (for email)
+    const sellerId = listing.sellerId;
+    if (!sellerId) {
+      throw new HttpError(500, "Listing is missing sellerId");
+    }
     const seller = await prisma.user.findUnique({
-      where: { id: listing.sellerId },
+      where: { id: sellerId },
       select: { name: true, email: true },
     });
 
