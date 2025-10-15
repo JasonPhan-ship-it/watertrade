@@ -42,6 +42,18 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   return NextResponse.json(json, { status: 200 });
 }
 
+const FINAL_TRADE_STATUSES: TradeStatus[] = [
+  TradeStatus.CANCELLED,
+  TradeStatus.DECLINED,
+  TradeStatus.EXPIRED,
+  TradeStatus.FULLY_EXECUTED,
+];
+
+const FINAL_TRANSACTION_STATUSES: TransactionStatus[] = [
+  TransactionStatus.CANCELLED,
+  TransactionStatus.FUNDS_RELEASED,
+];
+
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   try {
     // Fetch listing owner
