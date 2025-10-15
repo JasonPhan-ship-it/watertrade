@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureUser as ensureDbUser } from "@/lib/rbac";
+import { TradeStatus, TransactionStatus } from "@prisma/client";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const id = params.id;
