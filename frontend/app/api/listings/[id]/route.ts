@@ -1,7 +1,7 @@
 // app/api/listings/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@clerk/nextjs/server"; // ⬅️ added
+import { ensureUser as ensureDbUser } from "@/lib/rbac";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const id = params.id;
@@ -41,12 +41,8 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   return NextResponse.json(json, { status: 200 });
 }
 
-/* --- NEW: DELETE listing (owner or admin only) --- */
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { userId } = auth();
-    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     // Fetch listing owner
     const listing = await prisma.listing.findUnique({
       where: { id: params.id },
@@ -54,12 +50,9 @@ export async function DELETE(_: NextRequest, { params }: { params: { id: string 
     });
     if (!listing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // Resolve current user's DB row
-    const me = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { id: true, role: true },
-    });
-    if (!me) return NextResponse.json({ error: "Account not provisioned" }, { status: 403 });
+    // Resolve current user's DB row (auto-provision if needed)
+    const me = await ensureDbUser();
+    if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const isOwner = me.id === listing.sellerId;
     const isAdmin = me.role === "ADMIN";
