@@ -60,6 +60,24 @@ export async function DELETE(_: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+        // Prevent deletion if negotiations or transactions exist. Prisma enforces this via
+    // foreign key constraints, but the raw database error was bubbling up as a 500 with
+    // a generic message. Surface a clearer conflict response instead.
+    const [tradeCount, transactionCount] = await prisma.$transaction([
+      prisma.trade.count({ where: { listingId: params.id } }),
+      prisma.transaction.count({ where: { listingId: params.id } }),
+    ]);
+
+    if (tradeCount > 0 || transactionCount > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "This listing can't be deleted because it has ongoing negotiations or transactions. Please close them first or contact support.",
+        },
+        { status: 409 }
+      );
+    }
+
     await prisma.listing.delete({ where: { id: params.id } });
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
