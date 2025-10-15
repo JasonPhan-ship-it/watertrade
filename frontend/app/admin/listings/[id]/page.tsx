@@ -1,9 +1,10 @@
 // frontend/app/admin/listings/[id]/page.tsx
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import OffersPanelWithActions from "@/components/listings/OffersPanelWithActions";
 import type { ReactNode } from "react";
+import OffersPanelWithActions from "@/components/listings/OffersPanelWithActions";
 import type { Offer, DealStage } from "@/components/listings/types";
+import { prisma } from "@/lib/prisma";
 
 export const revalidate = 0;
 
@@ -71,10 +72,20 @@ export default async function AdminListingDetailPage({ params }: { params: { id:
   const pricePerAfDollars = (listing.pricePerAF ?? 0) / 100;
 
   return (
-    <div className="mx-auto max-w-6xl p-6 space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold">{listing.title ?? "Untitled Listing"}</h1>
-        <p className="mt-1 text-sm text-slate-600">{listing.description ?? "No description provided."}</p>
+    <div className="mx-auto max-w-6xl space-y-6 p-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">{listing.title ?? "Untitled Listing"}</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            {listing.description ?? "No description provided."}
+          </p>
+        </div>
+        <Link
+          href="/admin/listings"
+          className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100"
+        >
+          Back to panel
+        </Link>
       </header>
 
       {/* Basic facts (optional; mirror your public page as needed) */}
