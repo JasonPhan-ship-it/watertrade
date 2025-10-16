@@ -181,7 +181,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-white flex flex-col">
       {/* Hero */}
-      <section className="relative isolate flex-1 overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800">
+      <section className="relative isolate flex-1 overflow-hidden bg-[#004434]">
         <div className="absolute -left-32 top-16 h-64 w-64 rounded-full bg-[#1A6F5A]/40 blur-3xl" aria-hidden />
         <div className="absolute -right-24 top-32 h-72 w-72 rounded-full bg-[#009276]/30 blur-3xl" aria-hidden />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.15),_transparent_55%)]" aria-hidden />
