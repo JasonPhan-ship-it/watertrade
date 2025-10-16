@@ -215,7 +215,7 @@ export default function HomePage() {
 
           <div className="grid flex-1 items-center gap-12 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
             <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">The institutional water desk</p>
+              <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">California water desk</p>
               <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">
                 <Typewriter phrases={PHRASES} className="font-semibold" />
               </h1>
@@ -364,7 +364,7 @@ export default function HomePage() {
             <div className="mx-auto max-w-2xl text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Why watertrade</p>
               <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
-                Institutional controls, without the institutional overhead
+                Institutional controls, without the complex overhead
               </h2>
               <p className="mt-3 text-base text-slate-600">
                 From compliant paperwork to premium market intelligence, WaterTrade keeps your team aligned and
@@ -418,7 +418,7 @@ export default function HomePage() {
                 </p>
                 <div className="mt-6 rounded-3xl border border-slate-100 bg-slate-50/70 p-6">
                   <blockquote className="text-sm text-slate-700">
-                    “WaterTrade gives our growers the confidence of an institutional desk with the speed of a startup. The
+                    “Water Traders gives our growers the confidence of an institutional desk with the speed of a startup. The
                     audit trail alone has transformed how we report to stakeholders.”
                   </blockquote>
                   <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Agribusiness COO</p>
