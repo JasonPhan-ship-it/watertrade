@@ -104,8 +104,14 @@ function CardHeader({ children }: { children: React.ReactNode }) {
 function CardTitle({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={cx("text-base font-semibold", className)}>{children}</div>;
 }
-function CardDescription({ children }: { children: React.ReactNode }) {
-  return <div className="mt-1 text-sm text-slate-600">{children}</div>;
+function CardDescription({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <div className={cx("mt-1 text-sm text-slate-600", className)}>{children}</div>;
 }
 function CardContent({ children }: { children: React.ReactNode }) {
   return <div className="px-4 pb-4">{children}</div>;
