@@ -500,6 +500,22 @@ export default function DashboardPage() {
           )}
         </section>
       </main>
+            <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-6 text-center text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p>© {new Date().getFullYear()} Water Traders. All rights reserved.</p>
+          <div className="flex items-center justify-center gap-4">
+            <Link href="/privacy-policy" className="text-slate-600 transition hover:text-slate-900">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="text-slate-600 transition hover:text-slate-900">
+              Terms of Use
+            </Link>
+            <Link href="/contact" className="text-slate-600 transition hover:text-slate-900">
+              Contact Us
+            </Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
