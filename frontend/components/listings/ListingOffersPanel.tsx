@@ -227,6 +227,20 @@ function InlineDealProgress({ stage }: { stage: DealStage }) {
   );
 }
 
+function InlineDeclinedProgress() {
+  return (
+    <div className="min-w-[200px] space-y-1">
+      <div className="relative h-2 w-full rounded-full bg-slate-200">
+        <div className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600" style={{ width: "0%" }} />
+      </div>
+      <div className="flex items-center justify-between text-xs text-slate-600">
+        <span className="font-medium text-slate-700">Offer Declined</span>
+        <span>0%</span>
+      </div>
+    </div>
+  );
+}
+
 function toStageLabel(s: DealStage) {
   switch (s) {
     case "OFFER_SENT":
