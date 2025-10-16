@@ -178,6 +178,18 @@ export default function HomePage() {
     [],
   );
 
+  const handleGoToDashboard = React.useCallback(() => {
+    router.push("/dashboard");
+  }, [router]);
+
+  const handleCreateAccount = React.useCallback(() => {
+    router.push("/sign-up");
+  }, [router]);
+
+  const handleSignIn = React.useCallback(() => {
+    router.push("/sign-in");
+  }, [router]);
+
   return (
     <div className="min-h-screen bg-white flex flex-col">
       {/* Hero */}
@@ -226,26 +238,29 @@ export default function HomePage() {
 
               <div className="mt-8 flex flex-wrap gap-3">
                 {isSignedIn ? (
-                  <Link
-                    href="/dashboard"
+                  <button
+                    type="button"
+                    onClick={handleGoToDashboard}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-white/60 focus:ring-offset-2 focus:ring-offset-slate-900"
                   >
                     Go to Dashboard
-                  </Link>
+                  </button>
                 ) : (
                   <>
-                    <Link
-                      href="/sign-up"
+                    <button
+                      type="button"
+                      onClick={handleCreateAccount}
                       className="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-400 px-5 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:ring-offset-2 focus:ring-offset-slate-900"
                     >
                       Create Account
-                    </Link>
-                    <Link
-                      href="/sign-in"
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSignIn}
                       className="inline-flex h-11 items-center justify-center rounded-xl border border-white/30 px-5 text-sm font-semibold text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-slate-900"
                     >
                       Sign In
-                    </Link>
+                    </button>
                   </>
                 )}
               </div>
@@ -270,7 +285,6 @@ export default function HomePage() {
                 <div className="text-sm font-medium text-slate-900">Dashboard Preview</div>
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">Read-only</span>
               </div>
-
 
               <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
                 {error ? (
