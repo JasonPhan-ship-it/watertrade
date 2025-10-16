@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import { Info } from "lucide-react";
+import { Check, ChevronRight, Clock, Info } from "lucide-react";
 import NextDynamic from "next/dynamic";
 
 export const revalidate = 0;
