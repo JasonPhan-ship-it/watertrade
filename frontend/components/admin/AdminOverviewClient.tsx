@@ -26,6 +26,7 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
+import type { AdminOverviewMetrics } from "@/types/admin";
 
 const currency = (n: number) =>
   new Intl.NumberFormat(undefined, {
@@ -76,26 +77,9 @@ const TrendPill = ({ pct }: { pct: number }) => {
   );
 };
 
-type OverviewResponse = {
-  revenue: { totalCents: number; last30Cents: number; previous30Cents: number; trendPct: number };
-  newCustomers: { current: number; previous: number; trendPct: number };
-  activeAccounts: { current: number; previous: number; trendPct: number };
-  growthRatePct: number;
-  counts: {
-    activeListings: number;
-    totalListings: number;
-    transactionsInFlight: number;
-    transactionsCompleted: number;
-  };
-  visitors: {
-    source: "vercel" | "signups";
-    series: { date: string; visitors: number }[];
-  };
-};
-
 export default function AdminOverviewClient() {
   const [range, setRange] = useState<"90d" | "30d" | "7d">("90d");
-  const [data, setData] = useState<OverviewResponse | null>(null);
+  const [data, setData] = useState<AdminOverviewMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,7 +90,7 @@ export default function AdminOverviewClient() {
     fetch("/api/admin/overview", { cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) throw new Error(await res.text());
-        return (await res.json()) as OverviewResponse;
+        return (await res.json()) as AdminOverviewMetrics;
       })
       .then((json) => {
         if (live) setData(json);
@@ -331,7 +315,7 @@ export default function AdminOverviewClient() {
                     className={
                       range === "7d"
                         ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                        : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                        : "border-emerald-300 text-emerald-700 hover-bg-emerald-50"
                     }
                     onClick={() => setRange("7d")}
                   >
