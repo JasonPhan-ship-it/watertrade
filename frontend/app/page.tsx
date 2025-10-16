@@ -324,6 +324,7 @@ export default function HomePage() {
                 Preview shows a small subset. Sign in to see full listings &amp; analytics.
               </p>
             </div>
+            </div>
           </div>
         </section>
 
