@@ -99,7 +99,7 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   return <div className={cx("rounded-2xl border border-slate-200 bg-white shadow-sm", className)}>{children}</div>;
 }
 function CardHeader({ children }: { children: React.ReactNode }) {
-  return <div className="px-4 pt-4">{children}</div>;
+  return <div className="px-4 py-4">{children}</div>;
 }
 function CardTitle({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={cx("text-base font-semibold", className)}>{children}</div>;
