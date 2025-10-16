@@ -193,7 +193,7 @@ function TransactionProgress({ stage }: { stage: DealStage }) {
     <Card className="mt-4">
       <CardHeader>
         <CardTitle className="text-base">Transaction Progress</CardTitle>
-        <CardDescription>Live status once signing begins</CardDescription>
+        <CardDescription className="mb-4">Live status once signing begins</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-3">
