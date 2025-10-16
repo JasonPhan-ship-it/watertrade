@@ -205,6 +205,22 @@ function TransactionProgress({ stage }: { stage: DealStage }) {
   );
 }
 
+function InlineDealProgress({ stage }: { stage: DealStage }) {
+  const currentIndex = STAGE_ORDER.indexOf(stage);
+  const pct = currentIndex < 0 ? 0 : Math.max(0, Math.min(100, (currentIndex / (STAGE_ORDER.length - 1)) * 100));
+  return (
+    <div className="min-w-[200px] space-y-1">
+      <div className="relative h-2 w-full rounded-full bg-slate-200">
+        <div className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex items-center justify-between text-xs text-slate-600">
+        <span className="font-medium text-slate-700">{toStageLabel(stage)}</span>
+        <span>{Math.round(pct)}%</span>
+      </div>
+    </div>
+  );
+}
+
 function toStageLabel(s: DealStage) {
   switch (s) {
     case "OFFER_SENT":
