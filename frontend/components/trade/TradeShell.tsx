@@ -270,7 +270,8 @@ export default async function TradeShell(props: Props) {
     }
 
     // view model
-    const title = tx.listing?.title ?? tx.listingTitleSnapshot ?? "Water Trade";
+    const rawTitle = tx.listing?.title ?? tx.listingTitleSnapshot ?? "Water Trade";
+    const title = formatAcreFeetFigures(rawTitle);
     const district = tx.listing?.district ?? "—";
     const waterType = tx.listing?.waterType ?? "—";
     const qty = tx.acreFeet ?? 0;
