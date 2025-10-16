@@ -44,9 +44,11 @@ export default function SignPage() {
         const qs = new URLSearchParams({ id });
         if (role) qs.set("role", role);
         if (token) qs.set("token", token);
+        qs.set("format", "json");
 
         const res = await fetch(`/api/sign-url?${qs.toString()}`, {
           cache: "no-store",
+          headers: { Accept: "application/json" },
           signal,
         });
         const data = await res.json().catch(() => null);
