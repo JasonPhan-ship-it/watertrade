@@ -220,7 +220,7 @@ export default function HomePage() {
                 <Typewriter phrases={PHRASES} className="font-semibold" />
               </h1>
               <p className="mt-5 max-w-xl text-base text-slate-200 sm:text-lg">
-                WaterTrade gives growers, advisors, and districts the infrastructure to transact securely. Compare
+                Water Traders gives growers, advisors, and districts the infrastructure to transact securely. Compare
                 real-time inventory, execute compliant transfers, and audit every step in a single workspace.
               </p>
 
