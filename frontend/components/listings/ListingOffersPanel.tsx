@@ -247,18 +247,22 @@ function toStageLabel(s: DealStage) {
 function OfferRow({
   offer,
   unitLabel,
+  currentStage,
   onAccept,
   onDecline,
   onCounter,
 }: {
   offer: Offer;
   unitLabel?: string;
+  currentStage?: DealStage | null;
   onAccept?: (id: string) => void | Promise<void>;
   onDecline?: (id: string) => void | Promise<void>;
   onCounter?: (id: string) => void | Promise<void>;
 }) {
   const expired = isExpired(offer);
   const canAct = offer.status === "pending" && !expired;
+  const stageIndex = currentStage ? STAGE_ORDER.indexOf(currentStage) : -1;
+  const showProgress = !canAct && stageIndex >= STAGE_ORDER.indexOf("OFFER_ACCEPTED");
 
   return (
     <div className="flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center">
@@ -288,28 +292,35 @@ function OfferRow({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          className="rounded-2xl"
-          disabled={!canAct}
-          onClick={() => onCounter?.(offer.id)}
-          title="Send a counter offer"
-        >
-          Counter
-        </Button>
-        <Button
-          variant="secondary"
-          className="rounded-2xl"
-          disabled={!canAct}
-          onClick={() => onDecline?.(offer.id)}
-          title="Decline this offer"
-        >
-          Decline
-        </Button>
-        <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)} title="Accept this offer">
-          Accept
-        </Button>
+      <div className="flex w-full items-center gap-2 md:w-auto md:justify-end">
+        {canAct ? (
+          <>
+            <Button
+              variant="outline"
+              className="rounded-2xl"
+              disabled={!canAct}
+              onClick={() => onCounter?.(offer.id)}
+              title="Send a counter offer"
+            >
+              Counter
+            </Button>
+            <Button
+              variant="secondary"
+              className="rounded-2xl"
+              disabled={!canAct}
+              onClick={() => onDecline?.(offer.id)}
+              title="Decline this offer"
+            >
+              Decline
+            </Button>
+            <Button className="rounded-2xl" disabled={!canAct} onClick={() => onAccept?.(offer.id)} title="Accept this offer">
+              Accept
+            </Button>
+          </>
+        ) : showProgress && currentStage ? (
+          <InlineDealProgress stage={currentStage} />
+        ) : null}
+
         {/* Copy ID button removed */}
       </div>
     </div>
@@ -428,6 +439,7 @@ export default function ListingOffersPanel({
               key={o.id}
               offer={o}
               unitLabel={unitLabel}
+              currentStage={currentStage}
               onAccept={onAccept}
               onDecline={onDecline}
               onCounter={onCounter}
@@ -438,7 +450,7 @@ export default function ListingOffersPanel({
 
       {/* Progress bar (only once signing has begun) */}
       {currentStage &&
-        STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("SIGNING_IN_PROGRESS") && (
+        STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("OFFER_ACCEPTED") && (
           <TransactionProgress stage={currentStage} />
         )}
     </div>
