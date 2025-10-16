@@ -35,6 +35,13 @@ function toLocalDatetimeInputValue(d: Date) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
+function formatAcreFeet(value: number | "" | null | undefined) {
+  if (value === "" || value == null) return "";
+  const num = typeof value === "string" ? Number(value) : value;
+  if (typeof num !== "number" || !Number.isFinite(num)) return "";
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
+}
+
 export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
@@ -128,7 +135,8 @@ export default function CreateListingPage() {
 
       // Build payload
       const formData = new FormData(formEl);
-      const derivedTitle = [district.trim(), waterType.trim(), volumeAF ? `${volumeAF} AF` : ""]
+      const volumeLabel = volumeAF ? `${formatAcreFeet(volumeAF)} AF` : "";
+      const derivedTitle = [district.trim(), waterType.trim(), volumeLabel]
         .filter(Boolean)
         .join(" • ");
 
@@ -188,70 +196,51 @@ export default function CreateListingPage() {
   const infoChips = [
     district && `District: ${district}`,
     waterType && `Type: ${waterType}`,
-    volumeAF && `${volumeAF} AF`,
+    volumeAF ? `${formatAcreFeet(volumeAF)} AF` : null,
   ].filter(Boolean) as string[];
 
   return (
-    <div className="mx-auto max-w-5xl p-6 space-y-4">
-      {/* Top actions */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-          Create Listing
-        </h1>
-        <Link href="/dashboard" className="shrink-0">
-          <Button variant="outline">← Back to Dashboard</Button>
-        </Link>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-3">
+    <div className="mx-auto max-w-6xl px-4 py-10">
+      <div className="grid gap-6 md:grid-cols-[1.1fr_0.9fr]">
         {/* Left: Form */}
-        <Card className="md:col-span-2">
+        <Card className="md:col-span-1">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-xl font-semibold text-slate-900">
+              Create a Listing
+            </CardTitle>
+            <p className="text-sm text-slate-500">
+              Share your available water, set pricing or open an auction, and publish in minutes.
+            </p>
+          </CardHeader>
+
           <form onSubmit={handleSubmit}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Listing Details</CardTitle>
-            </CardHeader>
-
-            <CardContent className="space-y-5">
-              <div>
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  rows={5}
-                  placeholder="Brief details, availability window, transfer notes, eligibility, etc."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  required
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  Be concise and factual. Avoid sharing sensitive information.
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
+            <CardContent className="space-y-6">
+              {/* District + Water Type */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
                   <Label htmlFor="district">Water District</Label>
                   <Input
                     id="district"
                     name="district"
-                    list="district-options"
-                    placeholder="Start typing…"
+                    list="district-list"
+                    placeholder="e.g. Westlands Water District"
                     value={district}
                     onChange={(e) => setDistrict(e.target.value)}
                     required
                   />
-                  <datalist id="district-options">
+                  <datalist id="district-list">
                     {DISTRICTS.map((d) => (
                       <option key={d} value={d} />
                     ))}
                   </datalist>
                 </div>
-                <div>
+
+                <div className="space-y-2">
                   <Label htmlFor="waterType">Water Type</Label>
                   <Input
                     id="waterType"
                     name="waterType"
-                    placeholder="e.g., CVP, SWP, Groundwater, etc."
+                    placeholder="e.g. CVP, SWP, Well"
                     value={waterType}
                     onChange={(e) => setWaterType(e.target.value)}
                     required
@@ -259,17 +248,31 @@ export default function CreateListingPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
+              {/* Description */}
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  name="description"
+                  placeholder="Key details buyers should know (source, delivery, timing)…"
+                  rows={5}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+
+              {/* Volume + Pricing toggle */}
+              <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+                <div className="space-y-2">
                   <Label htmlFor="volumeAF">Volume (acre-feet)</Label>
                   <Input
                     id="volumeAF"
                     name="volumeAF"
                     type="number"
                     inputMode="decimal"
-                    min={0}
-                    step="1"
-                    placeholder="e.g., 50"
+                    min={1}
+                    step={1}
+                    placeholder="e.g. 1500"
                     value={volumeAF}
                     onChange={(e) =>
                       setVolumeAF(e.target.value === "" ? "" : Number(e.target.value))
@@ -278,100 +281,105 @@ export default function CreateListingPage() {
                   />
                 </div>
 
-                {/* Fixed-price only shows when not auction */}
-                {!isAuction && (
-                  <div>
-                    <Label htmlFor="pricePerAF">Price per AF ($)</Label>
-                    <Input
-                      id="pricePerAF"
-                      name="pricePerAF"
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.01"
-                      placeholder="e.g., 150.00"
-                      value={pricePerAF}
-                      onChange={(e) =>
-                        setPricePerAF(e.target.value === "" ? "" : Number(e.target.value))
-                      }
-                      required
+                <div className="space-y-2">
+                  <Label className="block text-sm font-medium text-slate-700">Auction?</Label>
+                  <button
+                    type="button"
+                    onClick={() => setIsAuction((prev) => !prev)}
+                    className={[
+                      "relative flex h-10 w-16 items-center rounded-full border transition",
+                      isAuction
+                        ? "border-emerald-600 bg-emerald-500 text-white"
+                        : "border-slate-300 bg-white text-slate-500",
+                    ].join(" ")}
+                    aria-pressed={isAuction}
+                  >
+                    <span
+                      className={[
+                        "absolute top-1 left-1 h-8 w-8 rounded-full bg-white shadow transition-all",
+                        isAuction ? "translate-x-6" : "",
+                      ].join(" ")}
                     />
-                  </div>
-                )}
+                    <span className="mx-auto text-xs font-semibold uppercase tracking-wide">
+                      {isAuction ? "Yes" : "No"}
+                    </span>
+                  </button>
+                </div>
               </div>
 
-              {/* Auction toggle */}
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">Auction</div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Enable bidding to let the market set price. Fixed “Price per AF” is hidden while auction is enabled.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="isAuction"
-                      checked={isAuction}
-                      onChange={(e) => setIsAuction(e.target.checked)}
-                      className="h-4 w-4"
-                    />
-                    <Label htmlFor="isAuction" className="text-sm">
-                      Sell via Auction
-                    </Label>
-                  </div>
-                </div>
-
-                {isAuction && (
-                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                    <div>
-                      <Label htmlFor="startingBid">Starting Bid ($)</Label>
+              {/* Fixed Price vs Auction Fields */}
+              <div className="space-y-4">
+                {!isAuction ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="pricePerAF">Price per AF ($)</Label>
                       <Input
-                        id="startingBid"
-                        name="startingBid"
+                        id="pricePerAF"
+                        name="pricePerAF"
                         type="number"
                         inputMode="decimal"
                         min={0}
                         step="0.01"
-                        placeholder="e.g., 200.00"
-                        value={startingBid}
+                        placeholder="e.g. 750"
+                        value={pricePerAF}
                         onChange={(e) =>
-                          setStartingBid(e.target.value === "" ? "" : Number(e.target.value))
+                          setPricePerAF(e.target.value === "" ? "" : Number(e.target.value))
                         }
-                        required
+                        required={!isAuction}
                       />
                     </div>
-                    <div>
-                      <Label htmlFor="reservePrice">Reserve Price ($)</Label>
-                      <Input
-                        id="reservePrice"
-                        name="reservePrice"
-                        type="number"
-                        inputMode="decimal"
-                        min={0}
-                        step={1}
-                        placeholder="Optional"
-                        value={reservePrice}
-                        onChange={(e) =>
-                          setReservePrice(e.target.value === "" ? "" : Number(e.target.value))
-                        }
-                      />
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        Optional minimum you’re willing to accept.
-                      </p>
-                    </div>
-                    <div>
-                      <Label htmlFor="endDate">Auction End</Label>
-                      <Input
-                        id="endDate"
-                        name="endDate"
-                        type="datetime-local"
-                        min={toLocalDatetimeInputValue(new Date())}
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        required
-                      />
+                  </div>
+                ) : (
+                  <div className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="startingBid">Starting Bid ($/AF)</Label>
+                        <Input
+                          id="startingBid"
+                          name="startingBid"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.01"
+                          placeholder="e.g. 500"
+                          value={startingBid}
+                          onChange={(e) =>
+                            setStartingBid(e.target.value === "" ? "" : Number(e.target.value))
+                          }
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reservePrice">Reserve Price ($/AF)</Label>
+                        <Input
+                          id="reservePrice"
+                          name="reservePrice"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step={1}
+                          placeholder="Optional"
+                          value={reservePrice}
+                          onChange={(e) =>
+                            setReservePrice(e.target.value === "" ? "" : Number(e.target.value))
+                          }
+                        />
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Optional minimum you’re willing to accept.
+                        </p>
+                      </div>
+                      <div>
+                        <Label htmlFor="endDate">Auction End</Label>
+                        <Input
+                          id="endDate"
+                          name="endDate"
+                          type="datetime-local"
+                          min={toLocalDatetimeInputValue(new Date())}
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          required
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -410,7 +418,7 @@ export default function CreateListingPage() {
             <CardContent className="space-y-3">
               {/* Generated Title */}
               <div className="text-sm font-semibold text-slate-900">
-                {[district, waterType, volumeAF ? `${volumeAF} AF` : ""]
+                {[district, waterType, volumeAF ? `${formatAcreFeet(volumeAF)} AF` : ""]
                   .filter(Boolean)
                   .join(" • ") || "Listing title will appear here"}
               </div>
