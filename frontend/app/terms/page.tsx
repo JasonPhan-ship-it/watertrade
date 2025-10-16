@@ -1,19 +1,24 @@
 // app/terms/page.tsx
+import BackButton from "@/components/BackButton";
+
 export const metadata = {
   title: "Terms & Conditions • Water Traders",
 };
 
 export default function TermsPage() {
   return (
-    <main className="container mx-auto max-w-3xl px-4 py-12 prose prose-slate">
-      <h1>Terms &amp; Conditions</h1>
-      <p><strong>Last updated:</strong> August 14, 2025</p>
+    <main className="min-h-screen bg-slate-50">
+      <div className="container mx-auto max-w-3xl px-4 py-12">
+        <BackButton className="mb-6" />
+        <article className="prose prose-slate">
+          <h1>Terms &amp; Conditions</h1>
+          <p><strong>Last updated:</strong> August 14, 2025</p>
 
-      <p>
-        These Terms &amp; Conditions (“<strong>Terms</strong>”) govern your access to and use of the
-        Water Traders website and services (“<strong>Service</strong>”). By using the Service, you
-        agree to these Terms.
-      </p>
+          <p>
+            These Terms &amp; Conditions (“<strong>Terms</strong>”) govern your access to and use of the
+            Water Traders website and services (“<strong>Service</strong>”). By using the Service, you
+            agree to these Terms.
+          </p>
 
       <h2>Eligibility &amp; Accounts</h2>
       <ul>
@@ -134,11 +139,13 @@ export default function TermsPage() {
         by email. Your continued use after changes become effective constitutes acceptance.
       </p>
 
-      <h2>Contact</h2>
-      <p>
-        Questions about these Terms? Email{" "}
-        <a href="mailto:support@watertraders.example">support@watertraders.example</a>.
-      </p>
+          <h2>Contact</h2>
+          <p>
+            Questions about these Terms? Email{" "}
+            <a href="mailto:support@watertraders.example">support@watertraders.example</a>.
+          </p>
+        </article>
+      </div>
     </main>
   );
 }
