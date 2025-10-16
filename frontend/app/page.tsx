@@ -271,11 +271,6 @@ export default function HomePage() {
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">Read-only</span>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <Kpi label="Listings" value={formatNumber(stats.count)} />
-                <Kpi label="Acre-Feet" value={stats.af} />
-                <Kpi label="Avg $/AF" value={stats.avg} />
-              </div>
 
               <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
                 {error ? (
