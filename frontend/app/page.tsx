@@ -548,15 +548,6 @@ function ProcessStep({
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-slate-500 text-xs">{label}</div>
-      <div className="mt-1 text-lg font-semibold tracking-tight">{value}</div>
-    </div>
-  );
-}
-
 function WaterTypeBadge({ type }: { type: string }) {
   return (
     <span className="inline-flex items-center rounded-full bg-[#0E6A59] px-3 py-1 text-xs font-semibold text-white">
