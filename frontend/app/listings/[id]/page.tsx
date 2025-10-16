@@ -260,6 +260,14 @@ export default async function ListingDetailPage({ params }: PageProps) {
       .filter((s): s is DealStage => Boolean(s))
       .sort((a, b) => stageRank(b) - stageRank(a))[0] ?? null;
 
+    const currentStageIndex = currentStage ? stageRank(currentStage) : -1;
+    const showTransactionProgress =
+      currentStageIndex >= 0 && currentStageIndex >= stageRank("OFFER_ACCEPTED");
+    const transactionProgressPct =
+      currentStageIndex < 0
+        ? 0
+        : Math.max(0, Math.min(100, (currentStageIndex / (STAGE_ORDER.length - 1)) * 100));
+    
     return (
       <div className="mx-auto max-w-6xl">
         {/* Sticky summary header */}
@@ -279,7 +287,15 @@ export default async function ListingDetailPage({ params }: PageProps) {
               </div>
             </div>
 
-            <div className="shrink-0">
+            <div className="flex shrink-0 items-center gap-3">
+              {isOwner && (
+                <Link
+                  href={`/listings/${row.id}/edit`}
+                  className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f]"
+                >
+                  Edit Listing
+                </Link>
+              )}
               <Link
                 href="/dashboard"
                 className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -337,28 +353,52 @@ export default async function ListingDetailPage({ params }: PageProps) {
               )}
 
               {isOwner && (
-                <aside>
+                <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="text-sm font-semibold text-slate-900">How actions work</div>
-                  <p className="mt-1 text-xs text-slate-600">
-                    <strong>Accept</strong> locks the price and moves the deal to contracts.{" "}
-                    <strong>Decline</strong> closes the thread. <strong>Counter</strong> lets you revise price/terms and
-                    re-send.
+                  <p className="mt-2 text-xs text-slate-600">
+                    <strong>Accept</strong> locks the price and moves the deal to contracts. <strong>Decline</strong> closes
+                    the thread. <strong>Counter</strong> lets you revise price/terms and re-send.
                   </p>
                 </aside>
               )}
-
-              <aside>
-                <div className="flex flex-wrap items-center gap-3">
-                  {isOwner && (
-                    <Link
-                      href={`/listings/${row.id}/edit`}
-                      className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f] "
-                    >
-                      Edit Listing
-                    </Link>
-                  )}
-                </div>
-              </aside>
+              
+              {showTransactionProgress && currentStage && (
+                <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="text-sm font-semibold text-slate-900">Transaction Progress</div>
+                  <p className="mt-1 text-xs text-slate-600">Live status once signing begins</p>
+                  <div className="mt-4 space-y-4">
+                    <div className="relative h-2 w-full rounded-full bg-slate-100">
+                      <div
+                        className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600"
+                        style={{ width: `${transactionProgressPct}%` }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                      {STAGE_ORDER.map((stage, index) => (
+                        <div
+                          key={stage}
+                          className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs ${
+                            index < currentStageIndex
+                              ? "bg-green-100 text-green-700"
+                              : index === currentStageIndex
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {index < currentStageIndex ? (
+                            <Check className="h-3 w-3" />
+                          ) : index === currentStageIndex ? (
+                            <Clock className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
+                          <span>{toStageLabel(stage)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </aside>
+              )}
             </div>
           </div>
         </div>
