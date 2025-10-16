@@ -284,6 +284,11 @@ export default async function TradeShell(props: Props) {
     const buyerSignStatus = `${linkedTrade?.buyerSignStatus ?? "NONE"}`;
     const sellerSignUrl = linkedTrade?.sellerSignUrl ?? "";
     const buyerSignUrl = linkedTrade?.buyerSignUrl ?? "";
+    const tradeStatusRaw = `${linkedTrade?.status ?? ""}`.toUpperCase();
+    const sellerSignStatusUpper = sellerSignStatus.toUpperCase();
+    const sellerSignRequested = sellerSignStatusUpper === "REQUESTED";
+    const sellerHasAccepted =
+      tradeStatusRaw.startsWith("ACCEPTED") || tradeStatusRaw === "FULLY_EXECUTED";
 
     // endpoints
     const idForActions = tradeIdLinked || tx.id;
@@ -311,8 +316,13 @@ export default async function TradeShell(props: Props) {
     const hideInlineBuyNowFinal = hideInlineBuyNow || isReview;
 
     const actionLower = action?.toLowerCase?.() ?? "";
+    const showAwaitingSellerSignatureBanner =
+      actionLower === "awaiting-seller-signature" ||
+      (!actionLower && viewerRole === "seller" && sellerSignRequested);
     let banner: React.ReactNode = null;
-    if (actionLower === "awaiting-seller-signature") {
+    if (showAwaitingSellerSignatureBanner) {
+      const sellerDocuSignLabel =
+        actionLower === "awaiting-seller-signature" ? "Continue to DocuSign" : "Resume DocuSign";
       banner = (
         <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           <div className="font-semibold">Awaiting seller signature</div>
@@ -323,7 +333,7 @@ export default async function TradeShell(props: Props) {
                 href={sellerSignUrl}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
               >
-                Resume DocuSign
+                {sellerDocuSignLabel}
               </a>
             </div>
           ) : null}
@@ -437,27 +447,33 @@ export default async function TradeShell(props: Props) {
               )}
 
               {viewerRole === "seller" ? (
-                <div className="flex flex-wrap items-center gap-3">
-                  <AcceptButton
-                    postUrl={acceptUrlSeller}
-                    label="Accept"
-                    className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
-                    confirm
-                    confirmMessage="Accept this offer?"
-                  />
-                  <CounterButton
-                    postUrl={counterUrlSeller}
-                    role="seller"
-                    currentPriceCents={priceAf}
-                    currentQty={qty}
-                    label="Counter"
-                  />
-                  <DeclineButton
-                    transactionId={tradeIdLinked || tx.id}
-                    className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
-                    label="Decline"
-                  />
-                </div>
+               sellerHasAccepted ? (
+                  <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                    You accepted this offer. Use the DocuSign link above to finish signing.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <AcceptButton
+                      postUrl={acceptUrlSeller}
+                      label="Accept"
+                      className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
+                      confirm
+                      confirmMessage="Accept this offer?"
+                    />
+                    <CounterButton
+                      postUrl={counterUrlSeller}
+                      role="seller"
+                      currentPriceCents={priceAf}
+                      currentQty={qty}
+                      label="Counter"
+                    />
+                    <DeclineButton
+                      transactionId={tradeIdLinked || tx.id}
+                      className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
+                      label="Decline"
+                    />
+                  </div>
+                )
               ) : viewerRole === "buyer" ? (
                 <div className="flex flex-wrap items-center gap-3">
                   <CounterButton
