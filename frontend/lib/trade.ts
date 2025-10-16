@@ -248,11 +248,38 @@ async function getBuyerNameEmail(trade: Trade): Promise<{ name: string; email: s
   return { name, email };
 }
 
+async function getSellerNameEmail(trade: Trade): Promise<{ name: string; email: string }> {
+  const seller = trade.sellerUserId
+    ? await prisma.user.findUnique({ where: { id: trade.sellerUserId }, select: { name: true, email: true, clerkId: true } })
+    : null;
+
+  let name = seller?.name || "Seller";
+  let email = seller?.email || "";
+
+  if ((!email || !name) && seller?.clerkId) {
+    try {
+      const { clerkClient } = await import("@clerk/nextjs/server");
+      const u = await clerkClient.users.getUser(seller.clerkId);
+      name = name || u.firstName || u.username || "Seller";
+      const primary = u.emailAddresses?.find(e => e.id === u.primaryEmailAddressId)?.emailAddress;
+      email = email || primary || u.emailAddresses?.[0]?.emailAddress || "";
+    } catch { /* non-fatal */ }
+  }
+
+  if (!email) email = `no-email-seller+${trade.id}@example.com`;
+
+  return { name, email };
+}
+
 /**
  * Create a buyer embedded sign URL via Dropbox Sign (REST).
  * If envs are missing, returns your internal /sign page URL so the UI still navigates.
  */
-export async function createBuyerSignatureLink(tradeId: string, buyerToken?: string | null): Promise<string> {
+export async function createBuyerSignatureLink(
+  tradeId: string,
+  buyerToken?: string | null,
+  opts?: { redirectTo?: string }
+): Promise<string> {
   const apiKey = process.env.DROPBOX_SIGN_API_KEY;
   const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
 
@@ -284,6 +311,12 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
   );
   // Optional metadata
   form.set("metadata[tradeId]", tradeId);
+  const redirectTarget = opts?.redirectTo
+    ? opts.redirectTo
+    : `/api/trades/${tradeId}/buyer/signing-complete${
+        buyerToken ? `?token=${encodeURIComponent(buyerToken)}` : ""
+      }`;
+  form.set("signing_redirect_url", appUrl(redirectTarget));
 
   const createResp = await fetch(`${DBX_BASE}/signature_request/create_embedded`, {
     method: "POST",
@@ -351,13 +384,100 @@ export async function createBuyerSignatureLink(tradeId: string, buyerToken?: str
 }
 
 export async function createSellerSignatureLink(tradeId: string, sellerToken?: string | null): Promise<string> {
-  // For now we route sellers to the internal page; mirror buyer flow later if needed.
   const apiKey = process.env.DROPBOX_SIGN_API_KEY;
   const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
+
   if (!apiKey || !clientId) {
     return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
   }
-  return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
+
+  const trade = await prisma.trade.findUnique({ where: { id: tradeId }, include: { listing: true } });
+  if (!trade) throw new Error("Trade not found");
+
+  const { name, email } = await getSellerNameEmail(trade);
+
+  const form = new URLSearchParams();
+  const testMode = (process.env.DROPBOX_SIGN_TEST_MODE ?? "1") === "1";
+  form.set("client_id", clientId);
+  form.set("test_mode", testMode ? "1" : "0");
+  form.set("title", `Water Traders — Seller Signature ${tradeId}`);
+  form.set("subject", "Sign the transfer agreement");
+  form.set("message", "Please sign to continue the transaction.");
+  form.set("signers[0][email_address]", email);
+  form.set("signers[0][name]", name);
+  form.set("signers[0][order]", "0");
+  form.append(
+    "file_url[]",
+    process.env.NEXT_PUBLIC_SAMPLE_PDF_URL ||
+      "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+  );
+  form.set("metadata[tradeId]", tradeId);
+  const redirectTarget = `/api/trades/${tradeId}/seller/signing-complete${
+    sellerToken ? `?token=${encodeURIComponent(sellerToken)}` : ""
+  }`;
+  form.set("signing_redirect_url", appUrl(redirectTarget));
+
+  const createResp = await fetch(`${DBX_BASE}/signature_request/create_embedded`, {
+    method: "POST",
+    headers: {
+      Authorization: dbxAuthHeader(apiKey),
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      Accept: "application/json",
+    },
+    body: form.toString(),
+  });
+
+  const createText = await createResp.text();
+  let createBody: any = null;
+  try { createBody = createText ? JSON.parse(createText) : null; } catch {}
+
+  if (!createResp.ok) {
+    const msg =
+      createBody?.error?.error_name ||
+      createBody?.error ||
+      createResp.statusText ||
+      "Dropbox Sign create_embedded failed";
+    throw new Error(msg);
+  }
+
+  const signatureId =
+    createBody?.signature_request?.signatures?.[0]?.signature_id ||
+    createBody?.signatureRequest?.signatures?.[0]?.signature_id;
+
+  if (!signatureId) {
+    throw new Error("Dropbox Sign did not return a signature_id");
+  }
+
+  const signResp = await fetch(`${DBX_BASE}/embedded/sign_url/${encodeURIComponent(signatureId)}`, {
+    method: "GET",
+    headers: {
+      Authorization: dbxAuthHeader(apiKey),
+      Accept: "application/json",
+    },
+  });
+
+  const signText = await signResp.text();
+  let signBody: any = null;
+  try { signBody = signText ? JSON.parse(signText) : null; } catch {}
+
+  if (!signResp.ok) {
+    const msg =
+      signBody?.error?.error_name ||
+      signBody?.error ||
+      signResp.statusText ||
+      "Dropbox Sign embedded/sign_url failed";
+    throw new Error(msg);
+  }
+
+  const signUrl = signBody?.embedded?.sign_url || signBody?.embedded?.signUrl;
+  if (!signUrl) throw new Error("Dropbox Sign did not return a sign_url");
+
+  const cid = process.env.DROPBOX_SIGN_CLIENT_ID || process.env.NEXT_PUBLIC_DROPBOX_SIGN_CLIENT_ID;
+  const urlWithClient = cid
+    ? `${signUrl}${signUrl.includes("?") ? "&" : "?"}client_id=${encodeURIComponent(cid)}`
+    : signUrl;
+
+  return urlWithClient;
 }
 
 export async function getViewer(

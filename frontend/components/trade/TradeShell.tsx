@@ -10,6 +10,7 @@ import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
 import BuyNowConfirmButton from "@/components/trade/BuyNowConfirmButton";
+import TradeProgressTracker, { TradeProgressStep } from "@/components/trade/ProgressTracker";
 
 type Props = {
   tradeId: string;
@@ -105,6 +106,99 @@ function buildUrl(base: string, opts: { token?: string; role?: "buyer" | "seller
   return url.pathname + (url.search ? url.search : "");
 }
 
+type ProgressInput = {
+  tradeStatus?: string | null;
+  sellerSignStatus?: string | null;
+  buyerSignStatus?: string | null;
+  txStatus?: string | null;
+};
+
+function buildProgressSteps(input: ProgressInput): TradeProgressStep[] {
+  const tradeStatus = (input.tradeStatus ?? "").toUpperCase();
+  const sellerSignStatus = (input.sellerSignStatus ?? "NONE").toUpperCase();
+  const buyerSignStatus = (input.buyerSignStatus ?? "NONE").toUpperCase();
+  const txStatus = (input.txStatus ?? "").toUpperCase();
+
+  const acceptedComplete = tradeStatus.startsWith("ACCEPTED") || tradeStatus === "FULLY_EXECUTED";
+  const sellerSigned = sellerSignStatus === "SIGNED";
+  const sellerRequested = sellerSignStatus === "REQUESTED";
+  const buyerSigned = buyerSignStatus === "SIGNED";
+  const buyerRequested = buyerSignStatus === "REQUESTED";
+  const adminComplete = txStatus === "APPROVED" || txStatus === "FUNDS_RELEASED";
+  const adminActive = txStatus === "COMPLIANCE_REVIEW";
+  const districtComplete = txStatus === "FUNDS_RELEASED";
+  const districtActive = txStatus === "APPROVED";
+
+  const sellerDescription = sellerSigned
+    ? "Seller signature received."
+    : sellerRequested
+    ? "Waiting for the seller to complete DocuSign."
+    : acceptedComplete
+    ? "Seller can sign the agreement now."
+    : "Seller signature begins once the offer is accepted.";
+
+  const buyerDescription = buyerSigned
+    ? "Buyer signature received."
+    : buyerRequested
+    ? "Waiting for the buyer to complete DocuSign."
+    : sellerSigned
+    ? "Buyer will be invited to sign next."
+    : "Buyer signature begins after the seller signs.";
+
+  let adminDescription = "Water Traders reviews the agreement after both signatures.";
+  if (adminActive) adminDescription = "Water Traders compliance team is reviewing the agreement.";
+  else if (adminComplete) adminDescription = "Admin review complete.";
+
+  let districtDescription = "The water district confirms once admin approval is complete.";
+  if (districtActive) districtDescription = "Awaiting water district confirmation.";
+  if (districtComplete) districtDescription = "Water district confirmed and funds are being released.";
+
+  const raw = [
+    {
+      id: "accepted",
+      title: "Offer accepted",
+      description: "Seller accepted the buyer’s offer.",
+      complete: acceptedComplete,
+    },
+    {
+      id: "seller-signature",
+      title: "Seller signature",
+      description: sellerDescription,
+      complete: sellerSigned,
+    },
+    {
+      id: "buyer-signature",
+      title: "Buyer signature",
+      description: buyerDescription,
+      complete: buyerSigned,
+    },
+    {
+      id: "admin-review",
+      title: "Admin approval",
+      description: adminDescription,
+      complete: adminComplete || districtComplete,
+    },
+    {
+      id: "district",
+      title: "Water district confirmation",
+      description: districtDescription,
+      complete: districtComplete,
+    },
+  ];
+
+  let foundCurrent = false;
+  return raw.map((step) => {
+    if (step.complete) {
+      return { id: step.id, title: step.title, description: step.description, status: "complete" as const };
+    }
+    if (!foundCurrent) {
+      foundCurrent = true;
+      return { id: step.id, title: step.title, description: step.description, status: "current" as const };
+    }
+    return { id: step.id, title: step.title, description: step.description, status: "upcoming" as const };
+  });
+}
+
 export default async function TradeShell(props: Props) {
   try {
     const {
@@ -139,9 +233,23 @@ export default async function TradeShell(props: Props) {
     // linked Trade (optional)
     const linkedTrade = await prisma.trade.findFirst({
       where: { transactionId: tx.id },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        sellerSignStatus: true,
+        buyerSignStatus: true,
+        sellerSignUrl: true,
+        buyerSignUrl: true,
+      },
     });
     const tradeIdLinked = linkedTrade?.id ?? null;
+
+    const progressSteps = buildProgressSteps({
+      tradeStatus: linkedTrade?.status ?? tx.status,
+      sellerSignStatus: linkedTrade?.sellerSignStatus,
+      buyerSignStatus: linkedTrade?.buyerSignStatus,
+      txStatus: tx.status,
+    });
 
     // resolve viewer role
     let viewerRole: "buyer" | "seller" | "guest" =
@@ -172,6 +280,11 @@ export default async function TradeShell(props: Props) {
     const status = tx.status ?? "—";
     const isBuyNow = tx.type === "BUY_NOW";
 
+    const sellerSignStatus = `${linkedTrade?.sellerSignStatus ?? "NONE"}`;
+    const buyerSignStatus = `${linkedTrade?.buyerSignStatus ?? "NONE"}`;
+    const sellerSignUrl = linkedTrade?.sellerSignUrl ?? "";
+    const buyerSignUrl = linkedTrade?.buyerSignUrl ?? "";
+
     // endpoints
     const idForActions = tradeIdLinked || tx.id;
     const acceptUrlSeller = buildUrl(`/api/trades/${idForActions}/seller/accept`, {
@@ -197,6 +310,65 @@ export default async function TradeShell(props: Props) {
     const isReview = action?.toLowerCase?.() === "review";
     const hideInlineBuyNowFinal = hideInlineBuyNow || isReview;
 
+    const actionLower = action?.toLowerCase?.() ?? "";
+    let banner: React.ReactNode = null;
+    if (actionLower === "awaiting-seller-signature") {
+      banner = (
+        <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+          <div className="font-semibold">Awaiting seller signature</div>
+          <p className="mt-1 text-sm">Sign the agreement so the buyer can review next.</p>
+          {viewerRole === "seller" && sellerSignUrl ? (
+            <div className="mt-3">
+              <a
+                href={sellerSignUrl}
+                className="inline-flex items-center justify-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+              >
+                Resume DocuSign
+              </a>
+            </div>
+          ) : null}
+        </div>
+      );
+    } else if (actionLower === "seller-signature-complete") {
+      banner = (
+        <div className="mt-6 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-900">
+          <div className="font-semibold">Seller signature captured</div>
+          <p className="mt-1 text-sm">We invited the buyer to sign and will notify you when it’s complete.</p>
+        </div>
+      );
+    } else if (actionLower === "awaiting-buyer-signature") {
+      banner = (
+        <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+          <div className="font-semibold">Awaiting buyer signature</div>
+          <p className="mt-1 text-sm">The buyer has the DocuSign link and will sign next.</p>
+          {viewerRole === "buyer" && buyerSignUrl ? (
+            <div className="mt-3">
+              <a
+                href={buyerSignUrl}
+                className="inline-flex items-center justify-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+              >
+                Open DocuSign
+              </a>
+            </div>
+          ) : null}
+        </div>
+      );
+    } else if (actionLower === "buyer-signature-complete") {
+      banner = (
+        <div className="mt-6 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-900">
+          <div className="font-semibold">All signatures captured</div>
+          <p className="mt-1 text-sm">Our team is coordinating admin approval and district confirmation.</p>
+        </div>
+      );
+    } else if (actionLower === "signing-error") {
+      banner = (
+        <div className="mt-6 rounded-xl border border-rose-300 bg-rose-50 p-4 text-rose-900">
+          <div className="font-semibold">We couldn’t verify the signing status</div>
+          <p className="mt-1 text-sm">Please refresh or contact support if the issue persists.</p>
+        </div>
+      );
+    }
+
     return (
       <div className="mx-auto max-w-3xl p-6">
         {/* Header */}
@@ -210,6 +382,8 @@ export default async function TradeShell(props: Props) {
             {isBuyNow ? <div className="flex items-center sm:ml-3" id="buy-now-header-slot" /> : null}
           </div>
         </div>
+
+        {banner}
 
         {/* Summary */}
         <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -314,6 +488,26 @@ export default async function TradeShell(props: Props) {
               )}
             </>
           )}
+        </div>
+
+        {/* Progress Tracker */}
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-base font-semibold text-slate-900">Progress</h2>
+          </div>
+          <TradeProgressTracker steps={progressSteps} />
+
+          {viewerRole === "seller" && sellerSignStatus === "REQUESTED" && sellerSignUrl ? (
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+              Ready to sign? <a href={sellerSignUrl} className="font-semibold underline">Open DocuSign</a>
+            </div>
+          ) : null}
+
+          {viewerRole === "buyer" && buyerSignStatus === "REQUESTED" && buyerSignUrl ? (
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+              It’s your turn. <a href={buyerSignUrl} className="font-semibold underline">Open DocuSign</a>
+            </div>
+          ) : null}
         </div>
 
         {/* Disclaimer */}

@@ -24,13 +24,14 @@ export default function AcceptButton({
   confirmMessage = "Accept this offer?",
   onSuccess,
   successTitle = "Offer Accepted",
-  successMessage = "The offer was accepted. Next steps have been sent to both parties.",
+  successMessage = "The offer was accepted. Sign the agreement to keep things moving.",
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [ok, setOk] = React.useState<string | null>(null);
   const [showSuccess, setShowSuccess] = React.useState(false);
+  const [signUrl, setSignUrl] = React.useState<string | null>(null);
 
   async function handleClick() {
     if (busy) return;
@@ -65,7 +66,8 @@ export default function AcceptButton({
         throw new Error(message);
       }
 
-      setOk(data?.message || "Awaiting buyer signature");
+      setOk(data?.message || "Awaiting seller signature");
+      setSignUrl(data?.signLink || null);
       setShowSuccess(true);
       onSuccess?.();
       // NOTE: wait to refresh until user clicks OK in the modal
@@ -107,19 +109,44 @@ export default function AcceptButton({
       {showSuccess && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" aria-modal="true" role="dialog">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowSuccess(false)} />
-          <div className="relative z-[110] w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl text-center">
+          <div className="relative z-[110] w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl text-center">
             <h2 className="text-lg font-semibold text-slate-900">{successTitle}</h2>
             <p className="mt-2 text-sm text-slate-600">{successMessage}</p>
-            <button
-              onClick={() => {
-                setShowSuccess(false);
-                if (onSuccess) onSuccess();
-                else router.refresh();
-              }}
-              className="mt-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              OK
-            </button>
+            {signUrl ? (
+              <div className="mt-5 flex flex-col items-stretch gap-3 sm:flex-row">
+                <button
+                  onClick={() => {
+                    window.location.assign(signUrl);
+                  }}
+                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                >
+                  Go to DocuSign
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSuccess(false);
+                    setSignUrl(null);
+                    if (onSuccess) onSuccess();
+                    else router.refresh();
+                  }}
+                  className="flex-1 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  I’ll sign later
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setShowSuccess(false);
+                  setSignUrl(null);
+                  if (onSuccess) onSuccess();
+                  else router.refresh();
+                }}
+                className="mt-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                OK
+              </button>
+            )}
           </div>
         </div>
       )}

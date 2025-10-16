@@ -1,62 +1,38 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { Party, TradeStatus, TransactionStatus } from "@prisma/client";
-import { getViewer, findTradeByAnyId } from "@/lib/trade";
+import { Party, SignatureProgress, TradeStatus, TransactionStatus } from "@prisma/client";
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import { sendEmail, appUrl, renderBuyerAcceptedEmail } from "@/lib/email";
-import { createBuyerSignatureLink } from "@/lib/trade";
+
+import { appUrl, sendEmail } from "@/lib/email";
+import { prisma } from "@/lib/prisma";
+import {
+  createSellerSignatureLink,
+  ensureTradeFromAnyIdOrCreate,
+  findTradeByAnyId,
+  getViewer,
+} from "@/lib/trade";
 
 /** Accept Trade.id OR Transaction.id and create a Trade if missing */
-async function ensureTradeFromAnyIdOrThrow(id: string) {
-  const existing = await findTradeByAnyId(id);
-  if (existing) return existing;
-
-  const txn = await prisma.transaction.findUnique({
-    where: { id },
-    include: { listing: { select: { id: true, district: true, title: true, waterType: true } } },
-  });
-  if (!txn) return null;
-
-  const listingId = txn.listing?.id ?? null;
-  const district =
-    (txn as any).districtSnapshot ??
-    txn.listing?.district ??
-    null;
-
-  if (!listingId || !district) {
-    throw new Error("Cannot create Trade: missing listingId or district on Transaction/Listing.");
-  }
-
-  const created = await prisma.trade.create({
-    data: {
-      transactionId: txn.id,
-      listingId,
-      district,
-      sellerUserId: (txn as any).sellerUserId ?? (txn as any).sellerId ?? undefined,
-      buyerUserId:  (txn as any).buyerUserId  ?? (txn as any).buyerId  ?? undefined,
-      pricePerAf:   (txn as any).pricePerAf   ?? (txn as any).pricePerAF ?? undefined,
-      volumeAf:     (txn as any).volumeAf     ?? (txn as any).acreFeet   ?? undefined,
-      status: TradeStatus.OFFERED,
-      round: 0,
-    } as any,
-  });
-
-  return created;
-}
-
-function pickTxnPendingBuyerSig():
+function pickTxnPendingSellerSig():
   (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
   const TXS: any = TransactionStatus;
-  return TXS.PENDING_BUYER_SIGNATURE ?? TXS.PENDING_SIGNATURE ?? TXS.PENDING ?? TXS.ACCEPTED ?? null;
+  return TXS.PENDING_SELLER_SIGNATURE ?? TXS.PENDING_SIGNATURE ?? TXS.PENDING ?? TXS.ACCEPTED ?? null;
 }
 
-function pickAcceptedPendingTradeStatus():
+function pickAcceptedPendingSellerStatus():
   (typeof TradeStatus)[keyof typeof TradeStatus] {
   const TS: any = TradeStatus;
-  return TS.ACCEPTED_PENDING_BUYER_SIGNATURE ?? TS.ACCEPTED ?? TS.PENDING ?? TS.OFFERED;
+  return (
+    TS.ACCEPTED_PENDING_SELLER_SIGNATURE ??
+    TS.ACCEPTED_PENDING_SIGNATURE ??
+    TS.ACCEPTED_PENDING_BUYER_SIGNATURE ??
+    TS.ACCEPTED ??
+    TS.PENDING ??
+    TS.OFFERED
+  );
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -99,20 +75,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Accept Trade.id or Transaction.id; create Trade if needed
     let trade;
     try {
-      trade = await ensureTradeFromAnyIdOrThrow(rawId);
+      trade = await ensureTradeFromAnyIdOrCreate(rawId);
     } catch (e: any) {
       return NextResponse.json({ error: e?.message || "Unable to create Trade", errorCode: "CREATE_FAILED" }, { status: 422 });
     }
     if (!trade) {
-      return NextResponse.json({ error: "Not found", errorCode: "NOT_FOUND", hint: "No Trade or Transaction with this id" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Not found", errorCode: "NOT_FOUND", hint: "No Trade or Transaction with this id" },
+        { status: 404 }
+      );
     }
 
     // AuthZ: seller or admin or valid token
     const viewer = await getViewer(req as any, trade as any);
-    let tokenMatchViaBody = false;
-    if (viewer.role !== "seller" && bodyToken && (trade as any).sellerToken && bodyRole === "seller") {
-      tokenMatchViaBody = bodyToken === (trade as any).sellerToken;
-    }
+    const sellerToken = (trade as any).sellerToken || "";
+    const bodyRoleIsSeller = (bodyRole || "").toLowerCase() === "seller";
+    const tokenMatchViaBody =
+      viewer.role !== "seller" && bodyRoleIsSeller && bodyToken && sellerToken && bodyToken === sellerToken;
 
     let allow = viewer.role === "seller" || tokenMatchViaBody;
     let actedByAdmin: { adminUserId: string; adminEmail?: string | null } | null = null;
@@ -162,16 +141,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // Transition Trade -> accepted/pending buyer signature
-    const TRADE_ACCEPTED = pickAcceptedPendingTradeStatus();
+    const TRADE_ACCEPTED = pickAcceptedPendingSellerStatus();
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
         status: TRADE_ACCEPTED,
         lastActor: Party.SELLER,
         version: { increment: 1 },
+        sellerSignStatus: SignatureProgress.REQUESTED,
+        buyerSignStatus: SignatureProgress.NONE,
+        sellerSignUrl: null,
+        buyerSignUrl: null,
         events: {
           create: {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             actor: "seller",
             kind: "ACCEPT",
             payload: { previousStatus: (trade as any).status, round: (trade as any).round, ...(actedByAdmin ? { actedByAdmin } : {}) },
@@ -197,7 +180,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Sync Transaction status (best-effort)
     if (updated.transactionId) {
       try {
-        const pending = pickTxnPendingBuyerSig();
+        const pending = pickTxnPendingSellerSig();
         if (pending) {
           await prisma.transaction.update({ where: { id: updated.transactionId }, data: { status: pending } });
         }
@@ -206,18 +189,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Create embedded sign URL for buyer
+    // Create embedded sign URL for seller to sign immediately
     let signLink: string | null = null;
     try {
-      signLink = await createBuyerSignatureLink(updated.id, (trade as any).buyerToken);
+      signLink = await createSellerSignatureLink(updated.id, sellerToken);
+      await prisma.trade.update({
+        where: { id: updated.id },
+        data: { sellerSignUrl: signLink },
+      });
     } catch (e: any) {
       return NextResponse.json(
-        { error: "Failed to create buyer sign URL", errorCode: "SIGN_URL_FAILED", details: e?.message || "Unknown error" },
+        { error: "Failed to create seller sign URL", errorCode: "SIGN_URL_FAILED", details: e?.message || "Unknown error" },
         { status: 502 }
       );
     }
 
-    // ---- Notify buyer (existing) + NEW: confirmation to seller ----
+    // ---- Notify buyer (status update) + seller confirmation with sign link ----
     const [buyerLocal, sellerLocal] = await Promise.all([
       prisma.user.findUnique({ where: { id: updated.buyerUserId || "" }, select: { email: true, name: true, clerkId: true } }),
       prisma.user.findUnique({ where: { id: updated.sellerUserId || "" }, select: { name: true, clerkId: true, email: true } }),
@@ -246,42 +233,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const viewLinkForBuyer = appUrl(
-      `/t/${updated.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=review`
+      `/t/${updated.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=awaiting-seller-signature`
     );
 
     if (buyerEmail) {
-      const { html, preheader } = renderBuyerAcceptedEmail({
-        buyerName: buyerName || "Buyer",
-        sellerName: sellerName || "Seller",
-        offer: {
-          listingTitle: updated.windowLabel || "Offer Terms",
-          district: updated.district || "",
-          waterType: updated.waterType ?? undefined,
-          volumeAf: updated.volumeAf,
-          pricePerAf: updated.pricePerAf,
-          windowLabel: updated.windowLabel ?? undefined,
-        },
-        signLink: signLink!,
-        viewLink: viewLinkForBuyer,
-      });
-
+      const html = `
+        <p>Hi ${buyerName || "Buyer"},</p>
+        <p>The seller accepted your offer and is signing the transfer agreement now.</p>
+        <p>We’ll email you as soon as it’s your turn to sign.</p>
+        <p><a href="${viewLinkForBuyer}">View the transaction</a></p>
+      `;
       try {
-        await sendEmail({ to: buyerEmail, subject: "Seller accepted — review & sign", html, preheader });
+        await sendEmail({ to: buyerEmail, subject: "Seller accepted — awaiting seller signature", html });
       } catch (e) {
-        console.warn("[seller/accept] sendEmail (buyer) failed:", (e as any)?.message);
+        console.warn("[seller/accept] sendEmail (buyer status) failed:", (e as any)?.message);
       }
     }
 
-    // NEW: Seller confirmation
     if (sellerEmail) {
       const sellerViewLink = appUrl(`/t/${updated.id}?role=seller${updated.sellerToken ? `&token=${updated.sellerToken}` : ""}`);
       const html = `
         <p>Hi ${sellerName || "Seller"},</p>
-        <p>You accepted the buyer’s offer. We’ve notified the buyer and shared the signature link.</p>
-        <p>Thread: <a href="${sellerViewLink}">${sellerViewLink}</a></p>
+        <p>You accepted the buyer’s offer. Please sign the water transfer agreement to move forward.</p>
+        <p><a href="${signLink}">Sign with DocuSign</a></p>
+        <p>Need to review details? <a href="${sellerViewLink}">View the transaction</a>.</p>
       `;
       try {
-        await sendEmail({ to: sellerEmail, subject: "You accepted the offer", html });
+        await sendEmail({ to: sellerEmail, subject: "Please sign the transfer agreement", html });
       } catch (e) {
         console.warn("[seller/accept] sendEmail (seller confirm) failed:", (e as any)?.message);
       }
@@ -290,19 +268,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Friendly redirect target
     const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
     const inUrl = new URL(req.url);
-    const token = inUrl.searchParams.get("token") || undefined;
-    const role = inUrl.searchParams.get("role") || (tokenMatchViaBody ? "seller" : "seller");
+    const token = inUrl.searchParams.get("token") || (tokenMatchViaBody ? bodyToken : undefined) || undefined;
 
     const redirectUrl = new URL(`/t/${updated.id}`, base);
-    redirectUrl.searchParams.set("role", role);
-    redirectUrl.searchParams.set("action", "awaiting-buyer-signature");
+    redirectUrl.searchParams.set("role", "seller");
+    redirectUrl.searchParams.set("action", "awaiting-seller-signature");
     if (token) redirectUrl.searchParams.set("token", token);
 
     return NextResponse.json({
       ok: true,
       tradeId: updated.id,
       status: updated.status,
-      message: "Awaiting buyer signature",
+      message: "Awaiting seller signature",
       redirectUrl: redirectUrl.toString(),
       signLink,
     });

@@ -16,7 +16,16 @@ function getParam(sp: PageProps["searchParams"], k: string) {
 }
 
 const ROLE_SET = new Set(["buyer", "seller"]);
-const ACTION_SET = new Set(["review", "counter", "decline", "awaiting-buyer-signature"]);
+const ACTION_SET = new Set([
+  "review",
+  "counter",
+  "decline",
+  "awaiting-buyer-signature",
+  "awaiting-seller-signature",
+  "seller-signature-complete",
+  "buyer-signature-complete",
+  "signing-error",
+]);
 
 export default function Page({ params, searchParams }: PageProps) {
   const id = params.id ?? "";
