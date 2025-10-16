@@ -426,7 +426,7 @@ export default function ListingOffersPanel({
               <CardTitle>
                 No {tab === "all" ? "activity yet" : tab === "received" ? "received offers" : "sent offers"}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="mt-2">
                 {tab === "sent"
                   ? "Make an offer on a listing to see it here."
                   : "When offers are created or updated, they’ll appear here."}
