@@ -4,7 +4,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import * as React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircle2, X } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
@@ -164,11 +164,8 @@ export default function HomePage() {
   const stats = useMemo(() => {
     const rows = data?.listings ?? [];
     const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
-    const avg =
-      rows.length > 0
-        ? Math.round((rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length) * 100) / 100
-        : 0;
-    return { count: data?.total ?? 0, af: formatNumber(totalAf), avg: avg ? `$${formatNumber(avg)}` : "$0" };
+    const avg = rows.length > 0 ? rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length : 0;
+    return { count: data?.total ?? 0, af: totalAf, avg };
   }, [data]);
 
   const PHRASES = useMemo(
@@ -278,13 +275,27 @@ export default function HomePage() {
 
               <dl className="mt-10 grid max-w-lg grid-cols-1 gap-6 text-white sm:grid-cols-3">
                 {[
-                  { label: "Live listings", value: formatNumber(stats.count) },
-                  { label: "Acre-feet posted", value: stats.af },
-                  { label: "Avg $/AF", value: stats.avg },
+                  {
+                    label: "Live listings",
+                    value: stats.count,
+                    formatter: (n: number) => formatNumber(Math.round(n)),
+                  },
+                  {
+                    label: "Acre-feet posted",
+                    value: stats.af,
+                    formatter: (n: number) => formatNumber(Math.round(n)),
+                  },
+                  {
+                    label: "Avg $/AF",
+                    value: stats.avg,
+                    formatter: (n: number) => (n ? `$${formatNumber(Math.round(n))}` : "$0"),
+                  },
                 ].map((metric) => (
                   <div key={metric.label} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-sm backdrop-blur">
                     <dt className="text-xs uppercase tracking-wide text-emerald-200">{metric.label}</dt>
-                    <dd className="mt-1 text-lg font-semibold text-white">{metric.value}</dd>
+                    <dd className="mt-1 text-lg font-semibold text-white">
+                      <AnimatedStatValue value={metric.value} formatter={metric.formatter} />
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -610,6 +621,75 @@ function ChartIcon() {
       <path d="M17 16v-6" />
     </svg>
   );
+}
+
+type AnimatedStatValueProps = {
+  value: number;
+  formatter?: (value: number) => string;
+  durationMs?: number;
+};
+
+function AnimatedStatValue({ value, formatter = defaultStatFormatter, durationMs = 1200 }: AnimatedStatValueProps) {
+  const animated = useCountUp(value, durationMs);
+  return <>{formatter(animated)}</>;
+}
+
+function defaultStatFormatter(value: number) {
+  return formatNumber(Math.round(value));
+}
+
+function useCountUp(target: number, durationMs = 1200) {
+  const previousValueRef = useRef(target);
+  const [displayValue, setDisplayValue] = useState(target);
+
+  useEffect(() => {
+    previousValueRef.current = displayValue;
+  }, [displayValue]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setDisplayValue(target);
+      previousValueRef.current = target;
+      return;
+    }
+
+    const startValue = previousValueRef.current;
+    const delta = target - startValue;
+
+    if (!durationMs || delta === 0) {
+      setDisplayValue(target);
+      previousValueRef.current = target;
+      return;
+    }
+
+    let frame: number;
+    let startTime: number | null = null;
+
+    const step = (timestamp: number) => {
+      if (startTime === null) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / durationMs, 1);
+      const eased = easeOutCubic(progress);
+      setDisplayValue(startValue + delta * eased);
+
+      if (progress < 1) {
+        frame = window.requestAnimationFrame(step);
+      } else {
+        previousValueRef.current = target;
+      }
+    };
+
+    frame = window.requestAnimationFrame(step);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [target, durationMs]);
+
+  return displayValue;
+}
+
+function easeOutCubic(t: number) {
+  return 1 - Math.pow(1 - t, 3);
 }
 
 /* ---------------------- Helpers ---------------------- */
