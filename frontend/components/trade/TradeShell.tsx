@@ -289,8 +289,10 @@ export default async function TradeShell(props: Props) {
     const sellerSignStatusUpper = sellerSignStatus.toUpperCase();
     const sellerSignRequested = sellerSignStatusUpper === "REQUESTED";
     const sellerHasAccepted =
-      tradeStatusRaw.startsWith("ACCEPTED") || tradeStatusRaw === "FULLY_EXECUTED";
-
+      tradeStatusRaw.startsWith("ACCEPTED") ||
+      tradeStatusRaw === "FULLY_EXECUTED" ||
+      sellerSignRequested;
+    
     // endpoints
     const idForActions = tradeIdLinked || tx.id;
     const acceptUrlSeller = buildUrl(`/api/trades/${idForActions}/seller/accept`, {
@@ -565,4 +567,12 @@ function uiError(title: string, details: string, tradeId?: string, err?: unknown
       </div>
     </div>
   );
+}
+
+function formatAcreFeetFigures(title: string) {
+  if (!title) return title;
+  return title.replace(/\b(\d{4,})(?=\s*AF\b)/gi, (match) => {
+    const numeric = Number(match);
+    return Number.isNaN(numeric) ? match : new Intl.NumberFormat("en-US").format(numeric);
+  });
 }
