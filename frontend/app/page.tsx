@@ -171,7 +171,7 @@ export default function HomePage() {
 
   const PHRASES = useMemo(
     () => [
-      "Institutional infrastructure for California water.",
+      "Infrastructure for California water.",
       "From growers, for growers.",
       "List fast. Move water faster.",
     ],
