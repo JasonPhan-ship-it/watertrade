@@ -4,20 +4,38 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, appUrl } from "@/lib/email";
 import { getOrCreateUserFromClerk } from "@/lib/clerk";
-import { ListingStatus, TransactionStatus, TransactionType } from "@prisma/client";
+import { ListingStatus, Party, TradeStatus, TransactionStatus, TransactionType } from "@prisma/client";
 
 export const runtime = "nodejs";
 
 type TType = "BUY_NOW" | "OFFER";
 
-function toInt(v: unknown): number | null {
+function toPositiveInt(v: unknown): number | null {
+  if (v == null || v === "") return null;
   const n = Number(v);
-  return Number.isFinite(n) ? Math.round(n) : null;
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.round(n);
+  return rounded >= 1 ? rounded : null;
 }
 
-// If UI sends dollars, we upconvert to cents. If already cents (e.g., 65000), keep it.
-function dollarsToCentsMaybe(v: number): number {
-  return v < 10_000 ? Math.round(v * 100) : v;
+function normalizeCents(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
+function normalizePriceToCents(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+
+  const str = typeof v === "string" ? v.trim() : "";
+  const hasExplicitDecimal = str.includes(".");
+  const hasFraction = !Number.isInteger(n);
+
+  const treatAsDollars = hasExplicitDecimal || hasFraction || Math.abs(n) < 1_000;
+  return treatAsDollars ? Math.round(n * 100) : Math.round(n);
 }
 
 export async function POST(req: Request) {
@@ -33,8 +51,32 @@ export async function POST(req: Request) {
     const type = (rawType.toUpperCase() as TType) || null;
 
     // numbers may come as strings
-    const qty = toInt(body?.acreFeet);
-    let p = toInt(body?.pricePerAF);
+    const qty = toPositiveInt(body?.acreFeet ?? body?.volumeAF ?? body?.volumeAf);
+
+    const centsSources = [
+      body?.pricePerAFCents,
+      body?.pricePerAfCents,
+      body?.price_per_af_cents,
+    ];
+    let pricePerAfCents: number | null = null;
+    for (const candidate of centsSources) {
+      const normalized = normalizeCents(candidate);
+      if (normalized != null) {
+        pricePerAfCents = normalized;
+        break;
+      }
+    }
+
+    if (pricePerAfCents == null) {
+      const priceCandidates = [body?.pricePerAF, body?.pricePerAf, body?.price_per_af];
+      for (const candidate of priceCandidates) {
+        const normalized = normalizePriceToCents(candidate);
+        if (normalized != null) {
+          pricePerAfCents = normalized;
+          break;
+        }
+      }
+    }
 
     // Validate payload
     if (!listingId) {
@@ -46,13 +88,11 @@ export async function POST(req: Request) {
     if (!qty || qty < 1) {
       return NextResponse.json({ error: "acreFeet must be a positive integer" }, { status: 400 });
     }
-    if (!p || p < 1) {
+    if (!pricePerAfCents || pricePerAfCents < 1) {
       return NextResponse.json({ error: "pricePerAF must be a positive number (cents or dollars)" }, { status: 400 });
     }
 
-    // Convert dollars -> cents if it looks like dollars
-    p = dollarsToCentsMaybe(p);
-    const totalAmount = qty * p; // cents
+    const totalAmount = qty * pricePerAfCents; // cents
 
     const listing = await prisma.listing.findUnique({
       where: { id: listingId },
@@ -61,6 +101,8 @@ export async function POST(req: Request) {
         title: true,
         sellerId: true,
         status: true,
+        district: true,
+        waterType: true,
         seller: { select: { id: true, email: true, name: true } },
       },
     });
@@ -101,11 +143,43 @@ export async function POST(req: Request) {
         sellerId: listing.sellerId,
         type,                 // "BUY_NOW" | "OFFER"
         acreFeet: qty,
-        pricePerAF: p,        // cents
+        pricePerAF: pricePerAfCents, // cents
         totalAmount,          // cents
       },
       select: { id: true, type: true },
     });
+
+    if (type === "OFFER") {
+      try {
+        await prisma.trade.create({
+          data: {
+            transactionId: trx.id,
+            listingId,
+            sellerUserId: listing.sellerId,
+            buyerUserId: me.id,
+            district: listing.district,
+            waterType: listing.waterType ?? null,
+            volumeAf: qty,
+            pricePerAf: pricePerAfCents,
+            status: TradeStatus.OFFERED,
+            round: 1,
+            lastActor: Party.BUYER,
+            events: {
+              create: {
+                actor: "buyer",
+                kind: "OFFER",
+                payload: { pricePerAf: pricePerAfCents, volumeAf: qty, round: 1 },
+              },
+            },
+          },
+        });
+      } catch (tradeErr: any) {
+        if (tradeErr?.code !== "P2002") {
+          console.error("POST /api/transactions trade create failed", tradeErr);
+          throw tradeErr;
+        }
+      }
+    }
 
     // Email seller
     if (listing.seller.email) {
@@ -118,8 +192,14 @@ export async function POST(req: Request) {
       const transactionUrl = appUrl(`/transactions/${trx.id}?role=seller&action=review`);
 
       // Numbers for display
-      const priceUsd = (p / 100).toLocaleString(undefined, { minimumFractionDigits: 2 });
-      const totalUsd = (totalAmount / 100).toLocaleString(undefined, { minimumFractionDigits: 2 });
+      const priceUsd = (pricePerAfCents / 100).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      const totalUsd = (totalAmount / 100).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
 
       // Branded, bulletproof(ish) green button with inline styles for email clients.
       const html = `
