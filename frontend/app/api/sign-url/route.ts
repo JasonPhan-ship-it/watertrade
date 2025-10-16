@@ -319,13 +319,26 @@ export async function GET(req: NextRequest) {
     const id = searchParams.get("tx") || searchParams.get("id") || "";
     const debug = searchParams.get("debug") === "1";
     const format = (searchParams.get("format") || "").toLowerCase(); // "json" to prevent redirect
+    const redirectParam = (searchParams.get("redirect") || "").toLowerCase();
+    const acceptHeader = req.headers.get("accept") || "";
+    const acceptsJson = acceptHeader
+      .split(",")
+      .map((v) => v.trim().toLowerCase())
+      .some((v) => v.startsWith("application/json"));
+    const redirectPref = redirectParam
+      ? !["0", "false", "no", "off"].includes(redirectParam)
+      : null;
+    const wantsJson = format === "json" || acceptsJson || redirectPref === false;
     const wantConsent = searchParams.get("consent") === "1";
     const wantRolesOnly = searchParams.get("roles") === "1";
     const useSample = searchParams.get("sample") === "1";
     const roleParam = (searchParams.get("role") || "").toLowerCase();
 
     // Emails should land in DocuSign immediately; default to redirect unless caller asks for JSON.
-    const forceRedirect = format !== "json" && !debug;
+    const forceRedirect =
+      redirectPref !== null && format !== "json"
+        ? redirectPref
+        : !wantsJson && !debug;
 
     // Utility: return consent URL on demand
     if (wantConsent) {
