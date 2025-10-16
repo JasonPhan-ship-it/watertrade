@@ -338,7 +338,7 @@ function OfferRow({
             </Button>
           </>
         ) : showProgress && currentStage ? (
-          <InlineDealProgress stage={currentStage} />
+          offer.status === "declined" ? <InlineDeclinedProgress /> : <InlineDealProgress stage={currentStage} />
         ) : null}
 
         {/* Copy ID button removed */}
