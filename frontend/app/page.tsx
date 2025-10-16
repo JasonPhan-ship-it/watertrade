@@ -286,7 +286,7 @@ export default function HomePage() {
                     formatter: (n: number) => formatNumber(Math.round(n)),
                   },
                   {
-                    label: "Avg $/AF",
+                    label: "Average $/AF",
                     value: stats.avg,
                     formatter: (n: number) => (n ? `$${formatNumber(Math.round(n))}` : "$0"),
                   },
