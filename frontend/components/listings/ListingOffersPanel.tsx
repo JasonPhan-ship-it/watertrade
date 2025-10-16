@@ -186,31 +186,6 @@ function StagePill({ label, active, complete }: { label: string; active?: boolea
   );
 }
 
-function TransactionProgress({ stage }: { stage: DealStage }) {
-  const currentIndex = STAGE_ORDER.indexOf(stage);
-  const pct = Math.max(0, Math.min(100, (currentIndex / (STAGE_ORDER.length - 1)) * 100));
-  return (
-    <Card className="mt-4">
-      <CardHeader>
-        <CardTitle className="text-base">Transaction Progress</CardTitle>
-        <CardDescription className="mb-4">Live status once signing begins</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-3">
-          <div className="relative h-2 w-full rounded-full bg-slate-100">
-            <div className="absolute left-0 top-0 h-2 rounded-full bg-emerald-600" style={{ width: `${pct}%` }} />
-          </div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            {STAGE_ORDER.map((s, i) => (
-              <StagePill key={s} label={toStageLabel(s)} complete={i < currentIndex} active={i === currentIndex} />
-            ))}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function InlineDealProgress({ stage }: { stage: DealStage }) {
   const currentIndex = STAGE_ORDER.indexOf(stage);
   const pct = currentIndex < 0 ? 0 : Math.max(0, Math.min(100, (currentIndex / (STAGE_ORDER.length - 1)) * 100));
@@ -468,11 +443,8 @@ export default function ListingOffersPanel({
         )}
       </div>
 
-      {/* Progress bar (only once signing has begun) */}
-      {currentStage &&
-        STAGE_ORDER.indexOf(currentStage) >= STAGE_ORDER.indexOf("OFFER_ACCEPTED") && (
-          <TransactionProgress stage={currentStage} />
-        )}
+      {/* List footer spacing */}
+      <div className="h-1" />
     </div>
   );
 }
