@@ -117,6 +117,69 @@ export default async function ListingDetailPage({ params }: PageProps) {
     })();
 
     /** Fetch trades/offers (guard includes in case relations differ) */
+    const STAGE_ORDER: DealStage[] = [
+      "OFFER_SENT",
+      "OFFER_ACCEPTED",
+      "CONTRACTS_DRAFTED",
+      "SIGNING_IN_PROGRESS",
+      "ESCROW_OPENED",
+      "DUE_DILIGENCE",
+      "CLOSING_SCHEDULED",
+      "CLOSED",
+    ];
+
+    const stageRank = (stage: DealStage | null | undefined) =>
+      stage ? STAGE_ORDER.indexOf(stage) : -1;
+
+    const mapOfferStatus = (status: string | null | undefined): OfferStatus => {
+      const normalized = (status || "").toUpperCase();
+      if (!normalized) return "pending";
+      if (normalized === "DECLINED" || normalized === "CANCELLED") return "declined";
+      if (normalized === "EXPIRED") return "expired";
+      if (normalized === "FULLY_EXECUTED") return "accepted";
+      if (normalized.startsWith("ACCEPTED")) return "accepted";
+      if (normalized.startsWith("COUNTERED")) return "countered";
+      return "pending";
+    };
+
+    const mapStageFromTrade = (status: string | null | undefined): DealStage | null => {
+      const normalized = (status || "").toUpperCase();
+      if (!normalized) return null;
+      if (normalized === "FULLY_EXECUTED") return "CLOSED";
+      if (normalized.startsWith("ACCEPTED")) return "OFFER_ACCEPTED";
+      if (normalized.startsWith("COUNTERED") || normalized === "OFFERED") return "OFFER_SENT";
+      return null;
+    };
+
+    const mapStageFromTransaction = (status: string | null | undefined): DealStage | null => {
+      const normalized = (status || "").toUpperCase();
+      switch (normalized) {
+        case "PENDING_SELLER_SIGNATURE":
+        case "PENDING_BUYER_SIGNATURE":
+        case "AWAITING_BUYER_PAYMENT":
+        case "PAYMENT_IN_REVIEW":
+        case "COMPLIANCE_REVIEW":
+          return "SIGNING_IN_PROGRESS";
+        case "APPROVED":
+          return "ESCROW_OPENED";
+        case "FUNDS_RELEASED":
+          return "CLOSED";
+        default:
+          return null;
+      }
+    };
+
+    const mapStageFromListing = (status: string | null | undefined): DealStage | null => {
+      switch ((status || "").toUpperCase()) {
+        case "UNDER_CONTRACT":
+          return "SIGNING_IN_PROGRESS";
+        case "SOLD":
+          return "CLOSED";
+        default:
+          return null;
+      }
+    };
+
     let trades: any[] = [];
     try {
       trades = await prisma.trade.findMany({
@@ -125,6 +188,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
         include: {
           buyer: true as any,
           seller: true as any,
+          transaction: { select: { status: true } } as any,
         },
       });
     } catch (e) {
@@ -145,16 +209,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
             : "sent"
           : "received";
 
-      const status: OfferStatus =
-        t?.status === "ACCEPTED"
-          ? "accepted"
-          : t?.status === "DECLINED"
-          ? "declined"
-          : t?.status === "COUNTERED"
-          ? "countered"
-          : t?.status === "EXPIRED"
-          ? "expired"
-          : "pending";
+      const status: OfferStatus = mapOfferStatus(t?.status);
 
       return {
         id: String(t?.id),
@@ -170,7 +225,19 @@ export default async function ListingDetailPage({ params }: PageProps) {
       };
     });
 
-    const currentStage: DealStage | null = null;
+    const stagesFromTrades = trades
+      .map((t: any) => {
+        const tradeStage = mapStageFromTrade(t?.status);
+        const txnStage = mapStageFromTransaction(t?.transaction?.status);
+        return stageRank(txnStage) > stageRank(tradeStage) ? txnStage : tradeStage;
+      })
+      .filter((s): s is DealStage => Boolean(s));
+
+    const stagesFromListing = mapStageFromListing(row.status);
+
+    const currentStage: DealStage | null = [...stagesFromTrades, stagesFromListing]
+      .filter((s): s is DealStage => Boolean(s))
+      .sort((a, b) => stageRank(b) - stageRank(a))[0] ?? null;
 
     return (
       <div className="mx-auto max-w-6xl">
