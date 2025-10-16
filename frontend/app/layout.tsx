@@ -5,7 +5,8 @@ import { ClerkProvider } from "@clerk/nextjs";
 import Navigation from "@/components/Navigation";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const fallbackFontFamily =
+  'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif';
 
 export const metadata: Metadata = {
   title: "Water Traders",
@@ -21,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           colorText: "#0f172a",
           colorBackground: "white",
           borderRadius: "1rem",
-          fontFamily: inter.style.fontFamily,
+          fontFamily: fallbackFontFamily,
         },
         elements: {
           card: "rounded-2xl border border-slate-200 shadow-lg",
@@ -39,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       }}
     >
       <html lang="en">
-        <body className={inter.className}>
+          <body className="font-sans">
           <div className="min-h-screen bg-gradient-to-br from-water-50 to-earth-50">
             <Navigation />
             <main>{children}</main>
