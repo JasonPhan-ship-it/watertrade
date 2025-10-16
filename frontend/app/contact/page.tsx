@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import BackButton from "@/components/BackButton";
 
 export const metadata = {
   title: "Contact | Water Traders",
@@ -15,7 +16,8 @@ export default function ContactPage() {
     <div className="min-h-screen bg-slate-50">
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
         {/* Header */}
-        <div className="mb-6">
+        <div className="mb-6 space-y-3">
+          <BackButton fallbackHref="/" />
           <nav className="text-sm text-slate-500">
             <Link href="/" className="hover:text-slate-700">Home</Link>
             <span className="mx-2">/</span>
@@ -37,7 +39,7 @@ export default function ContactPage() {
               <CardTitle className="text-lg">Send us a message</CardTitle>
             </CardHeader>
             <CardContent className="pt-6">
-              {/* 
+              {/*
                 This form POSTs to /api/contact — add that route to deliver emails or tickets.
                 Includes a honeypot field "company" for basic spam protection.
               */}
@@ -154,18 +156,24 @@ export default function ContactPage() {
               <CardHeader className="border-b border-[#E7EFEA]">
                 <CardTitle className="text-lg">Resources</CardTitle>
               </CardHeader>
-              <CardContent className="pt-6 space-y-2 text-sm">
-                <Link href="/pricing" className="text-[#0A6B58] underline">
-                  Pricing
-                </Link>
-                <br />
-                <Link href="/privacy" className="text-[#0A6B58] underline">
-                  Privacy Policy
-                </Link>
-                <br />
-                <Link href="/terms" className="text-[#0A6B58] underline">
-                  Terms of Service
-                </Link>
+              <CardContent className="pt-6 text-sm">
+                <nav className="flex flex-wrap items-center gap-3 text-[#0A6B58]">
+                  <Link href="/pricing" className="underline hover:text-[#074c3f]">
+                    Pricing
+                  </Link>
+                  <span aria-hidden className="text-slate-300">
+                    •
+                  </span>
+                  <Link href="/privacy-policy" className="underline hover:text-[#074c3f]">
+                    Privacy Policy
+                  </Link>
+                  <span aria-hidden className="text-slate-300">
+                    •
+                  </span>
+                  <Link href="/terms" className="underline hover:text-[#074c3f]">
+                    Terms of Service
+                  </Link>
+                </nav>
               </CardContent>
             </Card>
 
