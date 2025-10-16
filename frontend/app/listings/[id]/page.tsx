@@ -159,7 +159,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
       return {
         id: String(t?.id),
         side,
-        fromParty: side === "received" ? "Buyer (redacted)" : "Seller (redacted)",
+        fromParty: side === "received" ? "Buyer" : "Seller",
         amount: Math.round(price),
         terms: t?.terms ?? undefined,
         createdAt,
