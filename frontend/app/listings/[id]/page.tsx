@@ -130,7 +130,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
     const stageRank = (stage: DealStage | null | undefined) =>
       stage ? STAGE_ORDER.indexOf(stage) : -1;
-    
+
     const toStageLabel = (stage: DealStage) => {
       switch (stage) {
         case "OFFER_SENT":
@@ -267,7 +267,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
       currentStageIndex < 0
         ? 0
         : Math.max(0, Math.min(100, (currentStageIndex / (STAGE_ORDER.length - 1)) * 100));
-    
+
     return (
       <div className="mx-auto max-w-6xl">
         {/* Sticky summary header */}
@@ -361,7 +361,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
                   </p>
                 </aside>
               )}
-              
+
               {showTransactionProgress && currentStage && (
                 <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="text-sm font-semibold text-slate-900">Transaction Progress</div>
@@ -373,11 +373,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
                         style={{ width: `${transactionProgressPct}%` }}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                    <div className="flex flex-wrap gap-2">
                       {STAGE_ORDER.map((stage, index) => (
                         <div
                           key={stage}
-                          className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs ${
+                          className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
                             index < currentStageIndex
                               ? "bg-green-100 text-green-700"
                               : index === currentStageIndex
