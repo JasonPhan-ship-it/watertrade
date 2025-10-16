@@ -86,7 +86,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
     const isOwner = !!viewerDbUserId && row.sellerId === viewerDbUserId;
     const pricePerAfDollars = Number(row.pricePerAF ?? 0) / 100;
 
-    const rawTitle = (row.title || "").trim();
+    const rawTitle = formatAcreFeetFigures((row.title || "").trim());
     const description = (row.description || "").trim() || "No description provided.";
 
     function isSkimpyTitle(t: string) {
@@ -159,10 +159,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
       return {
         id: String(t?.id),
         side,
-        fromParty:
-          side === "received"
-            ? t?.buyer?.name ?? t?.buyerName ?? "Buyer"
-            : t?.seller?.name ?? t?.sellerName ?? "Seller",
+        fromParty: side === "received" ? "Buyer (redacted)" : "Seller (redacted)",
         amount: Math.round(price),
         terms: t?.terms ?? undefined,
         createdAt,
@@ -296,6 +293,14 @@ function Meta({ label, value }: { label: string; value: React.ReactNode }) {
       <span className="font-medium text-slate-800">{value}</span>
     </div>
   );
+}
+
+function formatAcreFeetFigures(title: string) {
+  if (!title) return title;
+  return title.replace(/\b(\d{4,})(?=\s*AF\b)/gi, (match) => {
+    const numeric = Number(match);
+    return Number.isNaN(numeric) ? match : new Intl.NumberFormat("en-US").format(numeric);
+  });
 }
 
 function StatusPill({ status }: { status: string }) {
