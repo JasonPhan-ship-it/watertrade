@@ -130,6 +130,27 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
     const stageRank = (stage: DealStage | null | undefined) =>
       stage ? STAGE_ORDER.indexOf(stage) : -1;
+    
+    const toStageLabel = (stage: DealStage) => {
+      switch (stage) {
+        case "OFFER_SENT":
+          return "Offer Sent";
+        case "OFFER_ACCEPTED":
+          return "Offer Accepted";
+        case "CONTRACTS_DRAFTED":
+          return "Contracts Drafted";
+        case "SIGNING_IN_PROGRESS":
+          return "Signing In Progress";
+        case "ESCROW_OPENED":
+          return "Escrow Opened";
+        case "DUE_DILIGENCE":
+          return "Due Diligence";
+        case "CLOSING_SCHEDULED":
+          return "Closing Scheduled";
+        case "CLOSED":
+          return "Closed";
+      }
+    };
 
     const mapOfferStatus = (status: string | null | undefined): OfferStatus => {
       const normalized = (status || "").toUpperCase();
