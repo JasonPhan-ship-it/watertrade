@@ -477,7 +477,6 @@ export default function HomePage() {
 
         <Footer />
         <CookieBanner />
-      </div>
     </div>
   );
 }
