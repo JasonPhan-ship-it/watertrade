@@ -1,20 +1,25 @@
 // app/privacy/page.tsx
+import BackButton from "@/components/BackButton";
+
 export const metadata = {
   title: "Privacy Policy • Water Traders",
 };
 
 export default function PrivacyPolicyPage() {
   return (
-    <main className="container mx-auto max-w-3xl px-4 py-12 prose prose-slate">
-      <h1>Privacy Policy</h1>
-      <p><strong>Last updated:</strong> August 14, 2025</p>
+    <main className="min-h-screen bg-slate-50">
+      <div className="container mx-auto max-w-3xl px-4 py-12">
+        <BackButton className="mb-6" />
+        <article className="prose prose-slate">
+          <h1>Privacy Policy</h1>
+          <p><strong>Last updated:</strong> August 14, 2025</p>
 
-      <p>
-        This Privacy Policy explains how Water Traders (“<strong>we</strong>,” “<strong>us</strong>,”
-        or “<strong>our</strong>”) collects, uses, and shares information when you use our website
-        and services (“<strong>Service</strong>”). This policy applies to personal information and
-        other data we process about account holders, end users, and site visitors.
-      </p>
+          <p>
+            This Privacy Policy explains how Water Traders (“<strong>we</strong>,” “<strong>us</strong>,”
+            or “<strong>our</strong>”) collects, uses, and shares information when you use our website
+            and services (“<strong>Service</strong>”). This policy applies to personal information and
+            other data we process about account holders, end users, and site visitors.
+          </p>
 
       <h2>Information We Collect</h2>
       <ul>
@@ -125,11 +130,13 @@ export default function PrivacyPolicyPage() {
         notice in the app or by email. Continued use after updates indicates acceptance.
       </p>
 
-      <h2>Contact</h2>
-      <p>
-        Questions or requests? Email{" "}
-        <a href="mailto:support@watertraders.example">support@watertraders.example</a>.
-      </p>
+          <h2>Contact</h2>
+          <p>
+            Questions or requests? Email{" "}
+            <a href="mailto:support@watertraders.example">support@watertraders.example</a>.
+          </p>
+        </article>
+      </div>
     </main>
   );
 }
