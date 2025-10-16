@@ -10,7 +10,7 @@ import DeclineButton from "@/components/trade/DeclineButton";
 import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
 import BuyNowConfirmButton from "@/components/trade/BuyNowConfirmButton";
-import TradeProgressTracker, { TradeProgressStep } from "@/components/trade/ProgressTracker";
+import TradeProgressTracker, { type TradeProgressStep } from "@/components/trade/ProgressTracker";
 
 type Props = {
   tradeId: string;
