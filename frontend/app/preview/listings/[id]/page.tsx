@@ -27,7 +27,6 @@ export default async function PreviewListingDetailPage({ params }: PageProps) {
     select: {
       id: true,
       title: true,
-      description: true,
       district: true,
       waterType: true,
       acreFeet: true,
@@ -46,15 +45,13 @@ export default async function PreviewListingDetailPage({ params }: PageProps) {
   const pricePerAfDollars = (row.pricePerAF ?? 0) / 100;
 
   const title = (row.title || "").trim() || "Untitled Listing";
-  const description = (row.description || "").trim() || "No description provided.";
-
+  
   return (
     <div className="mx-auto max-w-6xl p-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          <p className="mt-1 text-sm text-slate-600">{description}</p>
         </div>
 
         <div className="flex items-center gap-2">
