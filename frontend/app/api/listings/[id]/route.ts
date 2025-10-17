@@ -27,9 +27,10 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Normalize to UI-friendly JSON (dollars, ISO strings)
+  const { pricePerAF, ...rest } = row;
   const json = {
-    ...row,
-    pricePerAf: Math.round((row.pricePerAF / 100) * 100) / 100,
+        ...rest,
+    pricePerAf: Math.round((pricePerAF / 100) * 100) / 100,
     pricePerAF: undefined, // hide raw cents field
     // availabilityStart: row.availabilityStart.toISOString(),
     // availabilityEnd: row.availabilityEnd.toISOString(),
