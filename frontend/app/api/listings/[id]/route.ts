@@ -10,7 +10,6 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     select: {
       id: true,
       title: true,
-      description: true,
       district: true,
       waterType: true,
       availability: true,
