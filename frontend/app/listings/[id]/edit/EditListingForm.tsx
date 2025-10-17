@@ -16,7 +16,6 @@ const WATER_TYPES = ["CVP Allocation", "Pumping Credits", "Supplemental Water"] 
 type ListingForm = {
   id: string;
   title: string;
-  description: string;
   district: string;
   waterType: string;
   acreFeet: number;
@@ -40,7 +39,6 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
   const router = useRouter();
 
   const [title, setTitle] = React.useState(listing.title);
-  const [description, setDescription] = React.useState(listing.description);
   const [district, setDistrict] = React.useState(listing.district);
   const [waterType, setWaterType] = React.useState(listing.waterType);
 
@@ -76,7 +74,6 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
     try {
       const payload: any = {
         title,
-        description,
         district,
         waterType,
       };
@@ -148,16 +145,6 @@ export default function EditListingForm({ listing }: { listing: ListingForm }) {
           </select>
         </label>
       </div>
-
-      <label className="block text-sm">
-        Description
-        <textarea
-          className="mt-1 w-full rounded-lg border px-3 py-2"
-          rows={4}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </label>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <label className="text-sm">
