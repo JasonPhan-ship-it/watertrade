@@ -36,6 +36,17 @@ type Offer = {
   notes?: string;
 };
 
+type TradeSummary = {
+  id: string;
+  amount: number;
+  counterparty: string | null;
+  createdAt: string;
+  updatedAt: string;
+  stage: DealStage | null;
+  status: OfferStatus;
+  hasUnread: boolean;
+};
+
 // ✅ Load client components only on the client (alias avoids clash with route option `dynamic`)
 const ListingActions = NextDynamic(() => import("@/components/ListingActions"), { ssr: false });
 const OffersPanelWithActions = NextDynamic(
@@ -246,12 +257,48 @@ export default async function ListingDetailPage({ params }: PageProps) {
       };
     });
 
-    const stagesFromTrades = trades
-      .map((t: any) => {
-        const tradeStage = mapStageFromTrade(t?.status);
-        const txnStage = mapStageFromTransaction(t?.transaction?.status);
-        return stageRank(txnStage) > stageRank(tradeStage) ? txnStage : tradeStage;
+    const unreadTradeIds = new Set(offers.filter((offer) => offer.unread).map((offer) => offer.id));
+
+    const tradeSummaries: TradeSummary[] = trades
+      .map((trade: any) => {
+        const id = trade?.id ? String(trade.id) : null;
+        if (!id) return null;
+
+        const price = Number(trade?.pricePerAf ?? trade?.pricePerAF ?? trade?.totalAmount ?? 0) || 0;
+        const createdAt = toIso(trade?.createdAt);
+        const updatedAt = toIso(trade?.updatedAt ?? trade?.createdAt);
+
+        const tradeStage = mapStageFromTrade(trade?.status);
+        const txnStage = mapStageFromTransaction(trade?.transaction?.status);
+        const stage = stageRank(txnStage) > stageRank(tradeStage) ? txnStage : tradeStage;
+
+        const status = mapOfferStatus(trade?.status);
+
+        const isViewerBuyer = viewerDbUserId ? trade?.buyerUserId === viewerDbUserId : false;
+        const isViewerSeller = viewerDbUserId ? trade?.sellerUserId === viewerDbUserId : false;
+
+        const buyerName =
+          trade?.buyer?.name ?? trade?.buyer?.email ?? trade?.buyer?.firstName ?? trade?.buyer?.lastName ?? null;
+        const sellerName =
+          trade?.seller?.name ?? trade?.seller?.email ?? trade?.seller?.firstName ?? trade?.seller?.lastName ?? null;
+
+        const counterparty = isViewerBuyer ? sellerName : isViewerSeller ? buyerName : buyerName ?? sellerName;
+
+        return {
+          id,
+          amount: Math.round(price),
+          counterparty: counterparty ? String(counterparty) : null,
+          createdAt,
+          updatedAt,
+          stage,
+          status,
+          hasUnread: unreadTradeIds.has(id),
+        } satisfies TradeSummary;
       })
+      .filter((summary): summary is TradeSummary => summary !== null);
+
+    const stagesFromTrades = tradeSummaries
+      .map((t) => t.stage)
       .filter((s): s is DealStage => Boolean(s));
 
     const stagesFromListing = mapStageFromListing(row.status);
@@ -461,7 +508,7 @@ function prettyStatus(s: string) {
 
 function Breadcrumbs() {
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-500">
+    <div className="flex itemscenter gap-2 text-xs text-slate-500">
       <Link href="/dashboard" className="hover:text-slate-700">
         Dashboard
       </Link>
