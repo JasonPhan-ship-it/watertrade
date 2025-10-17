@@ -475,7 +475,7 @@ export default function HomePage() {
               Bring institutional-grade execution to your water trades
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-base text-emerald-50">
-              Schedule a walkthrough with our team to see how WaterTrade powers advisory firms, growers, and districts with
+              Schedule a walkthrough with our team to see how Water Traders powers advisory firms, growers, and districts with
               a connected operating system.
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-4">
