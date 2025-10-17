@@ -15,7 +15,6 @@ export default async function AdminListingDetailPage({ params }: { params: { id:
     select: {
       id: true,
       title: true,
-      description: true,
       district: true,
       waterType: true,
       acreFeet: true,
@@ -76,9 +75,6 @@ export default async function AdminListingDetailPage({ params }: { params: { id:
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{listing.title ?? "Untitled Listing"}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {listing.description ?? "No description provided."}
-          </p>
         </div>
         <Link
           href="/admin/listings"
