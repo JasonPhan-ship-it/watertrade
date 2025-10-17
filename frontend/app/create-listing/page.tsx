@@ -456,6 +456,8 @@ export default function CreateListingPage() {
                   </div>
                 </div>
               )}
+              </CardContent>
+            </Card>
 
           {message && (
             <div
