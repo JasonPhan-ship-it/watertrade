@@ -36,6 +36,17 @@ type Offer = {
   notes?: string;
 };
 
+type TradeSummary = {
+  id: string;
+  amount: number;
+  counterparty?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  stage: DealStage | null;
+  status: OfferStatus;
+  hasUnread: boolean;
+};
+
 // ✅ Load client components only on the client (alias avoids clash with route option `dynamic`)
 const ListingActions = NextDynamic(() => import("@/components/ListingActions"), { ssr: false });
 const OffersPanelWithActions = NextDynamic(
@@ -163,6 +174,16 @@ export default async function ListingDetailPage({ params }: PageProps) {
       return "pending";
     };
 
+    const offerStatusLabels: Record<OfferStatus, string> = {
+      pending: "Awaiting response",
+      accepted: "Accepted",
+      declined: "Declined",
+      expired: "Expired",
+      countered: "Countered",
+    };
+
+    const toOfferStatusLabel = (status: OfferStatus) => offerStatusLabels[status] || "";
+
     const mapStageFromTrade = (status: string | null | undefined): DealStage | null => {
       const normalized = (status || "").toUpperCase();
       if (!normalized) return null;
@@ -245,6 +266,59 @@ export default async function ListingDetailPage({ params }: PageProps) {
         notes: t?.note ?? undefined,
       };
     });
+
+    const unreadTradeIds = new Set(offers.filter((offer) => offer.unread).map((offer) => offer.id));
+
+    const tradeSummaries: TradeSummary[] = trades
+      .map((trade: any) => {
+        const id = trade?.id ? String(trade.id) : null;
+        if (!id) return null;
+
+        const price = Number(trade?.pricePerAf ?? trade?.pricePerAF ?? trade?.totalAmount ?? 0) || 0;
+        const createdAt = toIso(trade?.createdAt);
+        const updatedAt = toIso(trade?.updatedAt ?? trade?.lastActivityAt ?? trade?.createdAt);
+        const tradeStage = mapStageFromTrade(trade?.status);
+        const txnStage = mapStageFromTransaction(trade?.transaction?.status);
+        const stage = stageRank(txnStage) > stageRank(tradeStage) ? txnStage : tradeStage;
+        const status = mapOfferStatus(trade?.status);
+
+        const buyerLabel = firstString([
+          trade?.buyer?.name,
+          trade?.buyer?.companyName,
+          trade?.buyer?.email,
+        ]);
+        const sellerLabel = firstString([
+          trade?.seller?.name,
+          trade?.seller?.companyName,
+          trade?.seller?.email,
+        ]);
+
+        const buyerUserId = trade?.buyerUserId ?? trade?.buyerId ?? null;
+        const sellerUserId = trade?.sellerUserId ?? trade?.sellerId ?? null;
+
+        let counterparty: string | null = null;
+        if (viewerDbUserId && buyerUserId && buyerUserId === viewerDbUserId) {
+          counterparty = sellerLabel ? `Seller · ${sellerLabel}` : null;
+        } else if (viewerDbUserId && sellerUserId && sellerUserId === viewerDbUserId) {
+          counterparty = buyerLabel ? `Buyer · ${buyerLabel}` : null;
+        } else if (buyerLabel && sellerLabel) {
+          counterparty = `${buyerLabel} ↔ ${sellerLabel}`;
+        } else {
+          counterparty = buyerLabel || sellerLabel || null;
+        }
+
+        return {
+          id,
+          amount: Math.round(price),
+          counterparty,
+          createdAt,
+          updatedAt,
+          stage: stage ?? null,
+          status,
+          hasUnread: unreadTradeIds.has(id),
+        } satisfies TradeSummary;
+      })
+      .filter((summary): summary is TradeSummary => summary !== null);
 
     const stagesFromTrades = trades
       .map((t: any) => {
@@ -359,6 +433,68 @@ export default async function ListingDetailPage({ params }: PageProps) {
                     <strong>Accept</strong> locks the price and moves the deal to contracts. <strong>Decline</strong> closes
                     the thread. <strong>Counter</strong> lets you revise price/terms and re-send.
                   </p>
+                </aside>
+              )}
+
+              {tradeSummaries.length > 1 && (
+                <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">Transactions</div>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Jump between contract threads for this listing. Each link scrolls to the full offer history.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                      {tradeSummaries.length}
+                    </span>
+                  </div>
+                  <ul className="mt-4 space-y-2">
+                    {tradeSummaries.map((summary, index) => {
+                      const stageLabel = summary.stage ? toStageLabel(summary.stage) : null;
+                      const statusLabel = toOfferStatusLabel(summary.status);
+                      const titleFallback = `Transaction ${tradeSummaries.length - index}`;
+                      return (
+                        <li key={summary.id}>
+                          <a
+                            href={`#offer-${summary.id}`}
+                            className="group block rounded-xl border border-slate-200 px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 hover:border-emerald-500 hover:bg-emerald-50"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="truncate font-medium text-slate-900">
+                                    {summary.counterparty || titleFallback}
+                                  </p>
+                                  {summary.hasUnread && (
+                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                      New
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  Started {formatShortDate(summary.createdAt)}
+                                </p>
+                                {summary.amount > 0 && (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    Offer value · <span className="font-medium text-slate-700">{formatCurrencyWhole(summary.amount)}</span>
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                                  {stageLabel || statusLabel}
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                  Updated {formatRelativeToNow(summary.updatedAt)}
+                                </span>
+                              </div>
+                            </div>
+                          </a>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </aside>
               )}
 
@@ -486,4 +622,68 @@ function toIso(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
   const d = new Date(v as any);
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+}
+
+function firstString(values: Array<unknown>): string | null {
+  for (const value of values) {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return null;
+}
+
+function formatShortDate(iso: string) {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+    }).format(new Date(iso));
+  } catch {
+    return new Date(iso).toLocaleDateString();
+  }
+}
+
+function formatRelativeToNow(iso: string) {
+  try {
+    const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+    const date = new Date(iso);
+    if (!Number.isFinite(date.valueOf())) return "recently";
+    const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
+
+    const divisions: Array<[number, Intl.RelativeTimeFormatUnit]> = [
+      [60, "second"],
+      [60, "minute"],
+      [24, "hour"],
+      [7, "day"],
+      [4.34524, "week"],
+      [12, "month"],
+      [Infinity, "year"],
+    ];
+
+    let duration = diffSeconds;
+    for (const [amount, unit] of divisions) {
+      if (Math.abs(duration) < amount || amount === Infinity) {
+        return rtf.format(Math.round(duration), unit);
+      }
+      duration /= amount;
+    }
+    return "recently";
+  } catch {
+    return "recently";
+  }
+}
+
+function formatCurrencyWhole(amount: number) {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `$${amount}`;
+  }
 }
