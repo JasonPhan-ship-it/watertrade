@@ -433,7 +433,7 @@ export default function HomePage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">How it works</p>
                 <h2 className="mt-4 text-3xl font-semibold text-slate-900 sm:text-4xl">Full lifecycle coverage</h2>
                 <p className="mt-3 text-base text-slate-600">
-                  WaterTrade streamlines every step—from sourcing inventory to filing closing paperwork—so that your
+                  Water Traders streamlines every step—from sourcing inventory to filing closing paperwork—so that your
                   compliance, finance, and operations teams move in lockstep.
                 </p>
                 <div className="mt-6 rounded-3xl border border-slate-100 bg-slate-50/70 p-6">
