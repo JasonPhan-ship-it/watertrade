@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
 const CTA_GREEN = "#004434";
@@ -48,7 +47,6 @@ export default function CreateListingPage() {
   const [isAuction, setIsAuction] = React.useState(false);
 
   // Form state
-  const [description, setDescription] = React.useState("");
   const [volumeAF, setVolumeAF] = React.useState<number | "">("");
   const [pricePerAF, setPricePerAF] = React.useState<number | "">("");
   const [waterType, setWaterType] = React.useState("");
@@ -142,7 +140,6 @@ export default function CreateListingPage() {
 
       const payload: any = {
         title: derivedTitle,
-        description: String(formData.get("description") || description || ""),
         volumeAF: Number(formData.get("volumeAF") || volumeAF || 0),
         waterType: String(formData.get("waterType") || waterType || ""),
         district: String(formData.get("district") || district || ""),
@@ -171,7 +168,6 @@ export default function CreateListingPage() {
         formEl.reset();
         // Reset local state
         setIsAuction(false);
-        setDescription("");
         setVolumeAF("");
         setPricePerAF("");
         setWaterType("");
@@ -246,19 +242,6 @@ export default function CreateListingPage() {
                     required
                   />
                 </div>
-              </div>
-
-              {/* Description */}
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  placeholder="Key details buyers should know (source, delivery, timing)…"
-                  rows={5}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
               </div>
 
               {/* Volume + Pricing toggle */}
@@ -473,16 +456,6 @@ export default function CreateListingPage() {
                   </div>
                 </div>
               )}
-
-              {/* Description */}
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Description</div>
-                <div className="mt-1 whitespace-pre-wrap text-sm text-slate-900">
-                  {description || "Brief listing details will appear here."}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
           {message && (
             <div
