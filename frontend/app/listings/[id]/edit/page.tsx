@@ -31,7 +31,6 @@ export default async function EditListingPage({ params }: { params: { id: string
       id: true,
       sellerId: true,
       title: true,
-      description: true,
       district: true,
       waterType: true,
       // availabilityStart: true, // removed from payload/props
@@ -53,7 +52,6 @@ export default async function EditListingPage({ params }: { params: { id: string
   const props = {
     id: listing.id,
     title: listing.title || "",
-    description: listing.description || "",
     district: listing.district || "",
     waterType: listing.waterType || "",
     acreFeet: listing.acreFeet,
