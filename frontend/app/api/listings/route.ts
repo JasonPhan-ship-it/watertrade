@@ -163,7 +163,6 @@ export async function POST(req: NextRequest) {
     const created = await prisma.listing.create({
       data: {
         title,
-        description: body.description ? String(body.description) : null, // optional
         district,
         waterType,
         availability, // string only (no availabilityEnd column in DB)
