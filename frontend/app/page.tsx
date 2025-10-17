@@ -387,7 +387,7 @@ export default function HomePage() {
                 Institutional controls, without the complex overhead
               </h2>
               <p className="mt-3 text-base text-slate-600">
-                From compliant paperwork to premium market intelligence, WaterTrade keeps your team aligned and
+                From compliant paperwork to premium market intelligence, Water Traders keeps your team aligned and
                 transaction-ready.
               </p>
             </div>
