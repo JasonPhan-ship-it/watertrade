@@ -79,7 +79,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
       select: {
         id: true,
         title: true,
-        description: true,
         district: true,
         waterType: true,
         acreFeet: true,
@@ -98,7 +97,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
     const pricePerAfDollars = Number(row.pricePerAF ?? 0) / 100;
 
     const rawTitle = formatAcreFeetFigures((row.title || "").trim());
-    const description = (row.description || "").trim() || "No description provided.";
 
     function isSkimpyTitle(t: string) {
       if (!t) return true;
@@ -117,15 +115,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
           ]
             .filter(Boolean)
             .join(" · ") || "Listing";
-
-    const shouldShowDescription = (() => {
-      const d = (description || "").trim();
-      if (!d) return false;
-      if (/^[A-Z]{2,6}$/.test(d)) return false;
-      if (d === rawTitle || d === displayTitle) return false;
-      if (d === "No description provided.") return false;
-      return true;
-    })();
 
     /** Fetch trades/offers (guard includes in case relations differ) */
     const STAGE_ORDER: DealStage[] = [
@@ -357,7 +346,6 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
         {/* Body */}
         <div className="p-6">
-          {shouldShowDescription && <p className="text-sm text-slate-600">{description}</p>}
 
           <div className="mt-6">
             {isOwner ? (
