@@ -335,7 +335,7 @@ export default function DashboardPage() {
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Stat label={scope === "market" ? "Active Listings" : "Your Listings"} value={String(active)} />
           <Stat label="Total Acre-Feet" value={formatInt(totalAf)} />
-          <Stat label="Avg $/AF" value={avgPriceRaw ? `$${avgPriceRaw.toFixed(2)}` : "$0.00"} />
+          <Stat label="Average $ / AF" value={avgPriceRaw ? `$${avgPriceRaw.toFixed(2)}` : "$0.00"} />
         </section>
 
         {/* Listings */}
