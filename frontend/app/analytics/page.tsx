@@ -134,7 +134,7 @@ export default function AnalyticsPage() {
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
           <Kpi label="Total Listings" value={formatNumber(safeRows.length)} />
           <Kpi label="Total Acre-Feet" value={formatNumber(totalAF)} />
-          <Kpi label="Avg $/AF" value={`$${formatNumber(avgPrice)}`} />
+          <Kpi label="Average $ / AF" value={`$${formatNumber(avgPrice)}`} />
           <Kpi label="Median $/AF" value={`$${formatNumber(medianPrice)}`} />
         </section>
 
@@ -150,7 +150,7 @@ export default function AnalyticsPage() {
                 <tr>
                   <th className="px-4 py-3 font-medium">District</th>
                   <th className="px-4 py-3 text-right font-medium">Acre-Feet</th>
-                  <th className="px-4 py-3 text-right font-medium">Avg $/AF</th>
+                  <th className="px-4 py-3 text-right font-medium">Average $ / AF</th>
                   <th className="px-4 py-3 font-medium">Share</th>
                 </tr>
               </thead>
@@ -191,7 +191,7 @@ export default function AnalyticsPage() {
                 <tr>
                   <th className="px-4 py-3 font-medium">Water Type</th>
                   <th className="px-4 py-3 text-right font-medium">Acre-Feet</th>
-                  <th className="px-4 py-3 text-right font-medium">Avg $/AF</th>
+                  <th className="px-4 py-3 text-right font-medium">Average $ / AF</th>
                   <th className="px-4 py-3 font-medium">Share</th>
                 </tr>
               </thead>
