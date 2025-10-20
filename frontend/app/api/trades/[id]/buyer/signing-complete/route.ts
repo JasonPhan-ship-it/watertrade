@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { SignatureProgress, TradeStatus, TransactionStatus } from "@prisma/client";
-import { appUrl, sendEmail } from "@/lib/email";
 import { clerkClient } from "@clerk/nextjs/server";
+
+import { appUrl, sendEmail } from "@/lib/email";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,7 +84,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         buyerSignStatus: SignatureProgress.SIGNED,
         events: {
           create: {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             actor: "buyer",
             kind: "BUYER_SIGNED",
             payload: {
@@ -206,3 +208,4 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (token) fallback.searchParams.set("token", token);
     return NextResponse.redirect(fallback);
   }
+}
