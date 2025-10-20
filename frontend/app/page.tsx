@@ -161,11 +161,28 @@ export default function HomePage() {
     };
   }, []);
 
-  const stats = useMemo(() => {
+  const metrics = useMemo(() => {
     const rows = data?.listings ?? [];
-    const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
-    const avg = rows.length > 0 ? rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length : 0;
-    return { count: data?.total ?? 0, af: totalAf, avg };
+    const totalAf = rows.reduce((sum, listing) => sum + listing.acreFeet, 0);
+    const avg = rows.length > 0 ? rows.reduce((sum, listing) => sum + listing.pricePerAf, 0) / rows.length : 0;
+
+    return [
+      {
+        label: "Live listings",
+        value: data?.total ?? 0,
+        formatter: (value: number) => formatNumber(Math.round(value)),
+      },
+      {
+        label: "Acre-feet posted",
+        value: totalAf,
+        formatter: (value: number) => formatNumber(Math.round(value)),
+      },
+      {
+        label: "Avg $/AF",
+        value: avg,
+        formatter: (value: number) => (value ? `$${formatNumber(Math.round(value))}` : "$0"),
+      },
+    ];
   }, [data]);
 
   const PHRASES = useMemo(
