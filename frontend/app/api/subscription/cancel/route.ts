@@ -3,47 +3,12 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: "2024-06-20",
-});
-
-async function findStripeCustomerId(userId: string) {
-  const localUser = await prisma.user.findUnique({ where: { clerkId: userId } });
-  let stripeCustomerId: string | null =
-    // @ts-ignore - add the field in your schema if present
-    (localUser as any)?.stripeCustomerId || null;
-
-  if (!stripeCustomerId) {
-    const profile = await prisma.userProfile.findUnique({
-      where: { userId: localUser?.id || "" },
-    }).catch(() => null);
-    // @ts-ignore - add the field in your schema if present
-    stripeCustomerId = (profile as any)?.stripeCustomerId || null;
-  }
-
-  if (stripeCustomerId) return { stripeCustomerId, email: localUser?.email || null };
-
-  const email = localUser?.email || null;
-  if (email) {
-    const customers = await stripe.customers.list({ email, limit: 1 });
-    const found = customers.data?.[0];
-    if (found?.id) return { stripeCustomerId: found.id, email };
-  }
-  return { stripeCustomerId: null, email: localUser?.email || null };
-}
-
-async function getActiveSubscription(stripeCustomerId: string) {
-  const subs = await stripe.subscriptions.list({
-    customer: stripeCustomerId,
-    status: "active",
-    expand: ["data.items.data.price"],
-    limit: 1,
-  });
-  return subs.data?.[0] || null;
-}
+import {
+  getStripeClient,
+  findStripeCustomer,
+  getActiveSubscription,
+} from "../_shared";
 
 export async function POST(req: Request) {
   try {
@@ -53,20 +18,41 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const atPeriodEnd = Boolean(body?.atPeriodEnd);
 
-    const { stripeCustomerId } = await findStripeCustomerId(userId);
-    if (!stripeCustomerId) {
-      await clerkClient.users.updateUser(userId, {
-        publicMetadata: { premium: false },
-      }).catch(() => {});
-      return NextResponse.json({ ok: true, changed: false, reason: "no_stripe_customer" }, { status: 200 });
+    const stripe = getStripeClient();
+    const { stripeCustomerId, localUser } = await findStripeCustomer(stripe, userId);
+
+    const markFree = async (reason: string, changed: boolean) => {
+      if (localUser?.id) {
+        await prisma.user
+          .update({
+            where: { id: localUser.id },
+            data: {
+              subscriptionStatus: "free",
+              subscriptionUpdatedAt: new Date(),
+              stripeSubscriptionId: null,
+            },
+          })
+          .catch(() => {});
+      }
+      await clerkClient.users
+        .updateUser(userId, {
+          publicMetadata: { premium: false, plan: "free" },
+        })
+        .catch(() => {});
+      return NextResponse.json({ ok: true, changed, reason }, { status: 200 });
+    };
+
+    if (!stripe) {
+      return await markFree("stripe_not_configured", false);
     }
 
-    const sub = await getActiveSubscription(stripeCustomerId);
+    if (!stripeCustomerId) {
+      return await markFree("no_stripe_customer", false);
+    }
+
+    const sub = await getActiveSubscription(stripe, stripeCustomerId);
     if (!sub) {
-      await clerkClient.users.updateUser(userId, {
-        publicMetadata: { premium: false },
-      }).catch(() => {});
-      return NextResponse.json({ ok: true, changed: false, reason: "no_active_subscription" }, { status: 200 });
+      return await markFree("no_active_subscription", false);
     }
 
     let result;
@@ -82,12 +68,29 @@ export async function POST(req: Request) {
       result = await stripe.subscriptions.cancel(sub.id);
       // Immediately not premium
       await clerkClient.users.updateUser(userId, {
-        publicMetadata: { premium: false },
+        publicMetadata: { premium: false, plan: "free" },
       }).catch(() => {});
     }
 
-    // (Optional) Update DB entitlements here too
-    // await prisma.user.update({ where: { clerkId: userId }, data: { isPremium: !(!atPeriodEnd) } });
+    if (localUser?.id) {
+      const data: Parameters<typeof prisma.user.update>[0]["data"] = {
+        subscriptionUpdatedAt: new Date(),
+      };
+
+      if (atPeriodEnd) {
+        data.subscriptionStatus = "downgrade_scheduled";
+      } else {
+        data.subscriptionStatus = "free";
+        data.stripeSubscriptionId = null;
+      }
+
+      await prisma.user
+        .update({
+          where: { id: localUser.id },
+          data,
+        })
+        .catch(() => {});
+    }
 
     return NextResponse.json(
       {
