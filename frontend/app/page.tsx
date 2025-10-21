@@ -1,13 +1,13 @@
 // app/page.tsx (Home)
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { CheckCircle2, X } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
+import { CheckCircle2, X } from "lucide-react";
+
 import Footer from "@/components/Footer";
 
 /** ---- Types shared with the API shape ---- */
@@ -22,144 +22,466 @@ type Listing = {
   createdAt: string; // ISO
 };
 
-type ApiResponse = {
+type ListingsResponse = {
   listings: Listing[];
   total: number;
-  limited?: boolean;
 };
 
-/** ---- Robust logo list: use file names, not fixed paths ----
- * Place PNGs in frontend/public or frontend/public/logos
- */
-const DISTRICT_LOGOS = [
+const LISTINGS_ENDPOINT =
+  "/api/listings?premium=false&page=1&pageSize=3&sortBy=createdAt&sortDir=desc";
+
+const FEATURED_DISTRICTS = [
   { name: "Westlands Water District", file: "westlands.png", width: 360, height: 96 },
   { name: "San Luis Water District", file: "san-luis.png", width: 360, height: 96 },
   { name: "Panoche Water District", file: "panoche.png", width: 360, height: 96 },
   { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 400, height: 96 },
 ] as const;
 
-/** ---- Image with fallback: /file.png -> /logos/file.png on error ---- */
-function LogoWithFallback({
-  file,
-  alt,
-  width,
-  height,
-  className,
-}: {
-  file: string;
-  alt: string;
-  width: number;
-  height: number;
-  className?: string;
-}) {
-  // Try root first (e.g., /westlands.png), then fallback to /logos/westlands.png
-  const primary = `/${file}`;
-  const fallback = `/logos/${file}`;
-  const [src, setSrc] = React.useState(primary);
+const PROCESS_STEPS = [
+  {
+    title: "Curate inventory",
+    description: "List premium supply or demand with standardized data capture and district metadata.",
+  },
+  {
+    title: "Qualify and match",
+    description: "Screen counterparties with built-in guardrails and auto-flagged window restrictions.",
+  },
+  {
+    title: "Execute with confidence",
+    description: "Generate district-specific packets, collect e-signatures, and monitor fulfillment status in real time.",
+  },
+] as const;
 
+const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
+
+const formatInteger = (value: number) => integerFormatter.format(Math.max(0, Math.round(value)));
+const formatCurrency = (value: number) => currencyFormatter.format(Math.max(0, Math.round(value)));
+
+const METRICS = [
+  {
+    label: "Live listings",
+    compute: (data: ListingsResponse | null) => data?.total ?? 0,
+    formatter: formatInteger,
+  },
+  {
+    label: "Acre-feet posted",
+    compute: (data: ListingsResponse | null) =>
+      (data?.listings ?? []).reduce((sum, listing) => sum + listing.acreFeet, 0),
+    formatter: formatInteger,
+  },
+  {
+    label: "Avg $/AF",
+    compute: (data: ListingsResponse | null) => {
+      const listings = data?.listings ?? [];
+      if (!listings.length) return 0;
+      const total = listings.reduce((sum, listing) => sum + listing.pricePerAf, 0);
+      return total / listings.length;
+    },
+    formatter: formatCurrency,
+  },
+] as const;
+
+function useListingsPreview() {
+  const [data, setData] = React.useState<ListingsResponse | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch(LISTINGS_ENDPOINT, { signal: controller.signal });
+        if (!res.ok) {
+          const message = (await res.text()) || "Failed to load listings";
+          throw new Error(message);
+        }
+
+        const json = (await res.json()) as ListingsResponse;
+        setData(json);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const message = error instanceof Error ? error.message : "Failed to load listings";
+        setError(message);
+        setData(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => controller.abort();
+  }, []);
+
+  return { data, loading, error };
+}
+
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(false);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setPrefersReducedMotion(query.matches);
+
+    const listener = (event: MediaQueryListEvent) => setPrefersReducedMotion(event.matches);
+    query.addEventListener("change", listener);
+    return () => query.removeEventListener("change", listener);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
+function useAnimatedNumber(target: number, duration: number) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [value, setValue] = React.useState(target);
+  const previous = React.useRef(target);
+
+  React.useEffect(() => {
+    if (!Number.isFinite(target)) {
+      previous.current = 0;
+      setValue(0);
+      return;
+    }
+
+    if (prefersReducedMotion || duration <= 0) {
+      previous.current = target;
+      setValue(target);
+      return;
+    }
+
+    const startValue = previous.current;
+    const diff = target - startValue;
+    if (Math.abs(diff) < 0.001) {
+      previous.current = target;
+      setValue(target);
+      return;
+    }
+
+    let rafId = 0;
+    let startTime: number | null = null;
+
+    const step = (timestamp: number) => {
+      if (startTime === null) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const next = startValue + diff * eased;
+
+      if (progress >= 1) {
+        previous.current = target;
+        setValue(target);
+        return;
+      }
+
+      setValue(next);
+      rafId = requestAnimationFrame(step);
+    };
+
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
+  }, [duration, prefersReducedMotion, target]);
+
+  return value;
+}
+
+function useTypewriter(phrases: string[], {
+  typeSpeed = 45,
+  deleteSpeed = 25,
+  pauseMs = 4000,
+}: {
+  typeSpeed?: number;
+  deleteSpeed?: number;
+  pauseMs?: number;
+} = {}) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const stablePhrases = React.useMemo(() => phrases.filter(Boolean), [phrases]);
+  const [index, setIndex] = React.useState(0);
+  const [value, setValue] = React.useState("");
+  const [deleting, setDeleting] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!stablePhrases.length) return undefined;
+    if (prefersReducedMotion) {
+      setValue(stablePhrases[0] ?? "");
+      return undefined;
+    }
+
+    const current = stablePhrases[index % stablePhrases.length];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    if (!deleting && value === current) {
+      timer = setTimeout(() => setDeleting(true), pauseMs);
+    } else if (deleting && value.length === 0) {
+      timer = setTimeout(() => {
+        setDeleting(false);
+        setIndex((prev) => (prev + 1) % stablePhrases.length);
+      }, 600);
+    } else {
+      const nextLength = deleting ? value.length - 1 : value.length + 1;
+      const next = current.slice(0, nextLength);
+      timer = setTimeout(() => setValue(next), deleting ? deleteSpeed : typeSpeed);
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [stablePhrases, index, value, deleting, prefersReducedMotion, typeSpeed, deleteSpeed, pauseMs]);
+
+  return value;
+}
+
+function AnimatedNumber({
+  value,
+  formatter,
+  duration = 900,
+}: {
+  value: number;
+  formatter: (value: number) => string;
+  duration?: number;
+}) {
+  const animatedValue = useAnimatedNumber(value, duration);
+  return <span className="tabular-nums">{formatter(animatedValue)}</span>;
+}
+
+function MetricCard({
+  label,
+  value,
+  formatter,
+  loading,
+}: {
+  label: string;
+  value: number;
+  formatter: (value: number) => string;
+  loading: boolean;
+}) {
   return (
-    <Image
-      src={src}
-      alt={alt}
-      width={width}
-      height={height}
-      className={className}
-      onError={() => {
-        if (src !== fallback) setSrc(fallback);
-      }}
-      sizes="(max-width: 640px) 256px, 360px"
-      loading="lazy"
-      priority={false}
-    />
+      <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-sm backdrop-blur">
+      <dt className="text-xs uppercase tracking-wide text-emerald-200">{label}</dt>
+      <dd className="mt-1 text-lg font-semibold text-white">
+        {loading ? <span className="animate-pulse">—</span> : <AnimatedNumber value={value} formatter={formatter} />}
+      </dd>
+    </div>
   );
 }
 
-/** ---- Tiny Typewriter ---- */
-function useTypewriter(phrases: string[], { typeSpeed = 45, deleteSpeed = 25, pauseMs = 5000 } = {}) {
-  const [i, setI] = useState(0);
-  const [text, setText] = useState("");
-  const [deleting, setDeleting] = useState(false);
+function MetricsGrid({ data, loading }: { data: ListingsResponse | null; loading: boolean }) {
+  const metrics = React.useMemo(
+    () => METRICS.map((metric) => ({ ...metric, value: metric.compute(data) })),
+    [data],
+  );
 
-  useEffect(() => {
-    const current = phrases[i % phrases.length];
-    let t: ReturnType<typeof setTimeout>;
-
-    if (!deleting && text === current) {
-      t = setTimeout(() => setDeleting(true), pauseMs);
-    } else if (deleting && text.length === 0) {
-      t = setTimeout(() => {
-        setDeleting(false);
-        setI((prev) => (prev + 1) % phrases.length);
-      }, 800);
-    } else {
-      const nextLen = deleting ? text.length - 1 : text.length + 1;
-      const next = current.slice(0, nextLen);
-      t = setTimeout(() => setText(next), deleting ? deleteSpeed : typeSpeed);
-    }
-
-    return () => clearTimeout(t);
-  }, [text, deleting, i, phrases, typeSpeed, deleteSpeed, pauseMs]);
-
-  return text;
+  return (
+    <dl className="mt-10 grid max-w-lg grid-cols-1 gap-6 text-white sm:grid-cols-3">
+      {metrics.map((metric) => (
+        <MetricCard key={metric.label} label={metric.label} value={metric.value} formatter={metric.formatter} loading={loading} />
+      ))}
+    </dl>
+  );
 }
 
-function Typewriter({ phrases, className = "" }: { phrases: string[]; className?: string }) {
-  const text = useTypewriter(phrases, { pauseMs: 5000, typeSpeed: 45, deleteSpeed: 25 });
+function ListingsPreview({
+  listings,
+  loading,
+  error,
+}: {
+  listings: Listing[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-rose-200/40 bg-rose-50/80 p-4 text-rose-600">
+        We couldn't load the latest listings. Please refresh to try again.
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[0, 1, 2].map((item) => (
+          <div key={item} className="h-20 animate-pulse rounded-2xl border border-emerald-100/40 bg-white/30" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!listings.length) {
+    return (
+      <div className="rounded-2xl border border-emerald-200/40 bg-white/30 p-4 text-emerald-50">
+        No public listings are live right now. Check back soon or join Water Traders to see premium inventory.
+      </div>
+    );
+  }
+
   return (
-    <span className={className}>
+    <div className="overflow-hidden rounded-3xl border border-white/15 bg-white/10 shadow-sm backdrop-blur">
+      <table className="min-w-full divide-y divide-white/10 text-left text-sm text-white">
+        <thead className="bg-white/5">
+          <tr>
+            <th scope="col" className="px-4 py-3 font-medium">
+              District
+            </th>
+            <th scope="col" className="px-4 py-3 font-medium">
+              Acre-feet
+            </th>
+            <th scope="col" className="px-4 py-3 font-medium">
+              $/AF
+            </th>
+            <th scope="col" className="px-4 py-3 font-medium">
+              Water type
+            </th>
+            <th scope="col" className="px-4 py-3 font-medium">
+              Available
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10">
+          {listings.map((listing) => (
+            <tr key={listing.id} className="hover:bg-white/10">
+              <td className="px-4 py-3">
+                <div className="font-semibold text-white">{listing.district}</div>
+                <div className="text-xs text-emerald-100/80">Updated {new Date(listing.createdAt).toLocaleDateString()}</div>
+              </td>
+              <td className="px-4 py-3 tabular-nums">{formatInteger(listing.acreFeet)}</td>
+              <td className="px-4 py-3 tabular-nums">{formatCurrency(listing.pricePerAf)}</td>
+              <td className="px-4 py-3">
+                <span className="inline-flex items-center rounded-full bg-[#0E6A59] px-3 py-1 text-xs font-semibold text-white">
+                  {listing.waterType}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-xs text-emerald-100/80">
+                {new Date(listing.availabilityStart).toLocaleDateString()} – {new Date(listing.availabilityEnd).toLocaleDateString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TypewriterHeadline({ phrases }: { phrases: string[] }) {
+  const text = useTypewriter(phrases, { pauseMs: 4000, typeSpeed: 45, deleteSpeed: 25 });
+
+  return (
+    <span className="block text-emerald-50">
       {text}
-      <span aria-hidden className="ml-1 inline-block animate-pulse">|</span>
+      <span aria-hidden className="ml-1 inline-block animate-pulse">
+        |
+      </span>
     </span>
   );
 }
 
-/** ---- Page ---- */
-export default function HomePage() {
-  if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
-    console.debug("[Render] / HomePage");
-  }
+function CookieBanner() {
+  const [visible, setVisible] = React.useState(false);
 
-  const { isSignedIn } = useUser();
+  React.useEffect(() => {
+    const hasChoice =
+      typeof document !== "undefined" && document.cookie.split("; ").some((cookie) => cookie.startsWith("cookie_consent="));
+    if (!hasChoice) setVisible(true);
+  }, []);
+
+  if (!visible) return null;
+
+  const setConsent = (value: "accepted" | "rejected") => {
+    const isHttps = typeof location !== "undefined" && location.protocol === "https:";
+    const secure = isHttps ? "; secure" : "";
+    document.cookie = `cookie_consent=${value}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax${secure}`;
+    setVisible(false);
+  };
+
+  return (
+    <div role="dialog" aria-live="polite" className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6">
+      <div className="rounded-2xl border border-white/20 bg-[#004434] p-4 text-white shadow-lg">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm leading-5">
+            We use cookies to improve your experience, analyze traffic, and provide essential site functionality.{" "}
+            <Link href="/privacy-policy" className="text-white/90 underline hover:text-white">
+              Learn more
+            </Link>
+            .
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConsent("rejected")}
+              className="h-9 rounded-xl border border-white/30 bg-transparent px-4 text-sm font-medium text-white hover:bg-white/10"
+            >
+              No thanks
+            </button>
+            <button
+              onClick={() => setConsent("accepted")}
+              className="h-9 rounded-xl bg-white px-4 text-sm font-semibold text-[#004434] hover:bg-slate-100"
+            >
+              Allow cookies
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeaturedDistricts() {
+  return (
+    <div className="mt-12">
+      <h2 className="text-sm font-semibold uppercase tracking-[0.4em] text-emerald-200">Featured districts</h2>
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {FEATURED_DISTRICTS.map((logo) => (
+          <div key={logo.file} className="flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-3 py-4">
+            <Image
+              src={`/${logo.file}`}
+              alt={logo.name}
+              width={logo.width}
+              height={logo.height}
+              className="h-10 w-auto object-contain"
+              onError={(event) => {
+                const element = event.currentTarget;
+                if (!element.src.includes("/logos/")) {
+                  element.src = `/logos/${logo.file}`;
+                }
+              }}
+              sizes="(max-width: 640px) 256px, 360px"
+              loading="lazy"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function HomePage() {
+  
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const logoutStatus = useMemo(() => searchParams?.get("logout"), [searchParams]);
+  const logoutStatus = React.useMemo(() => searchParams?.get("logout"), [searchParams]);
+  const [showLogoutMessage, setShowLogoutMessage] = React.useState(false);
 
-  const [data, setData] = useState<ApiResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showLogoutMessage, setShowLogoutMessage] = useState(false);
-
-  useEffect(() => {
+  React.useEffect(() => {
     if (!searchParams || logoutStatus !== "success") return;
 
     setShowLogoutMessage(true);
 
-    // Clear the query parameter from the address bar without reloading the page
     const params = new URLSearchParams(searchParams.toString());
     params.delete("logout");
-    const search = params.toString();
-    const nextPath = search ? `/?${search}` : "/";
+    const nextSearch = params.toString();
+    const nextPath = nextSearch ? `/?${nextSearch}` : "/";
     router.replace(nextPath, { scroll: false });
   }, [logoutStatus, router, searchParams]);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    fetch("/api/listings?premium=false&page=1&pageSize=3&sortBy=createdAt&sortDir=desc")
-      .then(async (r) => {
-        if (!r.ok) throw new Error(await r.text());
-        return r.json() as Promise<ApiResponse>;
-      })
-      .then((json) => active && setData(json))
-      .catch((e) => active && setError(e.message || "Failed to load"))
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const metrics = useMemo(() => {
     const rows = data?.listings ?? [];
@@ -178,16 +500,16 @@ export default function HomePage() {
         formatter: (value: number) => formatNumber(Math.round(value)),
       },
       {
-        label: "Avg $/AF",
+        label: "Average $/AF",
         value: avg,
         formatter: (value: number) => (value ? `$${formatNumber(Math.round(value))}` : "$0"),
       },
     ];
   }, [data]);
 
-  const PHRASES = useMemo(
+  const heroPhrases = React.useMemo(
     () => [
-      "Infrastructure for California water.",
+      "California water infrastrucutre.",
       "From growers, for growers.",
       "List fast. Move water faster.",
     ],
