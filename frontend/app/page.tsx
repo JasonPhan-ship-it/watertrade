@@ -36,7 +36,7 @@ const LISTINGS_ENDPOINT =
   "/api/listings?premium=false&page=1&pageSize=3&sortBy=createdAt&sortDir=desc";
 
 const HERO_PHRASES = [
-  "Infrastructure for California water.",
+  "California water infrastructure.",
   "From growers, for growers.",
   "List fast. Move water faster.",
 ] as const;
