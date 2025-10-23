@@ -103,45 +103,6 @@ const CORE_COMPONENTS = [
   },
 ] satisfies readonly CoreWorkflowSlide[];
 
-const CORE_COMPONENTS = [
-  {
-    title: "Make an offer",
-    description:
-      "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
-    highlights: [
-      "Lock delivery windows, pricing bands, and approval flows before sharing",
-      "Auto-generate offer packets with signatures and supporting docs",
-    ],
-  },
-  {
-    title: "Use Buy Now",
-    description:
-      "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
-    highlights: [
-      "Reserve acre-feet with district-compliant contracts",
-      "Trigger alerts to growers, advisors, and district admins",
-    ],
-  },
-  {
-    title: "Create a listing",
-    description:
-      "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
-    highlights: [
-      "Collect required acreage, delivery, and exchange metadata upfront",
-      "Control which districts and partners can view and engage",
-    ],
-  },
-  {
-    title: "Track progress",
-    description:
-      "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
-    highlights: [
-      "See status changes and blockers in real time",
-      "Export compliance-ready audit logs at close",
-    ],
-  },
-] as const;
-
 const PROCESS_STEPS = [
   {
     title: "Curate inventory",
@@ -163,7 +124,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   currency: "USD",
   maximumFractionDigits: 0,
 });
-
 const formatInteger = (value: number) => integerFormatter.format(Math.max(0, Math.round(value)));
 const formatCurrency = (value: number) => currencyFormatter.format(Math.max(0, Math.round(value)));
 
@@ -213,8 +173,8 @@ function useListingsPreview() {
         setData(json);
       } catch (error) {
         if (controller.signal.aborted) return;
-        const message = error instanceof Error ? error.message : "Failed to load listings";
-        setError(message);
+        console.error(error);
+        setError("We couldn't load the latest market metrics right now. Please try again later.");
         setData(null);
       } finally {
         if (!controller.signal.aborted) {
@@ -529,6 +489,281 @@ function FeaturedDistricts() {
   );
 }
 
+function PreviewFrame({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mt-6 rounded-2xl border border-white/15 bg-slate-900/60 p-4 text-left text-xs text-emerald-50 shadow-lg">
+      <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-200/80">
+        <span>{title}</span>
+        {subtitle ? <span className="text-emerald-100/60">{subtitle}</span> : <span className="text-emerald-100/60">Live</span>}
+      </div>
+      <div className="mt-3 space-y-3 text-[11px] leading-5 text-emerald-50/90">{children}</div>
+    </div>
+  );
+}
+
+function OfferPreview() {
+  return (
+    <PreviewFrame title="Offer workspace" subtitle="SJV growers">
+      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+        <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">
+          <span>Delivery window</span>
+          <span>Jul 1 – Aug 15</span>
+        </div>
+        <div className="mt-3 grid gap-2 text-[11px]">
+          <div className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-emerald-50/90">
+            <span>Westlands WD</span>
+            <span className="font-semibold">1,200 AF</span>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-emerald-50/90">
+            <span>Panoche WD</span>
+            <span className="font-semibold">600 AF</span>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Approval flow</p>
+          <p className="text-[11px] text-emerald-50/90">Grower → Advisor → District</p>
+        </div>
+        <span className="rounded-full bg-emerald-400/20 px-3 py-1 text-[11px] font-semibold text-emerald-200">Ready</span>
+      </div>
+    </PreviewFrame>
+  );
+}
+
+function BuyNowPreview() {
+  return (
+    <PreviewFrame title="Buy Now" subtitle="Escrow ready">
+      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+        <div className="flex items-center justify-between text-[11px] text-emerald-50">
+          <span className="font-semibold">San Luis WD • 250 AF</span>
+          <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">Verified</span>
+        </div>
+        <div className="mt-3 grid gap-2 text-[11px] text-emerald-50/90">
+          <div className="flex items-center justify-between">
+            <span>Price per AF</span>
+            <span className="font-semibold">$845</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Closing packet</span>
+            <span className="text-emerald-200">Auto generated</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Stakeholders</span>
+            <span className="text-emerald-200">6 notified</span>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between rounded-xl bg-emerald-400/15 px-3 py-2 text-[11px] text-emerald-50">
+        <span>Reserve now</span>
+        <span className="font-semibold text-emerald-100">2m hold</span>
+      </div>
+    </PreviewFrame>
+  );
+}
+
+function CreateListingPreview() {
+  return (
+    <PreviewFrame title="Listing composer" subtitle="Guided">
+      <div className="space-y-2 text-[11px]">
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Listing title</span>
+          <div className="mt-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-emerald-50/85">2024 Allocation – Kern</div>
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Water type</span>
+          <div className="mt-1 flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-emerald-50/85">
+            <span>Surface</span>
+            <span className="text-emerald-200">Eligible</span>
+          </div>
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Visibility</span>
+          <div className="mt-1 grid gap-1">
+            <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-emerald-50/85">
+              <span>District partners</span>
+              <span className="rounded-full bg-emerald-400/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">Default</span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-dashed border-white/10 px-3 py-2 text-emerald-50/60">
+              <span>Private buyers</span>
+              <span>Invite only</span>
+            </div>
+          </div>
+        </label>
+      </div>
+    </PreviewFrame>
+  );
+}
+
+function TrackProgressPreview() {
+  return (
+    <PreviewFrame title="Deal timeline" subtitle="Real-time">
+      <div className="space-y-3 text-[11px]">
+        {["Offer sent", "Diligence", "Contracts", "Delivery"].map((step, index) => {
+          const isCompleted = index < 2;
+          const isCurrent = index === 2;
+          return (
+            <div key={step} className="flex items-start gap-3">
+              <span
+                className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
+                  isCompleted ? "bg-emerald-400/30 text-emerald-100" : isCurrent ? "bg-emerald-400/10 text-emerald-100" : "bg-white/5 text-emerald-200/60"
+                }`}
+              >
+                {isCompleted ? <CheckCircle2 className="h-3 w-3" aria-hidden /> : isCurrent ? "•" : ""}
+              </span>
+              <div className="flex-1">
+                <p className="font-semibold text-emerald-50">{step}</p>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">
+                  {index === 0 && "Completed 2h ago"}
+                  {index === 1 && "Files uploading"}
+                  {index === 2 && "Pending signatures"}
+                  {index === 3 && "Scheduled"}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </PreviewFrame>
+  );
+}
+
+function CoreWorkflowCarousel() {
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  const totalSlides = CORE_COMPONENTS.length;
+
+  const goTo = React.useCallback(
+    (index: number) => {
+      setActiveIndex((prev) => {
+        if (totalSlides === 0) return prev;
+        const normalized = ((index % totalSlides) + totalSlides) % totalSlides;
+        return normalized;
+      });
+    },
+    [totalSlides],
+  );
+
+  const handlePrevious = React.useCallback(() => goTo(activeIndex - 1), [activeIndex, goTo]);
+  const handleNext = React.useCallback(() => goTo(activeIndex + 1), [activeIndex, goTo]);
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        handlePrevious();
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        handleNext();
+      }
+    },
+    [handleNext, handlePrevious],
+  );
+
+  return (
+    <div className="rounded-3xl border border-white/20 bg-white/10 p-6 shadow-lg backdrop-blur">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">Core workflows</h2>
+          <p className="mt-2 text-sm text-emerald-50/80">
+            Explore guided previews of the tools teams rely on to source inventory, execute deals, and keep every stakeholder aligned.
+          </p>
+        </div>
+      </div>
+      <div
+        className="mt-6"
+        role="group"
+        aria-roledescription="carousel"
+        aria-label="Core platform workflows"
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+      >
+        <div className="relative overflow-hidden">
+          <div
+            className="flex transition-transform duration-500 ease-out"
+            style={{ transform: `translateX(-${activeIndex * 100}%)` }}
+          >
+            {CORE_COMPONENTS.map((component, index) => (
+              <article
+                key={component.id}
+                className="w-full shrink-0 grow-0 basis-full px-1"
+                aria-hidden={activeIndex !== index}
+                aria-label={component.title}
+              >
+                <div className="rounded-2xl border border-white/15 bg-white/5 p-5 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 className="text-base font-semibold text-white">{component.title}</h3>
+                      <p className="mt-1 text-sm text-emerald-50/85">{component.description}</p>
+                    </div>
+                  </div>
+                  <ul className="mt-4 space-y-2 text-sm text-emerald-50/90">
+                    {component.highlights.map((highlight) => (
+                      <li key={highlight} className="flex items-start gap-2">
+                        <span className="mt-0.5 text-emerald-200">
+                          <CheckCircle2 className="h-4 w-4" aria-hidden />
+                        </span>
+                        <span>{highlight}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {component.renderPreview()}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {CORE_COMPONENTS.map((component, index) => {
+              const isActive = index === activeIndex;
+              return (
+                <button
+                  key={component.id}
+                  type="button"
+                  onClick={() => goTo(index)}
+                  className={`h-2.5 w-8 rounded-full transition ${
+                    isActive ? "bg-emerald-300" : "bg-white/20 hover:bg-white/30"
+                  }`}
+                  aria-label={`Show ${component.title}`}
+                  aria-pressed={isActive}
+                />
+              );
+            })}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handlePrevious}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
+              aria-label="View previous workflow"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={handleNext}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
+              aria-label="View next workflow"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type HeroSectionProps = {
   isSignedIn: boolean;
   onNavigate: (path: string) => void;
@@ -536,6 +771,7 @@ type HeroSectionProps = {
   onDismissLogout: () => void;
   listingsData: ListingsResponse | null;
   loading: boolean;
+  error: string | null;
 };
 
 function HeroSection({
@@ -545,6 +781,7 @@ function HeroSection({
   onDismissLogout,
   listingsData,
   loading,
+  error,
 }: HeroSectionProps) {
   return (
     <section className="relative isolate flex-1 overflow-hidden bg-[#004434]">
@@ -594,48 +831,17 @@ function HeroSection({
               )}
             </div>
 
-            <MetricsGrid data={listingsData} loading={loading} />
+            {error ? (
+              <p className="mt-10 rounded-2xl border border-rose-300/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-50">
+                {error}
+              </p>
+            ) : (
+              <MetricsGrid data={listingsData} loading={loading} />
+            )}
             <FeaturedDistricts />
           </div>
 
-          <div className="rounded-3xl border border-white/20 bg-white/10 p-6 shadow-lg backdrop-blur">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">Core workflows</h2>
-                <p className="mt-2 text-sm text-emerald-50/80">
-                  Highlight the tools teams rely on to source inventory, execute deals, and keep every stakeholder aligned.
-                </p>
-              </div>
-              <Link href="/dashboard" className="text-xs font-semibold text-emerald-100/80 hover:text-white">
-                View dashboard
-              </Link>
-            </div>
-            <div className="mt-6 space-y-4">
-              {CORE_COMPONENTS.map((component) => (
-                <div
-                  key={component.title}
-                  className="group rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-emerald-200/60 hover:bg-white/10"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h3 className="text-base font-semibold text-white">{component.title}</h3>
-                      <p className="mt-1 text-sm text-emerald-50/85">{component.description}</p>
-                    </div>
-                  </div>
-                  <ul className="mt-4 space-y-2 text-sm text-emerald-50/90">
-                    {component.highlights.map((highlight) => (
-                      <li key={highlight} className="flex items-start gap-2">
-                        <span className="mt-0.5 text-emerald-200">
-                          <CheckCircle2 className="h-4 w-4" aria-hidden />
-                        </span>
-                        <span>{highlight}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </div>
+          <CoreWorkflowCarousel />
         </div>
       </div>
     </section>
@@ -723,7 +929,7 @@ export default function HomePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isSignedIn } = useUser();
-  const { data, loading } = useListingsPreview();
+  const { data, loading, error } = useListingsPreview();
 
   const logoutStatus = React.useMemo(() => searchParams?.get("logout"), [searchParams]);
   const [showLogoutMessage, setShowLogoutMessage] = React.useState(false);
@@ -756,6 +962,7 @@ export default function HomePage() {
         onDismissLogout={() => setShowLogoutMessage(false)}
         listingsData={data}
         loading={loading}
+        error={error}
       />
 
       <HowItWorksSection />
