@@ -508,7 +508,10 @@ function FeaturedDistricts() {
       <h2 className="text-sm font-semibold uppercase tracking-[0.4em] text-emerald-200">Featured districts</h2>
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {FEATURED_DISTRICTS.map((logo) => (
-          <div key={logo.file} className="flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-3 py-4">
+          <div
+            key={logo.file}
+            className="flex items-center justify-center rounded-2xl border border-white/20 bg-white/90 px-3 py-4 shadow-sm"
+          >
             <Image
               src={`/${logo.file}`}
               alt={logo.name}
