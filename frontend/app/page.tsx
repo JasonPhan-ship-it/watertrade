@@ -480,9 +480,7 @@ type HeroSectionProps = {
   showLogoutMessage: boolean;
   onDismissLogout: () => void;
   listingsData: ListingsResponse | null;
-  listings: Listing[];
   loading: boolean;
-  error: string | null;
 };
 
 function HeroSection({
@@ -491,9 +489,7 @@ function HeroSection({
   showLogoutMessage,
   onDismissLogout,
   listingsData,
-  listings,
   loading,
-  error,
 }: HeroSectionProps) {
   return (
     <section className="relative isolate flex-1 overflow-hidden bg-[#004434]">
@@ -548,17 +544,41 @@ function HeroSection({
           </div>
 
           <div className="rounded-3xl border border-white/20 bg-white/10 p-6 shadow-lg backdrop-blur">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">Live market</h2>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">Core workflows</h2>
+                <p className="mt-2 text-sm text-emerald-50/80">
+                  Highlight the tools teams rely on to source inventory, execute deals, and keep every stakeholder aligned.
+                </p>
+              </div>
               <Link href="/dashboard" className="text-xs font-semibold text-emerald-100/80 hover:text-white">
                 View dashboard
               </Link>
             </div>
-            <p className="mt-2 text-sm text-emerald-50/80">
-              Real-time public listings. Premium members access district-level comps and analytics.
-            </p>
-            <div className="mt-6">
-              <ListingsPreview listings={listings} loading={loading} error={error} />
+            <div className="mt-6 space-y-4">
+              {CORE_COMPONENTS.map((component) => (
+                <div
+                  key={component.title}
+                  className="group rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-emerald-200/60 hover:bg-white/10"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 className="text-base font-semibold text-white">{component.title}</h3>
+                      <p className="mt-1 text-sm text-emerald-50/85">{component.description}</p>
+                    </div>
+                  </div>
+                  <ul className="mt-4 space-y-2 text-sm text-emerald-50/90">
+                    {component.highlights.map((highlight) => (
+                      <li key={highlight} className="flex items-start gap-2">
+                        <span className="mt-0.5 text-emerald-200">
+                          <CheckCircle2 className="h-4 w-4" aria-hidden />
+                        </span>
+                        <span>{highlight}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -648,7 +668,7 @@ export default function HomePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isSignedIn } = useUser();
-  const { data, loading, error } = useListingsPreview();
+  const { data, loading } = useListingsPreview();
 
   const logoutStatus = React.useMemo(() => searchParams?.get("logout"), [searchParams]);
   const [showLogoutMessage, setShowLogoutMessage] = React.useState(false);
@@ -672,8 +692,6 @@ export default function HomePage() {
     [router],
   );
 
-  const listings = React.useMemo(() => data?.listings ?? [], [data]);
-
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <HeroSection
@@ -682,9 +700,7 @@ export default function HomePage() {
         showLogoutMessage={showLogoutMessage}
         onDismissLogout={() => setShowLogoutMessage(false)}
         listingsData={data}
-        listings={listings}
         loading={loading}
-        error={error}
       />
 
       <HowItWorksSection />
