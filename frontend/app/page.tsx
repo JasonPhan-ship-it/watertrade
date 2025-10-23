@@ -103,6 +103,8 @@ const CORE_COMPONENTS = [
   },
 ] satisfies readonly CoreWorkflowSlide[];
 
+const CORE_WORKFLOW_AUTOPLAY_INTERVAL = 8000;
+
 const PROCESS_STEPS = [
   {
     title: "Curate inventory",
@@ -651,6 +653,18 @@ function CoreWorkflowCarousel() {
     [totalSlides],
   );
 
+  React.useEffect(() => {
+    if (totalSlides <= 1) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      goTo(activeIndex + 1);
+    }, CORE_WORKFLOW_AUTOPLAY_INTERVAL);
+
+    return () => window.clearTimeout(timer);
+  }, [activeIndex, goTo, totalSlides]);
+  
   const handlePrevious = React.useCallback(() => goTo(activeIndex - 1), [activeIndex, goTo]);
   const handleNext = React.useCallback(() => goTo(activeIndex + 1), [activeIndex, goTo]);
 
