@@ -465,7 +465,7 @@ function FeaturedDistricts() {
         {FEATURED_DISTRICTS.map((logo) => (
           <div
             key={logo.file}
-            className="flex items-center justify-center rounded-2xl border border-white/20 bg-white/90 px-3 py-4 shadow-sm"
+            className="flex items-center justify-center rounded-2xl border border-white/20 bg-white px-3 py-4 shadow-sm"
           >
             <Image
               src={`/${logo.file}`}
