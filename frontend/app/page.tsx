@@ -48,6 +48,45 @@ const FEATURED_DISTRICTS = [
   { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 400, height: 96 },
 ] as const;
 
+const CORE_COMPONENTS = [
+  {
+    title: "Make an offer",
+    description:
+      "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
+    highlights: [
+      "Lock delivery windows, pricing bands, and approval flows before sharing",
+      "Auto-generate offer packets with signatures and supporting docs",
+    ],
+  },
+  {
+    title: "Use Buy Now",
+    description:
+      "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
+    highlights: [
+      "Reserve acre-feet with district-compliant contracts",
+      "Trigger alerts to growers, advisors, and district admins",
+    ],
+  },
+  {
+    title: "Create a listing",
+    description:
+      "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
+    highlights: [
+      "Collect required acreage, delivery, and exchange metadata upfront",
+      "Control which districts and partners can view and engage",
+    ],
+  },
+  {
+    title: "Track progress",
+    description:
+      "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
+    highlights: [
+      "See status changes and blockers in real time",
+      "Export compliance-ready audit logs at close",
+    ],
+  },
+] as const;
+
 const PROCESS_STEPS = [
   {
     title: "Curate inventory",
@@ -69,26 +108,9 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   currency: "USD",
   maximumFractionDigits: 0,
 });
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
 
 const formatInteger = (value: number) => integerFormatter.format(Math.max(0, Math.round(value)));
 const formatCurrency = (value: number) => currencyFormatter.format(Math.max(0, Math.round(value)));
-const formatDate = (value: string) => {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : dateFormatter.format(date);
-};
-const formatDateRange = (start: string, end: string) => {
-  const formattedStart = formatDate(start);
-  const formattedEnd = formatDate(end);
-  if (formattedStart === "—" && formattedEnd === "—") return "—";
-  if (formattedStart === "—") return formattedEnd;
-  if (formattedEnd === "—") return formattedStart;
-  return `${formattedStart} – ${formattedEnd}`;
-};
 
 const METRICS: readonly MetricDefinition[] = [
   {
@@ -323,88 +345,6 @@ function MetricsGrid({ data, loading }: { data: ListingsResponse | null; loading
         />
       ))}
     </dl>
-  );
-}
-
-function ListingsPreview({
-  listings,
-  loading,
-  error,
-}: {
-  listings: Listing[];
-  loading: boolean;
-  error: string | null;
-}) {
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-rose-200/40 bg-rose-50/80 p-4 text-rose-600">
-        We couldn't load the latest listings. Please refresh to try again.
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        {[0, 1, 2].map((item) => (
-          <div key={item} className="h-20 animate-pulse rounded-2xl border border-emerald-100/40 bg-white/30" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!listings.length) {
-    return (
-      <div className="rounded-2xl border border-emerald-200/40 bg-white/30 p-4 text-emerald-50">
-        No public listings are live right now. Check back soon or join Water Traders to see premium inventory.
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-hidden rounded-3xl border border-white/15 bg-white/10 shadow-sm backdrop-blur">
-      <table className="min-w-full divide-y divide-white/10 text-left text-sm text-white">
-        <thead className="bg-white/5">
-          <tr>
-            <th scope="col" className="px-4 py-3 font-medium">
-              District
-            </th>
-            <th scope="col" className="px-4 py-3 font-medium">
-              Acre-feet
-            </th>
-            <th scope="col" className="px-4 py-3 font-medium">
-              $/AF
-            </th>
-            <th scope="col" className="px-4 py-3 font-medium">
-              Water type
-            </th>
-            <th scope="col" className="px-4 py-3 font-medium">
-              Available
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/10">
-          {listings.map((listing) => (
-            <tr key={listing.id} className="hover:bg-white/10">
-              <td className="px-4 py-3">
-                <div className="font-semibold text-white">{listing.district}</div>
-                <div className="text-xs text-emerald-100/80">Updated {formatDate(listing.createdAt)}</div>
-              </td>
-              <td className="px-4 py-3 tabular-nums">{formatInteger(listing.acreFeet)}</td>
-              <td className="px-4 py-3 tabular-nums">{formatCurrency(listing.pricePerAf)}</td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center rounded-full bg-[#0E6A59] px-3 py-1 text-xs font-semibold text-white">
-                  {listing.waterType}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-xs text-emerald-100/80">
-                {formatDateRange(listing.availabilityStart, listing.availabilityEnd)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
