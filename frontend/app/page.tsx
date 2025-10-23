@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { useUser } from "@clerk/nextjs";
-import { CheckCircle2, X } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import Footer from "@/components/Footer";
 
@@ -47,6 +47,61 @@ const FEATURED_DISTRICTS = [
   { name: "Panoche Water District", file: "panoche.png", width: 360, height: 96 },
   { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 400, height: 96 },
 ] as const;
+
+type CoreWorkflowSlide = {
+  id: string;
+  title: string;
+  description: string;
+  highlights: readonly string[];
+  renderPreview: () => React.ReactNode;
+};
+
+const CORE_COMPONENTS = [
+  {
+    id: "offer",
+    title: "Make an offer",
+    description:
+      "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
+    highlights: [
+      "Lock delivery windows, pricing bands, and approval flows before sharing",
+      "Auto-generate offer packets with signatures and supporting docs",
+    ],
+    renderPreview: () => <OfferPreview />,
+  },
+  {
+    id: "buy-now",
+    title: "Use Buy Now",
+    description:
+      "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
+    highlights: [
+      "Reserve acre-feet with district-compliant contracts",
+      "Trigger alerts to growers, advisors, and district admins",
+    ],
+    renderPreview: () => <BuyNowPreview />,
+  },
+  {
+    id: "create-listing",
+    title: "Create a listing",
+    description:
+      "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
+    highlights: [
+      "Collect required acreage, delivery, and exchange metadata upfront",
+      "Control which districts and partners can view and engage",
+    ],
+    renderPreview: () => <CreateListingPreview />,
+  },
+  {
+    id: "track-progress",
+    title: "Track progress",
+    description:
+      "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
+    highlights: [
+      "See status changes and blockers in real time",
+      "Export compliance-ready audit logs at close",
+    ],
+    renderPreview: () => <TrackProgressPreview />,
+  },
+] satisfies readonly CoreWorkflowSlide[];
 
 const CORE_COMPONENTS = [
   {
