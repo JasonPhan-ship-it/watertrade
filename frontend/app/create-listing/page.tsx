@@ -24,6 +24,24 @@ const DISTRICTS = [
   "Arvin Edison Water District",
 ];
 
+const WESTLANDS = "Westlands Water District";
+
+type WaterCodeOption = {
+  id: string;
+  code: string;
+  year: string;
+  description: string | null;
+  category: string | null;
+  isActive: boolean;
+};
+
+type FarmOption = {
+  id: string;
+  name: string | null;
+  accountNumber: string | null;
+  district: string | null;
+};
+
 function toLocalDatetimeInputValue(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = d.getFullYear();
@@ -41,7 +59,21 @@ function formatAcreFeet(value: number | "" | null | undefined) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
 }
 
-export default function CreateListingPage() {
+async function extractErrorMessage(res: Response) {
+  const text = await res.text();
+  if (!text) return "Failed to create listing.";
+  try {
+    const data = JSON.parse(text);
+    if (data && typeof data.error === "string" && data.error.trim()) {
+      return data.error;
+    }
+  } catch {
+    // ignore JSON parse error, fall through to text
+  }
+  return text;
+}
+
+  export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
   const [isAuction, setIsAuction] = React.useState(false);
@@ -52,6 +84,38 @@ export default function CreateListingPage() {
   const [waterType, setWaterType] = React.useState("");
   const [district, setDistrict] = React.useState("");
 
+ const [waterCodes, setWaterCodes] = React.useState<WaterCodeOption[]>([]);
+  const [waterCodesLoading, setWaterCodesLoading] = React.useState(false);
+  const [waterCodeError, setWaterCodeError] = React.useState<string | null>(null);
+  const [selectedWaterCodeId, setSelectedWaterCodeId] = React.useState<string>("custom");
+  const [waterCodeValue, setWaterCodeValue] = React.useState("");
+  const [waterCodeYear, setWaterCodeYear] = React.useState("");
+  const [waterCodeDescription, setWaterCodeDescription] = React.useState("");
+
+  const [farms, setFarms] = React.useState<FarmOption[]>([]);
+  const [farmsLoading, setFarmsLoading] = React.useState(false);
+  const [selectedSellerFarmId, setSelectedSellerFarmId] = React.useState<string>("");
+  const [buyerWaterAccount, setBuyerWaterAccount] = React.useState("");
+
+  const groupedWaterCodes = React.useMemo(() => {
+    if (!waterCodes.length) return [] as Array<[string, WaterCodeOption[]]>;
+    const groups = new Map<string, WaterCodeOption[]>();
+    for (const wc of waterCodes) {
+      const key = (wc.category || "Other").trim() || "Other";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(wc);
+    }
+    return Array.from(groups.entries()).map(([label, options]) => [
+      label,
+      options.slice().sort((a, b) => a.code.localeCompare(b.code)),
+    ]) as Array<[string, WaterCodeOption[]]>;
+  }, [waterCodes]);
+
+  const selectedFarm = React.useMemo(
+    () => farms.find((farm) => farm.id === selectedSellerFarmId) || null,
+    [farms, selectedSellerFarmId]
+  );
+  
   // Auction-specific
   const [startingBid, setStartingBid] = React.useState<number | "">("");
   const [reservePrice, setReservePrice] = React.useState<number | "">("");
@@ -64,6 +128,93 @@ export default function CreateListingPage() {
   // Countdown preview for auctions
   const [countdown, setCountdown] = React.useState<string>("");
 
+  React.useEffect(() => {
+    let active = true;
+    setFarmsLoading(true);
+    fetch("/api/profile", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await res.text());
+        return (await res.json()) as { farms?: FarmOption[] };
+      })
+      .then((data) => {
+        if (!active) return;
+        const apiFarms = Array.isArray(data?.farms) ? data.farms : [];
+        setFarms(
+          apiFarms.map((f: any) => ({
+            id: String(f.id ?? ""),
+            name: f.name ?? null,
+            accountNumber: f.accountNumber ?? null,
+            district: f.district ?? null,
+          }))
+        );
+      })
+      .catch(() => {
+        if (!active) return;
+        setFarms([]);
+      })
+      .finally(() => {
+        if (active) setFarmsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (district !== WESTLANDS) {
+      setWaterCodes([]);
+      setWaterCodeError(null);
+      if (selectedWaterCodeId !== "custom") setSelectedWaterCodeId("custom");
+      return;
+    }
+
+    let active = true;
+    setWaterCodesLoading(true);
+    setWaterCodeError(null);
+    fetch(`/api/water-codes?district=${encodeURIComponent(WESTLANDS)}`, { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await res.text());
+        return (await res.json()) as { codes?: WaterCodeOption[] };
+      })
+      .then((data) => {
+        if (!active) return;
+        const codes = Array.isArray(data?.codes) ? data.codes : [];
+        setWaterCodes(codes);
+        if (codes.length && selectedWaterCodeId === "custom") {
+          setSelectedWaterCodeId("");
+        }
+      })
+      .catch((err: any) => {
+        if (!active) return;
+        setWaterCodes([]);
+        setWaterCodeError(err?.message || "Unable to load water codes");
+      })
+      .finally(() => {
+        if (active) setWaterCodesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [district, selectedWaterCodeId]);
+
+  const applyWaterCodeSelection = React.useCallback(
+    (id: string) => {
+      if (!id || id === "custom") return;
+      const match = waterCodes.find((w) => w.id === id);
+      if (!match) return;
+      setWaterCodeValue(match.code || "");
+      setWaterCodeYear(match.year || "");
+      setWaterCodeDescription(match.description || "");
+    },
+    [waterCodes]
+  );
+
+  React.useEffect(() => {
+    if (!selectedWaterCodeId || selectedWaterCodeId === "custom") return;
+    applyWaterCodeSelection(selectedWaterCodeId);
+  }, [applyWaterCodeSelection, selectedWaterCodeId]);
+    
   React.useEffect(() => {
     if (!isAuction || !endDate) {
       setCountdown("");
@@ -157,6 +308,19 @@ export default function CreateListingPage() {
         payload.pricePerAF = Number(formData.get("pricePerAF") || pricePerAF || 0);
       }
 
+      const trimmedWaterCode = waterCodeValue.trim();
+      const trimmedWaterYear = waterCodeYear.trim();
+      const trimmedWaterDescription = waterCodeDescription.trim();
+      const trimmedBuyerAccount = buyerWaterAccount.trim();
+      if (selectedWaterCodeId && selectedWaterCodeId !== "custom") {
+        payload.waterCodeId = selectedWaterCodeId;
+      }
+      if (trimmedWaterCode) payload.waterCodeValue = trimmedWaterCode;
+      if (trimmedWaterYear) payload.waterCodeYear = trimmedWaterYear;
+      if (trimmedWaterDescription) payload.waterCodeDescription = trimmedWaterDescription;
+      if (selectedSellerFarmId) payload.sellerFarmId = selectedSellerFarmId;
+      if (trimmedBuyerAccount) payload.buyerWaterAccount = trimmedBuyerAccount;
+      
       const res = await fetch("/api/listings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,13 +336,21 @@ export default function CreateListingPage() {
         setPricePerAF("");
         setWaterType("");
         setDistrict("");
+        setWaterCodes([]);
+        setWaterCodeError(null);
+        setSelectedWaterCodeId("custom");
+        setWaterCodeValue("");
+        setWaterCodeYear("");
+        setWaterCodeDescription("");
+        setSelectedSellerFarmId("");
+        setBuyerWaterAccount("");
         setStartingBid("");
         setReservePrice("");
         const d = new Date();
         d.setHours(d.getHours() + 24);
         setEndDate(toLocalDatetimeInputValue(d));
       } else {
-        const error = await res.text();
+        const error = await extractErrorMessage(res);
         setMessage(error || "Failed to create listing.");
       }
     } catch (err: any) {
@@ -189,10 +361,15 @@ export default function CreateListingPage() {
   }
 
   // UI helpers
+  const waterCodeSelectValue =
+    district === WESTLANDS ? (selectedWaterCodeId === "custom" ? "" : selectedWaterCodeId) : "custom";
+
   const infoChips = [
     district && `District: ${district}`,
     waterType && `Type: ${waterType}`,
     volumeAF ? `${formatAcreFeet(volumeAF)} AF` : null,
+    waterCodeValue && `Code: ${waterCodeValue}`,
+    waterCodeYear && `Year: ${waterCodeYear}`,
   ].filter(Boolean) as string[];
 
   return (
@@ -244,6 +421,163 @@ export default function CreateListingPage() {
                 </div>
               </div>
 
+              {/* Water code metadata */}
+              <div className="space-y-4">
+                {district === WESTLANDS ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="waterCodeSelect">Westlands Water Code</Label>
+                    <select
+                      id="waterCodeSelect"
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                      value={waterCodeSelectValue}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (!next || next === "custom") {
+                          setSelectedWaterCodeId("custom");
+                          return;
+                        }
+                        setSelectedWaterCodeId(next);
+                        applyWaterCodeSelection(next);
+                      }}
+                      disabled={waterCodesLoading}
+                    >
+                      <option value="">Select a code…</option>
+                      {groupedWaterCodes.map(([category, codes]) => (
+                        <optgroup key={category} label={category}>
+                          {codes.map((code) => (
+                            <option key={code.id} value={code.id}>
+                              {code.code} — {code.year}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                      <option value="custom">Custom / Not listed</option>
+                    </select>
+                    {waterCodesLoading ? (
+                      <p className="text-xs text-slate-500">Loading Westlands codes…</p>
+                    ) : null}
+                    {waterCodeError ? (
+                      <p className="text-xs text-rose-600">{waterCodeError}</p>
+                    ) : null}
+                    <p className="text-xs text-slate-500">
+                      Select a preset code or choose custom to enter your own details.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    Enter the water code details for {district || "this district"}. Westlands codes will appear
+                    automatically when that district is selected.
+                  </p>
+                )}
+                <input
+                  type="hidden"
+                  name="waterCodeId"
+                  value={selectedWaterCodeId !== "custom" ? selectedWaterCodeId : ""}
+                />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="waterCodeValue">Water Code</Label>
+                    <Input
+                      id="waterCodeValue"
+                      name="waterCodeValue"
+                      placeholder="e.g. WC1802"
+                      value={waterCodeValue}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setWaterCodeValue(next);
+                        if (selectedWaterCodeId !== "custom") {
+                          const match = waterCodes.find((w) => w.id === selectedWaterCodeId);
+                          if (!match || match.code !== next) setSelectedWaterCodeId("custom");
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="waterCodeYear">Water Year</Label>
+                    <Input
+                      id="waterCodeYear"
+                      name="waterCodeYear"
+                      placeholder="e.g. 2024-25"
+                      value={waterCodeYear}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setWaterCodeYear(next);
+                        if (selectedWaterCodeId !== "custom") {
+                          const match = waterCodes.find((w) => w.id === selectedWaterCodeId);
+                          if (!match || match.year !== next) setSelectedWaterCodeId("custom");
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="waterCodeDescription">Description</Label>
+                  <Input
+                    id="waterCodeDescription"
+                    name="waterCodeDescription"
+                    placeholder="e.g. SGMA Groundwater Allocation"
+                    value={waterCodeDescription}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setWaterCodeDescription(next);
+                      if (selectedWaterCodeId !== "custom") {
+                        const match = waterCodes.find((w) => w.id === selectedWaterCodeId);
+                        if (!match || (match.description || "") !== next) setSelectedWaterCodeId("custom");
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Seller logistics */}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="sellerFarmId">Source Farm (seller only)</Label>
+                  <select
+                    id="sellerFarmId"
+                    name="sellerFarmId"
+                    value={selectedSellerFarmId}
+                    onChange={(e) => setSelectedSellerFarmId(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                  >
+                    <option value="">Select a farm (optional)</option>
+                    {farms.map((farm) => (
+                      <option key={farm.id} value={farm.id}>
+                        {farm.name || "Unnamed Farm"}
+                        {farm.accountNumber ? ` — ${farm.accountNumber}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {farmsLoading ? (
+                    <p className="text-xs text-slate-500">Loading your farms…</p>
+                  ) : farms.length ? (
+                    <p className="text-xs text-slate-500">Only you can see this reference.</p>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Add farms from your{" "}
+                      <Link href="/profile/edit" className="text-emerald-700 underline">
+                        profile
+                      </Link>{" "}
+                      to reference them here.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="buyerWaterAccount">Preferred Buyer Water Account</Label>
+                  <Input
+                    id="buyerWaterAccount"
+                    name="buyerWaterAccount"
+                    placeholder="Optional account name or number"
+                    value={buyerWaterAccount}
+                    onChange={(e) => setBuyerWaterAccount(e.target.value)}
+                  />
+                  <p className="text-xs text-slate-500">
+                    Share a destination account buyers can reference once a deal is in progress.
+                  </p>
+                </div>
+              </div>
+              
               {/* Volume + Pricing toggle */}
               <div className="grid gap-4 md:grid-cols-[1fr_auto]">
                 <div className="space-y-2">
@@ -456,8 +790,37 @@ export default function CreateListingPage() {
                   </div>
                 </div>
               )}
-              </CardContent>
-            </Card>
+
+
+              <div className="rounded-lg border border-slate-200 p-3">
+                <div className="text-xs text-slate-500">Water Code</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">
+                  {waterCodeValue || "Not specified"}
+                </div>
+                {waterCodeYear ? (
+                  <div className="text-xs text-slate-500">Water Year: {waterCodeYear}</div>
+                ) : null}
+                {waterCodeDescription ? (
+                  <p className="mt-1 text-xs text-slate-600">{waterCodeDescription}</p>
+                ) : null}
+              </div>
+
+              {(selectedFarm || buyerWaterAccount) && (
+                <div className="rounded-lg border border-slate-200 p-3 space-y-1">
+                  <div className="text-xs text-slate-500">Logistics</div>
+                  {selectedFarm ? (
+                    <div className="text-sm text-slate-900">
+                      Seller farm: {selectedFarm.name || "Unnamed Farm"}
+                      {selectedFarm.accountNumber ? ` (#${selectedFarm.accountNumber})` : ""}
+                    </div>
+                  ) : null}
+                  {buyerWaterAccount ? (
+                    <div className="text-sm text-slate-900">
+                      Buyer account preference: {buyerWaterAccount}
+                    </div>
+                  ) : null}
+                </div>
+              )}
 
           {message && (
             <div
