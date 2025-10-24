@@ -533,4 +533,5 @@ function actionText(mode: Mode) {
     case "BID":
       return "Place Bid";
   }
+  return "Submit";
 }
