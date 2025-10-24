@@ -62,9 +62,6 @@ const CORE_COMPONENTS = [
     title: "Make an offer",
     description:
       "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
-    highlights: [
-      "Auto-generate offer packets with signatures and supporting docs",
-    ],
     renderPreview: () => <OfferPreview />,
   },
   {
@@ -72,10 +69,6 @@ const CORE_COMPONENTS = [
     title: "Use Buy Now",
     description:
       "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
-    highlights: [
-      "Reserve acre-feet with district-compliant contracts",
-      "Trigger alerts to growers, advisors, and district admins",
-    ],
     renderPreview: () => <BuyNowPreview />,
   },
   {
@@ -83,10 +76,6 @@ const CORE_COMPONENTS = [
     title: "Create a listing",
     description:
       "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
-    highlights: [
-      "Collect required acreage, delivery, and exchange metadata upfront",
-      "Control which districts and partners can view and engage",
-    ],
     renderPreview: () => <CreateListingPreview />,
   },
   {
@@ -94,9 +83,6 @@ const CORE_COMPONENTS = [
     title: "Track progress",
     description:
       "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
-    highlights: [
-      "See status changes and blockers in real time",
-    ],
     renderPreview: () => <TrackProgressPreview />,
   },
 ] satisfies readonly CoreWorkflowSlide[];
@@ -686,7 +672,6 @@ function CoreWorkflowCarousel() {
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">Core workflows</h2>
           <p className="mt-2 text-sm text-emerald-50/80">
-            Explore guided previews of the tools teams rely on to source inventory, execute deals, and keep every stakeholder aligned.
           </p>
         </div>
       </div>
