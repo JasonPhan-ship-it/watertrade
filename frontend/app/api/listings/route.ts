@@ -95,7 +95,15 @@ export async function GET(req: NextRequest) {
           createdAt: true,
           status: true,
           kind: true,
+          isAuction: true,
+          auctionEndsAt: true,
+          reservePrice: true,
           sellerId: true, // owner id for client logic
+          waterCodeValue: true,
+          waterCodeYear: true,
+          waterCodeDescription: true,
+          buyerWaterAccount: true,
+          sellerFarmId: true,
         },
       }),
     ]);
@@ -112,7 +120,15 @@ export async function GET(req: NextRequest) {
       ownerUserId: r.sellerId,
       status: r.status,
       kind: r.kind,
+      isAuction: r.isAuction,
+      auctionEndsAt: r.auctionEndsAt ? r.auctionEndsAt.toISOString() : null,
+      reservePrice: r.reservePrice != null ? r.reservePrice / 100 : null,
       availability: r.availability,
+      waterCode: r.waterCodeValue,
+      waterYear: r.waterCodeYear,
+      waterDescription: r.waterCodeDescription,
+      buyerWaterAccount: r.buyerWaterAccount,
+      sellerFarmId: r.sellerFarmId,
     }));
 
     return noCache(NextResponse.json({ listings, total, limited: !q.premium }, { status: 200 }));
@@ -143,16 +159,101 @@ export async function POST(req: NextRequest) {
 
     const district = String(body.district || "Unknown District");
     const waterType = String(body.waterType || "Surface");
+    const isAuction = Boolean(body.isAuction);
+
+    const waterCodeValueRaw =
+      typeof body.waterCodeValue === "string"
+        ? body.waterCodeValue
+        : typeof body.waterCode === "string"
+        ? body.waterCode
+        : "";
+    const waterCodeYearRaw =
+      typeof body.waterCodeYear === "string"
+        ? body.waterCodeYear
+        : typeof body.waterYear === "string"
+        ? body.waterYear
+        : "";
+    const waterCodeDescriptionRaw =
+      typeof body.waterCodeDescription === "string"
+        ? body.waterCodeDescription
+        : typeof body.waterDescription === "string"
+        ? body.waterDescription
+        : "";
+    const rawWaterCodeId = typeof body.waterCodeId === "string" ? body.waterCodeId.trim() : "";
+    const sellerFarmIdRaw = typeof body.sellerFarmId === "string" ? body.sellerFarmId.trim() : "";
+    const buyerWaterAccountRaw =
+      typeof body.buyerWaterAccount === "string" ? body.buyerWaterAccount.trim() : "";
+
+    const waterCodeValue = waterCodeValueRaw.trim();
+    const waterCodeYear = waterCodeYearRaw.trim();
+    const waterCodeDescription = waterCodeDescriptionRaw.trim();
+
+    let waterCodeRecord: { id: string; code: string; year: string; description: string | null } | null = null;
+    if (rawWaterCodeId) {
+      const existing = await prisma.waterCode.findUnique({ where: { id: rawWaterCodeId } });
+      if (!existing) {
+        return NextResponse.json({ error: "Invalid water code selection" }, { status: 400 });
+      }
+      waterCodeRecord = {
+        id: existing.id,
+        code: existing.code,
+        year: existing.year,
+        description: existing.description,
+      };
+    }
+
+    let sellerFarmId: string | null = null;
+    if (sellerFarmIdRaw) {
+      const farm = await prisma.farm.findUnique({ where: { id: sellerFarmIdRaw } });
+      if (!farm || farm.userId !== me.id) {
+        return NextResponse.json({ error: "Invalid farm selection" }, { status: 400 });
+      }
+      sellerFarmId = farm.id;
+    }
 
     // acre-feet – accept acreFeet or volumeAF
     const acreFeet = Math.max(0, Math.floor(Number(body.acreFeet ?? body.volumeAF ?? 0)));
-
-    // price per AF – dollars (required, > 0)
-    const rawPrice = Number(body.pricePerAF);
-    if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
-      return NextResponse.json({ error: "Price per AF must be greater than 0" }, { status: 400 });
+    if (!Number.isFinite(acreFeet) || acreFeet <= 0) {
+      return NextResponse.json({ error: "Acre-feet must be greater than 0" }, { status: 400 });
     }
-    const pricePerAfCents = Math.round(rawPrice * 100);
+    
+    // price / reserve handling
+    const rawPrice = Number(body.pricePerAF);
+    const rawStartingBid = Number(body.startingBid);
+    const rawReservePrice = Number(body.reservePrice);
+
+    let pricePerAfCents = 0;
+    let reservePriceCents: number | null = null;
+
+    if (isAuction) {
+      if (Number.isFinite(rawReservePrice) && rawReservePrice > 0) {
+        reservePriceCents = Math.round(rawReservePrice * 100);
+      }
+      if (Number.isFinite(rawStartingBid) && rawStartingBid > 0) {
+        pricePerAfCents = Math.round(rawStartingBid * 100);
+      }
+      if (reservePriceCents != null) {
+        pricePerAfCents = reservePriceCents;
+      }
+    } else {
+      if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
+        return NextResponse.json({ error: "Price per AF must be greater than 0" }, { status: 400 });
+      }
+      pricePerAfCents = Math.round(rawPrice * 100);
+    }
+
+    let auctionEndsAt: Date | null = null;
+    if (isAuction) {
+      const endDateRaw = typeof body.endDate === "string" ? body.endDate.trim() : "";
+      if (!endDateRaw) {
+        return NextResponse.json({ error: "Auction end date is required" }, { status: 400 });
+      }
+      const endDate = new Date(endDateRaw);
+      if (Number.isNaN(endDate.getTime()) || endDate.getTime() <= Date.now()) {
+        return NextResponse.json({ error: "Auction end date must be in the future" }, { status: 400 });
+      }
+      auctionEndsAt = endDate;
+    }
 
     // Compose an "availability" label (DB only stores the string today)
     const fallbackEnd = new Date(Date.now() + 60 * 24 * 3600 * 1000);
@@ -171,6 +272,15 @@ export async function POST(req: NextRequest) {
         kind,
         status: "ACTIVE",
         sellerId: me.id,
+        waterCodeId: waterCodeRecord?.id ?? null,
+        waterCodeValue: waterCodeValue || waterCodeRecord?.code || null,
+        waterCodeYear: waterCodeYear || waterCodeRecord?.year || null,
+        waterCodeDescription: waterCodeDescription || waterCodeRecord?.description || null,
+        sellerFarmId,
+        buyerWaterAccount: buyerWaterAccountRaw ? buyerWaterAccountRaw : null,
+        isAuction,
+        auctionEndsAt,
+        reservePrice: reservePriceCents,
       },
       select: { id: true },
     });
