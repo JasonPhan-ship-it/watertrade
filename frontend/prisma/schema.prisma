@@ -68,6 +68,18 @@ model Listing {
   district     String
   waterType    String
 
+  // Structured water code metadata (optional, denormalized for snapshots)
+  waterCodeId          String?
+  waterCode            WaterCode?   @relation("ListingWaterCode", fields: [waterCodeId], references: [id], onDelete: SetNull)
+  waterCodeValue       String?
+  waterCodeYear        String?
+  waterCodeDescription String?
+
+  // Seller + buyer operational metadata
+  sellerFarmId      String?
+  sellerFarm        Farm?        @relation("ListingSellerFarm", fields: [sellerFarmId], references: [id], onDelete: SetNull)
+  buyerWaterAccount String?
+
   // Human-readable window (kept for display/back-compat)
   availability String
 
@@ -216,6 +228,10 @@ model Transaction {
   buyerNameSnapshot    String?
   buyerEmailSnapshot   String?
 
+  sellerFarmId        String?
+  sellerFarm          Farm?    @relation("TransactionSellerFarm", fields: [sellerFarmId], references: [id], onDelete: SetNull)
+  buyerWaterAccount   String?
+
   // Offer niceties (optional)
   offerExpiresAt       DateTime?
 
@@ -311,6 +327,9 @@ model Farm {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  listings      Listing[]    @relation("ListingSellerFarm")
+  transactions  Transaction[] @relation("TransactionSellerFarm")
+
   @@index([userId])
 }
 
@@ -356,6 +375,35 @@ model VerificationRequest {
 
   @@index([userId, type, status])
   @@index([status, createdAt])
+}
+
+/* ========================= Water Metadata ========================= */
+
+model WaterDistrict {
+  id        String      @id @default(cuid())
+  name      String      @unique
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  codes     WaterCode[]
+}
+
+model WaterCode {
+  id          String        @id @default(cuid())
+  district    WaterDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  districtId  String
+  code        String
+  year        String
+  description String?
+  category    String?
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  listings    Listing[]     @relation("ListingWaterCode")
+
+  @@unique([districtId, code, year])
+  @@index([districtId, code])
 }
 
 /* ========================= Enums ========================= */
