@@ -4,6 +4,8 @@ import type { NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { appUrl } from "@/lib/email";
 import type { Trade } from "@prisma/client";
+import * as docusign from "docusign-esign";
+import { createRecipientViewUrl, getDsClient } from "@/lib/docusign";
 
 /* =========================
    Viewer / Auth helpers
@@ -213,6 +215,186 @@ export async function getViewerById(
 }
 
 /* =========================================
+   DocuSign helpers
+   ========================================= */
+
+const USD_FORMATTER = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const NUMBER_FORMATTER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+
+function formatUsd(amount: number) {
+  try {
+    return USD_FORMATTER.format(amount);
+  } catch {
+    return `$${amount.toFixed(2)}`;
+  }
+}
+
+function formatNumber(amount: number) {
+  try {
+    return NUMBER_FORMATTER.format(amount);
+  } catch {
+    return amount.toString();
+  }
+}
+
+function escapeHtml(input: string | null | undefined) {
+  if (!input) return "";
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildDocuSignSellerHtml(args: {
+  trade: any;
+  listing: any;
+  buyerAccount: string;
+  sellerFarmLabel: string;
+}) {
+  const { trade, listing, buyerAccount, sellerFarmLabel } = args;
+  const district = trade?.district || listing?.district || "";
+  const waterType = trade?.waterType || listing?.waterType || "";
+  const volumeAf = Number(trade?.volumeAf ?? 0);
+  const pricePerAfDollars = Number(trade?.pricePerAf ?? 0) / 100;
+  const totalValue = volumeAf * pricePerAfDollars;
+  const waterCodeValue = listing?.waterCodeValue || listing?.waterCode?.code || "";
+  const waterCodeYear = listing?.waterCodeYear || listing?.waterCode?.year || "";
+  const waterCodeDescription = listing?.waterCodeDescription || listing?.waterCode?.description || "";
+
+  const rows = [
+    { label: "District", value: district },
+    { label: "Water type", value: waterType },
+    { label: "Water code", value: waterCodeValue },
+    { label: "Water year", value: waterCodeYear },
+    { label: "Description", value: waterCodeDescription },
+    { label: "Volume (AF)", value: volumeAf ? formatNumber(volumeAf) : "" },
+    { label: "Price / AF", value: pricePerAfDollars ? formatUsd(pricePerAfDollars) : "" },
+    { label: "Estimated value", value: totalValue ? formatUsd(totalValue) : "" },
+    { label: "Seller farm", value: sellerFarmLabel },
+    { label: "Buyer account", value: buyerAccount },
+  ];
+
+  const tableRows = rows
+    .map((row) => {
+      const safeValue = row.value ? escapeHtml(String(row.value)) : "—";
+      return `
+        <tr>
+          <td style="padding:6px 4px;border-bottom:1px solid #e2e8f0;color:#475569;width:40%;">${escapeHtml(row.label)}</td>
+          <td style="padding:6px 4px;border-bottom:1px solid #e2e8f0;color:#0f172a;">${safeValue}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `<!DOCTYPE html>
+  <html>
+    <body style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;padding:24px;">
+      <h2 style="margin-top:0;color:#0f172a;">Water Transfer Summary</h2>
+      <p style="font-size:14px;color:#1e293b;">Trade ID: <strong>${escapeHtml(trade?.id || "")}</strong></p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:12px;">
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+      <p style="margin-top:24px;font-size:13px;color:#1e293b;">Please sign here: /sn1/</p>
+    </body>
+  </html>`;
+}
+
+async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | null) {
+  const { name, email } = await getSellerNameEmail(trade as Trade);
+  const { apiClient, accountId } = await getDsClient();
+  const envelopesApi = new docusign.EnvelopesApi(apiClient);
+
+  const listing = trade?.listing || {};
+  const transaction = trade?.transaction || {};
+  const sellerFarm = listing?.sellerFarm || null;
+  const sellerFarmLabel = sellerFarm
+    ? [sellerFarm.name, sellerFarm.accountNumber ? `#${sellerFarm.accountNumber}` : null].filter(Boolean).join(" ")
+    : "";
+  const buyerAccount = (transaction?.buyerWaterAccount || listing?.buyerWaterAccount || "").trim();
+
+  const html = buildDocuSignSellerHtml({
+    trade,
+    listing,
+    buyerAccount,
+    sellerFarmLabel,
+  });
+
+  const document = new docusign.Document();
+  document.documentBase64 = Buffer.from(html, "utf8").toString("base64");
+  document.name = `Trade-${trade.id}.html`;
+  document.fileExtension = "html";
+  document.documentId = "1";
+
+  const signHere = new docusign.SignHere();
+  signHere.documentId = "1";
+  signHere.recipientId = "1";
+  signHere.anchorString = "/sn1/";
+  signHere.anchorUnits = "pixels";
+  signHere.anchorXOffset = "0";
+  signHere.anchorYOffset = "0";
+
+  const tabs = new docusign.Tabs();
+  tabs.signHereTabs = [signHere];
+
+  const signer = new docusign.Signer();
+  signer.email = email;
+  signer.name = name;
+  signer.recipientId = "1";
+  signer.clientUserId = trade.id;
+  signer.routingOrder = "1";
+  signer.tabs = tabs;
+
+  const recipients = new docusign.Recipients();
+  recipients.signers = [signer];
+
+  const env = new docusign.EnvelopeDefinition();
+  env.emailSubject = `Sign water transfer for ${listing?.title || trade?.district || "Water trade"}`;
+  env.documents = [document];
+  env.recipients = recipients;
+  env.status = "sent";
+
+  const customField = new docusign.TextCustomField();
+  customField.name = "tradeId";
+  customField.value = trade.id;
+  const customFields = new docusign.CustomFields();
+  customFields.textCustomFields = [customField];
+  env.customFields = customFields;
+
+  const created = await envelopesApi.createEnvelope(accountId, { envelopeDefinition: env });
+  const envelopeId = String((created as any)?.envelopeId || (created as any)?.envelopeID || "");
+
+  const returnPath = `/api/trades/${trade.id}/seller/signing-complete${
+    sellerToken ? `?token=${encodeURIComponent(sellerToken)}` : ""
+  }`;
+  const signUrl = await createRecipientViewUrl({
+    envelopeId,
+    recipient: { clientUserId: trade.id, email, name },
+    returnUrl: appUrl(returnPath),
+  });
+
+  if (trade.transactionId) {
+    await prisma.transaction
+      .update({
+        where: { id: trade.transactionId },
+        data: {
+          docusignEnvelopeId: envelopeId,
+          sellerClientUserId: trade.id,
+          sellerSignUrl: signUrl,
+          buyerWaterAccount: buyerAccount || transaction?.buyerWaterAccount || listing?.buyerWaterAccount || null,
+          sellerFarmId: listing?.sellerFarmId ?? transaction?.sellerFarmId ?? null,
+        },
+      })
+      .catch(() => null);
+  }
+
+  return signUrl;
+}
+
+/* =========================================
    Dropbox Sign helpers (REST, no SDK)
    ========================================= */
 
@@ -384,17 +566,40 @@ export async function createBuyerSignatureLink(
 }
 
 export async function createSellerSignatureLink(tradeId: string, sellerToken?: string | null): Promise<string> {
+  const trade = await prisma.trade.findUnique({
+    where: { id: tradeId },
+    include: {
+      listing: { include: { waterCode: true, sellerFarm: true } },
+      transaction: {
+        select: { id: true, buyerWaterAccount: true, sellerFarmId: true, docusignEnvelopeId: true },
+      },
+    },
+  });
+  if (!trade) throw new Error("Trade not found");
+
+  const resolvedSellerToken = sellerToken ?? (trade as any).sellerToken ?? null;
+
+  const docuSignConfigured = Boolean(
+    process.env.DOCUSIGN_INTEGRATION_KEY && process.env.DOCUSIGN_USER_ID && process.env.DOCUSIGN_PRIVATE_KEY
+  );
+
+  if (docuSignConfigured) {
+    try {
+      const docuSignLink = await createSellerDocuSignEnvelope(trade, resolvedSellerToken);
+      if (docuSignLink) return docuSignLink;
+    } catch (err) {
+      console.error("[trade] DocuSign seller envelope failed; falling back to Dropbox Sign", err);
+    }
+  }
+
   const apiKey = process.env.DROPBOX_SIGN_API_KEY;
   const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
 
   if (!apiKey || !clientId) {
-    return appUrl(`/sign/${tradeId}?role=seller${sellerToken ? `&token=${sellerToken}` : ""}`);
+    return appUrl(`/sign/${tradeId}?role=seller${resolvedSellerToken ? `&token=${resolvedSellerToken}` : ""}`);
   }
 
-  const trade = await prisma.trade.findUnique({ where: { id: tradeId }, include: { listing: true } });
-  if (!trade) throw new Error("Trade not found");
-
-  const { name, email } = await getSellerNameEmail(trade);
+  const { name, email } = await getSellerNameEmail(trade as Trade);
 
   const form = new URLSearchParams();
   const testMode = (process.env.DROPBOX_SIGN_TEST_MODE ?? "1") === "1";
@@ -413,7 +618,7 @@ export async function createSellerSignatureLink(tradeId: string, sellerToken?: s
   );
   form.set("metadata[tradeId]", tradeId);
   const redirectTarget = `/api/trades/${tradeId}/seller/signing-complete${
-    sellerToken ? `?token=${encodeURIComponent(sellerToken)}` : ""
+    resolvedSellerToken ? `?token=${encodeURIComponent(resolvedSellerToken)}` : ""
   }`;
   form.set("signing_redirect_url", appUrl(redirectTarget));
 
