@@ -62,6 +62,11 @@ const CORE_COMPONENTS = [
     title: "Make an offer",
     description:
       "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
+    highlights: [
+      "Pre-populated diligence requirements by district",
+      "Auto-check minimum volumes and delivery windows",
+      "Instantly share offers with verified growers and districts",
+    ] as const,
     renderPreview: () => <OfferPreview />,
   },
   {
@@ -69,6 +74,11 @@ const CORE_COMPONENTS = [
     title: "Use Buy Now",
     description:
       "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
+    highlights: [
+      "See vetted listings with real-time availability",
+      "Reserve water with standardized contracts in minutes",
+      "Trigger alerts to operations, legal, and finance automatically",
+    ] as const,
     renderPreview: () => <BuyNowPreview />,
   },
   {
@@ -76,6 +86,11 @@ const CORE_COMPONENTS = [
     title: "Create a listing",
     description:
       "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
+    highlights: [
+      "Capture water code metadata for every posting",
+      "Restrict visibility to approved counterparties",
+      "Preview pricing, auction timelines, and logistics instantly",
+    ] as const,
     renderPreview: () => <CreateListingPreview />,
   },
   {
@@ -83,6 +98,11 @@ const CORE_COMPONENTS = [
     title: "Track progress",
     description:
       "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
+    highlights: [
+      "View every milestone across active trades",
+      "Log signatures, escrow, and delivery updates automatically",
+      "Collaborate with buyers, sellers, and districts in one workspace",
+    ] as const,
     renderPreview: () => <TrackProgressPreview />,
   },
 ] satisfies readonly CoreWorkflowSlide[];
