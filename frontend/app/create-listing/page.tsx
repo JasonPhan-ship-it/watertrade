@@ -822,6 +822,9 @@ async function extractErrorMessage(res: Response) {
                 </div>
               )}
 
+            </CardContent>
+          </Card>
+          
           {message && (
             <div
               className={[
