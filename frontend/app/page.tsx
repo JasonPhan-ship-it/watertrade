@@ -63,7 +63,6 @@ const CORE_COMPONENTS = [
     description:
       "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
     highlights: [
-      "Lock delivery windows, pricing bands, and approval flows before sharing",
       "Auto-generate offer packets with signatures and supporting docs",
     ],
     renderPreview: () => <OfferPreview />,
@@ -97,7 +96,6 @@ const CORE_COMPONENTS = [
       "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
     highlights: [
       "See status changes and blockers in real time",
-      "Export compliance-ready audit logs at close",
     ],
     renderPreview: () => <TrackProgressPreview />,
   },
