@@ -50,6 +50,9 @@ export async function POST(req: Request) {
     const rawType: string = String(body?.type || "");
     const type = (rawType.toUpperCase() as TType) || null;
 
+    const buyerWaterAccount =
+      typeof body?.buyerWaterAccount === "string" ? body.buyerWaterAccount.trim() : "";
+    
     // numbers may come as strings
     const qty = toPositiveInt(body?.acreFeet ?? body?.volumeAF ?? body?.volumeAf);
 
@@ -103,6 +106,7 @@ export async function POST(req: Request) {
         status: true,
         district: true,
         waterType: true,
+        sellerFarmId: true,
         seller: { select: { id: true, email: true, name: true } },
       },
     });
@@ -145,6 +149,8 @@ export async function POST(req: Request) {
         acreFeet: qty,
         pricePerAF: pricePerAfCents, // cents
         totalAmount,          // cents
+        buyerWaterAccount: buyerWaterAccount || null,
+        sellerFarmId: listing.sellerFarmId ?? null,
       },
       select: { id: true, type: true },
     });
