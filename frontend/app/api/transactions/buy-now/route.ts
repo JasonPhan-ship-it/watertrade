@@ -33,13 +33,21 @@ export async function POST(req: NextRequest) {
 
     // 2) listingId from JSON body OR querystring
     let listingId = "";
+    let buyerWaterAccount = "";
     if (req.headers.get("content-type")?.includes("application/json")) {
-      const body = (await req.json().catch(() => ({}))) as { listingId?: string };
+      const body = (await req.json().catch(() => ({}))) as {
+        listingId?: string;
+        buyerWaterAccount?: string;
+      };
       listingId = (body?.listingId || "").trim();
+      buyerWaterAccount = typeof body?.buyerWaterAccount === "string" ? body.buyerWaterAccount.trim() : "";
     }
     if (!listingId) {
       const url = new URL(req.url);
       listingId = (url.searchParams.get("listingId") || "").trim();
+      if (!buyerWaterAccount) {
+        buyerWaterAccount = (url.searchParams.get("buyerWaterAccount") || "").trim();
+      }
     }
     if (!listingId) {
       return NextResponse.json({ error: "listingId is required" }, { status: 400 });
@@ -81,6 +89,8 @@ export async function POST(req: NextRequest) {
             pricePerAF: true,
             acreFeet: true,
             status: true,
+            sellerFarmId: true,
+            buyerWaterAccount: true,
             // Optional fields if you have them:
             // districtName: true,
             // waterType: true,
@@ -120,6 +130,9 @@ export async function POST(req: NextRequest) {
           pricePerAF,
           acreFeet,
           totalAmount,
+          buyerWaterAccount:
+            buyerWaterAccount || listingRow.buyerWaterAccount || null,
+          sellerFarmId: listingRow.sellerFarmId ?? null,
         },
         select: {
           id: true,
