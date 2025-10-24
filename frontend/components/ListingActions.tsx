@@ -2,10 +2,18 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 type Kind = "SELL" | "BUY";
 type Mode = "BUY_NOW" | "SELL_NOW" | "OFFER" | "BID";
+
+type FarmOption = {
+  id: string;
+  name: string | null;
+  accountNumber: string | null;
+  district: string | null;
+};
 
 type Props = {
   listingId: string;
@@ -44,6 +52,30 @@ export default function ListingActions({
   });
   const parsedPrice = React.useMemo(() => parsePriceInput(priceInput), [priceInput]);
 
+  const [buyerFarms, setBuyerFarms] = React.useState<FarmOption[]>([]);
+  const [buyerFarmsLoading, setBuyerFarmsLoading] = React.useState(false);
+  const [useCustomBuyerAccount, setUseCustomBuyerAccount] = React.useState(false);
+  const [selectedBuyerAccount, setSelectedBuyerAccount] = React.useState<string>("");
+  const [customBuyerAccount, setCustomBuyerAccount] = React.useState<string>("");
+
+  const buyerAccountOptions = React.useMemo(
+    () =>
+      buyerFarms.map((farm) => {
+        const parts = [farm.name, farm.accountNumber].filter(Boolean);
+        const label = parts.length ? parts.join(" — ") : "Unnamed Farm";
+        const value = (farm.accountNumber || farm.name || "").trim();
+        return { id: farm.id, label, value: value || farm.id };
+      }),
+    [buyerFarms]
+  );
+
+  React.useEffect(() => {
+    if (useCustomBuyerAccount) return;
+    if (selectedBuyerAccount) return;
+    if (!buyerAccountOptions.length) return;
+    setSelectedBuyerAccount(buyerAccountOptions[0].value);
+  }, [buyerAccountOptions, selectedBuyerAccount, useCustomBuyerAccount]);
+  
   const [submitting, setSubmitting] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
 
@@ -52,6 +84,38 @@ export default function ListingActions({
     [acreFeet, parsedPrice]
   );
 
+  React.useEffect(() => {
+    let active = true;
+    setBuyerFarmsLoading(true);
+    fetch("/api/profile", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await res.text());
+        return (await res.json()) as { farms?: FarmOption[] };
+      })
+      .then((data) => {
+        if (!active) return;
+        const rows = Array.isArray(data?.farms) ? data.farms : [];
+        setBuyerFarms(
+          rows.map((f: any) => ({
+            id: String(f.id ?? ""),
+            name: f.name ?? null,
+            accountNumber: f.accountNumber ?? null,
+            district: f.district ?? null,
+          }))
+        );
+      })
+      .catch(() => {
+        if (!active) return;
+        setBuyerFarms([]);
+      })
+      .finally(() => {
+        if (active) setBuyerFarmsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  
   React.useEffect(() => {
     if (mode === "OFFER") setPriceInput(round2(pricePerAf).toFixed(2));
     if (mode === "BID") setPriceInput(round2(reservePrice ?? pricePerAf).toFixed(2));
@@ -87,11 +151,19 @@ export default function ListingActions({
         }
       }
 
+      const accountValue = (useCustomBuyerAccount ? customBuyerAccount : selectedBuyerAccount).trim();
+      if (kind === "SELL" && !accountValue) {
+        setMessage("Select or enter the destination water account.");
+        return;
+      }
+      
       if (mode === "BUY_NOW" || mode === "SELL_NOW") {
-        const res = await fetch(
-          `/api/transactions/buy-now?listingId=${encodeURIComponent(listingId)}`,
-          { method: "POST", credentials: "include" }
-        );
+        const res = await fetch(`/api/transactions/buy-now`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listingId, buyerWaterAccount: accountValue || undefined }),
+        });
 
         let data: any = null;
         const ct = res.headers.get("content-type") || "";
@@ -123,6 +195,7 @@ export default function ListingActions({
             listingId,
             acreFeet: parsedAcreFeet!,
             pricePerAF: parsedPrice!,
+            buyerWaterAccount: accountValue || undefined,
           }),
         });
         const data = await safeJson(res);
@@ -140,6 +213,7 @@ export default function ListingActions({
             listingId,
             acreFeet: parsedAcreFeet!,
             pricePerAF: parsedPrice!,
+            buyerWaterAccount: accountValue || undefined,
           }),
         });
         const data = await safeJson(res);
@@ -261,6 +335,64 @@ export default function ListingActions({
           </>
         )}
 
+        <div className="sm:col-span-3 space-y-2">
+          <div className="text-xs text-emerald-700/80">Destination water account</div>
+          {!useCustomBuyerAccount ? (
+            <select
+              value={selectedBuyerAccount}
+              onChange={(e) => setSelectedBuyerAccount(e.target.value)}
+              className="w-full rounded-lg border border-emerald-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              required={kind === "SELL" && !useCustomBuyerAccount}
+            >
+              <option value="">Select an account</option>
+              {buyerAccountOptions.map((opt) => (
+                <option key={opt.id} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={customBuyerAccount}
+              onChange={(e) => setCustomBuyerAccount(e.target.value)}
+              placeholder="Account name or number"
+              className="w-full rounded-lg border border-emerald-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              required={kind === "SELL" && useCustomBuyerAccount}
+            />
+          )}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-emerald-700/80">
+            <button
+              type="button"
+              className="font-medium text-emerald-700 underline"
+              onClick={() => {
+                setUseCustomBuyerAccount((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    setSelectedBuyerAccount("");
+                  } else {
+                    setCustomBuyerAccount("");
+                  }
+                  return next;
+                });
+              }}
+            >
+              {useCustomBuyerAccount ? "Choose from my saved farms" : "Enter a different account"}
+            </button>
+            {buyerFarmsLoading ? (
+              <span>Loading your farms…</span>
+            ) : !buyerFarms.length ? (
+              <span>
+                Save farms in your{" "}
+                <Link href="/profile/edit" className="underline">
+                  profile
+                </Link>{" "}
+                to reuse account numbers.
+              </span>
+            ) : null}
+          </div>
+        </div>
+        
         <div className="sm:col-span-3 flex items-center gap-3">
           <button
             type="submit"
