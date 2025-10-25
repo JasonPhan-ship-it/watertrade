@@ -52,7 +52,6 @@ type CoreWorkflowSlide = {
   id: string;
   title: string;
   description: string;
-  highlights: readonly string[];
   renderPreview: () => React.ReactNode;
 };
 
@@ -62,11 +61,6 @@ const CORE_COMPONENTS = [
     title: "Make an offer",
     description:
       "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
-    highlights: [
-      "Pre-populated diligence requirements by district",
-      "Auto-check minimum volumes and delivery windows",
-      "Instantly share offers with verified growers and districts",
-    ] as const,
     renderPreview: () => <OfferPreview />,
   },
   {
@@ -74,11 +68,6 @@ const CORE_COMPONENTS = [
     title: "Use Buy Now",
     description:
       "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
-    highlights: [
-      "See vetted listings with real-time availability",
-      "Reserve water with standardized contracts in minutes",
-      "Trigger alerts to operations, legal, and finance automatically",
-    ] as const,
     renderPreview: () => <BuyNowPreview />,
   },
   {
@@ -86,11 +75,6 @@ const CORE_COMPONENTS = [
     title: "Create a listing",
     description:
       "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
-    highlights: [
-      "Capture water code metadata for every posting",
-      "Restrict visibility to approved counterparties",
-      "Preview pricing, auction timelines, and logistics instantly",
-    ] as const,
     renderPreview: () => <CreateListingPreview />,
   },
   {
@@ -98,11 +82,6 @@ const CORE_COMPONENTS = [
     title: "Track progress",
     description:
       "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
-    highlights: [
-      "View every milestone across active trades",
-      "Log signatures, escrow, and delivery updates automatically",
-      "Collaborate with buyers, sellers, and districts in one workspace",
-    ] as const,
     renderPreview: () => <TrackProgressPreview />,
   },
 ] satisfies readonly CoreWorkflowSlide[];
@@ -722,16 +701,6 @@ function CoreWorkflowCarousel() {
                       <p className="mt-1 text-sm text-emerald-50/85">{component.description}</p>
                     </div>
                   </div>
-                  <ul className="mt-4 space-y-2 text-sm text-emerald-50/90">
-                    {component.highlights.map((highlight) => (
-                      <li key={highlight} className="flex items-start gap-2">
-                        <span className="mt-0.5 text-emerald-200">
-                          <CheckCircle2 className="h-4 w-4" aria-hidden />
-                        </span>
-                        <span>{highlight}</span>
-                      </li>
-                    ))}
-                  </ul>
                   {component.renderPreview()}
                 </div>
               </article>
