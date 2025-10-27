@@ -95,7 +95,6 @@ async function extractErrorMessage(res: Response) {
   const [farms, setFarms] = React.useState<FarmOption[]>([]);
   const [farmsLoading, setFarmsLoading] = React.useState(false);
   const [selectedSellerFarmId, setSelectedSellerFarmId] = React.useState<string>("");
-  const [buyerWaterAccount, setBuyerWaterAccount] = React.useState("");
 
   const groupedWaterCodes = React.useMemo(() => {
     if (!waterCodes.length) return [] as Array<[string, WaterCodeOption[]]>;
@@ -311,7 +310,6 @@ async function extractErrorMessage(res: Response) {
       const trimmedWaterCode = waterCodeValue.trim();
       const trimmedWaterYear = waterCodeYear.trim();
       const trimmedWaterDescription = waterCodeDescription.trim();
-      const trimmedBuyerAccount = buyerWaterAccount.trim();
       if (selectedWaterCodeId && selectedWaterCodeId !== "custom") {
         payload.waterCodeId = selectedWaterCodeId;
       }
@@ -319,7 +317,6 @@ async function extractErrorMessage(res: Response) {
       if (trimmedWaterYear) payload.waterCodeYear = trimmedWaterYear;
       if (trimmedWaterDescription) payload.waterCodeDescription = trimmedWaterDescription;
       if (selectedSellerFarmId) payload.sellerFarmId = selectedSellerFarmId;
-      if (trimmedBuyerAccount) payload.buyerWaterAccount = trimmedBuyerAccount;
       
       const res = await fetch("/api/listings", {
         method: "POST",
@@ -343,7 +340,6 @@ async function extractErrorMessage(res: Response) {
         setWaterCodeYear("");
         setWaterCodeDescription("");
         setSelectedSellerFarmId("");
-        setBuyerWaterAccount("");
         setStartingBid("");
         setReservePrice("");
         const d = new Date();
@@ -532,7 +528,7 @@ async function extractErrorMessage(res: Response) {
               {/* Seller logistics */}
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="sellerFarmId">Source Farm (seller only)</Label>
+                  <Label htmlFor="sellerFarmId">Source Farm</Label>
                   <select
                     id="sellerFarmId"
                     name="sellerFarmId"
@@ -563,19 +559,6 @@ async function extractErrorMessage(res: Response) {
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="buyerWaterAccount">Preferred Buyer Water Account</Label>
-                  <Input
-                    id="buyerWaterAccount"
-                    name="buyerWaterAccount"
-                    placeholder="Optional account name or number"
-                    value={buyerWaterAccount}
-                    onChange={(e) => setBuyerWaterAccount(e.target.value)}
-                  />
-                  <p className="text-xs text-slate-500">
-                    Share a destination account buyers can reference once a deal is in progress.
-                  </p>
-                </div>
               </div>
               
               {/* Volume + Pricing toggle */}
@@ -604,7 +587,7 @@ async function extractErrorMessage(res: Response) {
                     type="button"
                     onClick={() => setIsAuction((prev) => !prev)}
                     className={[
-                      "relative flex h-10 w-16 items-center rounded-full border transition",
+                      "relative flex h-10 w-20 items-center rounded-full border transition",
                       isAuction
                         ? "border-emerald-600 bg-emerald-500 text-white"
                         : "border-slate-300 bg-white text-slate-500",
@@ -614,7 +597,7 @@ async function extractErrorMessage(res: Response) {
                     <span
                       className={[
                         "absolute top-1 left-1 h-8 w-8 rounded-full bg-white shadow transition-all",
-                        isAuction ? "translate-x-6" : "",
+                        isAuction ? "translate-x-10" : "",
                       ].join(" ")}
                     />
                     <span className="mx-auto text-xs font-semibold uppercase tracking-wide">
@@ -805,20 +788,13 @@ async function extractErrorMessage(res: Response) {
                 ) : null}
               </div>
 
-              {(selectedFarm || buyerWaterAccount) && (
+              {selectedFarm && (
                 <div className="rounded-lg border border-slate-200 p-3 space-y-1">
                   <div className="text-xs text-slate-500">Logistics</div>
-                  {selectedFarm ? (
-                    <div className="text-sm text-slate-900">
-                      Seller farm: {selectedFarm.name || "Unnamed Farm"}
-                      {selectedFarm.accountNumber ? ` (#${selectedFarm.accountNumber})` : ""}
-                    </div>
-                  ) : null}
-                  {buyerWaterAccount ? (
-                    <div className="text-sm text-slate-900">
-                      Buyer account preference: {buyerWaterAccount}
-                    </div>
-                  ) : null}
+                  <div className="text-sm text-slate-900">
+                    Seller farm: {selectedFarm.name || "Unnamed Farm"}
+                    {selectedFarm.accountNumber ? ` (#${selectedFarm.accountNumber})` : ""}
+                  </div>
                 </div>
               )}
 
