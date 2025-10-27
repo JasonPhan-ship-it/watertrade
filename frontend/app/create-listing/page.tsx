@@ -205,6 +205,10 @@ async function extractErrorMessage(res: Response) {
       setWaterCodeValue(match.code || "");
       setWaterCodeYear(match.year || "");
       setWaterCodeDescription(match.description || "");
+      const nextWaterType = match.category?.trim();
+      if (nextWaterType) {
+        setWaterType(nextWaterType);
+      }
     },
     [waterCodes]
   );
@@ -359,7 +363,10 @@ async function extractErrorMessage(res: Response) {
   // UI helpers
   const waterCodeSelectValue =
     district === WESTLANDS ? (selectedWaterCodeId === "custom" ? "" : selectedWaterCodeId) : "custom";
-
+  const hasPresetWaterCodes = district === WESTLANDS && waterCodes.length > 0;
+  const isPresetWaterCodeSelected =
+    hasPresetWaterCodes && Boolean(selectedWaterCodeId && selectedWaterCodeId !== "custom");
+    
   const infoChips = [
     district && `District: ${district}`,
     waterType && `Type: ${waterType}`,
@@ -486,6 +493,8 @@ async function extractErrorMessage(res: Response) {
                           if (!match || match.code !== next) setSelectedWaterCodeId("custom");
                         }
                       }}
+                      readOnly={isPresetWaterCodeSelected}
+                      disabled={isPresetWaterCodeSelected}
                     />
                   </div>
                   <div className="space-y-2">
@@ -503,6 +512,8 @@ async function extractErrorMessage(res: Response) {
                           if (!match || match.year !== next) setSelectedWaterCodeId("custom");
                         }
                       }}
+                      readOnly={isPresetWaterCodeSelected}
+                      disabled={isPresetWaterCodeSelected}
                     />
                   </div>
                 </div>
@@ -521,6 +532,8 @@ async function extractErrorMessage(res: Response) {
                         if (!match || (match.description || "") !== next) setSelectedWaterCodeId("custom");
                       }
                     }}
+                    readOnly={isPresetWaterCodeSelected}
+                    disabled={isPresetWaterCodeSelected}
                   />
                 </div>
               </div>
@@ -536,7 +549,7 @@ async function extractErrorMessage(res: Response) {
                     onChange={(e) => setSelectedSellerFarmId(e.target.value)}
                     className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                   >
-                    <option value="">Select a farm (optional)</option>
+                    <option value="">Select a farm</option>
                     {farms.map((farm) => (
                       <option key={farm.id} value={farm.id}>
                         {farm.name || "Unnamed Farm"}
