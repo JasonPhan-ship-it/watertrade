@@ -4,8 +4,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  // Add this so Prisma Migrate uses a separate Postgres you control (e.g., local Docker)
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 /* ========================= Users & Profiles ========================= */
@@ -25,18 +27,14 @@ model User {
   stripeCustomerId       String?   @unique
   stripeSubscriptionId   String?   @unique
 
-  // Admin verification gates
-  // verifiedBuyerAt  DateTime?
-  // verifiedSellerAt DateTime?
-
   // Relations
-  listings            Listing[]                           // listings this user is selling
+  listings            Listing[]
   buyerTransactions   Transaction[] @relation("BuyerTransactions")
   sellerTransactions  Transaction[] @relation("SellerTransactions")
-  bids                Bid[]                                 // back-relation for Bid.bidder
-  notifications       Notification[]                        // in-app notifications (optional)
-  profile             UserProfile?                          // one-to-one profile
-  farms               Farm[]                                // farms owned by the user
+  bids                Bid[]
+  notifications       Notification[]
+  profile             UserProfile?
+  farms               Farm[]
 
   // Negotiations
   tradesAsBuyer       Trade[] @relation("TradeBuyer")
@@ -51,8 +49,6 @@ model User {
   @@index([role])
   @@index([subscriptionStatus])
   @@index([clerkId])
-  // @@index([verifiedBuyerAt])
-  // @@index([verifiedSellerAt])
 }
 
 /* ========================= Listings & Bids ========================= */
@@ -83,12 +79,8 @@ model Listing {
   // Human-readable window (kept for display/back-compat)
   availability String
 
-  // Real dates for sorting/filters
-  // availabilityStart DateTime  @default(now())
-  // availabilityEnd   DateTime  @default(now())
-
   acreFeet     Int
-  pricePerAF   Int                 // cents
+  pricePerAF   Int
 
   // SELL or BUY (maps to form "type")
   kind         ListingKind     @default(SELL)
@@ -102,11 +94,11 @@ model Listing {
   // Auction options
   isAuction      Boolean       @default(false)
   auctionEndsAt  DateTime?
-  reservePrice   Int?          // cents per AF
+  reservePrice   Int?
 
   bids          Bid[]
-  transactions  Transaction[]  // escrow/payments pipeline
-  trades        Trade[]        // negotiations pipeline
+  transactions  Transaction[]
+  trades        Trade[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -126,7 +118,7 @@ model Bid {
   bidder     User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
   bidderId   String
 
-  pricePerAF Int      // cents per AF
+  pricePerAF Int
   createdAt  DateTime @default(now())
 
   @@index([listingId, createdAt])
@@ -151,7 +143,7 @@ model Trade {
   district           String
   waterType          String?
   volumeAf           Int
-  pricePerAf         Int           // cents (per AF)
+  pricePerAf         Int
   windowLabel        String?
 
   status             TradeStatus   @default(OFFERED)
@@ -193,8 +185,8 @@ model TradeEvent {
   trade      Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   tradeId    String
 
-  actor      String   // "buyer" | "seller" | "system"
-  kind       String   // "OFFER" | "COUNTER" | "ACCEPT" | ...
+  actor      String
+  kind       String
   payload    Json
   createdAt  DateTime @default(now())
 
@@ -218,8 +210,8 @@ model Transaction {
   buyerId     String
 
   acreFeet    Int
-  pricePerAF  Int        // cents
-  totalAmount Int        // cents (acreFeet * pricePerAF)
+  pricePerAF  Int
+  totalAmount Int
 
   // Snapshots for audits/emails
   listingTitleSnapshot String?
@@ -236,7 +228,7 @@ model Transaction {
   offerExpiresAt       DateTime?
 
   paymentMethod PaymentMethod?
-  paymentId      String?     // Stripe PI id or Escrow.com id
+  paymentId      String?
 
   complianceApprovedBy String?
   complianceApprovedAt DateTime?
@@ -244,12 +236,12 @@ model Transaction {
   // Final docs (Transaction-centric doc storage)
   agreementUrl String?
 
-  // ---- DocuSign integration (used by signing routes) ----
-  docusignEnvelopeId   String?   // envelope id for this transaction
-  sellerClientUserId   String?   // embedded signer id for seller
-  buyerClientUserId    String?   // embedded signer id for buyer
-  sellerSignUrl        String?   // optional cached embedded URL
-  buyerSignUrl         String?   // optional cached embedded URL
+  // ---- DocuSign integration ----
+  docusignEnvelopeId   String?
+  sellerClientUserId   String?
+  buyerClientUserId    String?
+  sellerSignUrl        String?
+  buyerSignUrl         String?
 
   // Back-relation to Trade (no extra FK here)
   trade Trade? @relation("TradeToTransaction")
@@ -327,7 +319,7 @@ model Farm {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  listings      Listing[]    @relation("ListingSellerFarm")
+  listings      Listing[]     @relation("ListingSellerFarm")
   transactions  Transaction[] @relation("TransactionSellerFarm")
 
   @@index([userId])
