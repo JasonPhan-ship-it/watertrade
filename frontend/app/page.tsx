@@ -6,10 +6,12 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { useUser } from "@clerk/nextjs";
+import type { LucideIcon } from "lucide-react";
 import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  FileText,
   MousePointerClick,
   PenLine,
   X,
@@ -59,6 +61,8 @@ type CoreWorkflowSlide = {
   id: string;
   title: string;
   description: string;
+  highlight: string;
+  icon: LucideIcon;
   renderPreview: () => React.ReactNode;
 };
 
@@ -68,6 +72,8 @@ const CORE_COMPONENTS = [
     title: "Make an offer",
     description:
       "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
+    highlight: "Deal rooms",
+    icon: PenLine,
     renderPreview: () => <OfferPreview />,
   },
   {
@@ -75,6 +81,8 @@ const CORE_COMPONENTS = [
     title: "Use Buy Now",
     description:
       "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
+    highlight: "Instant escrow",
+    icon: MousePointerClick,
     renderPreview: () => <BuyNowPreview />,
   },
   {
@@ -82,6 +90,8 @@ const CORE_COMPONENTS = [
     title: "Create a listing",
     description:
       "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
+    highlight: "Inventory",
+    icon: FileText,
     renderPreview: () => <CreateListingPreview />,
   },
   {
@@ -89,6 +99,8 @@ const CORE_COMPONENTS = [
     title: "Track progress",
     description:
       "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
+    highlight: "Delivery tracking",
+    icon: CheckCircle2,
     renderPreview: () => <TrackProgressPreview />,
   },
 ] satisfies readonly CoreWorkflowSlide[];
@@ -999,6 +1011,7 @@ function TrackProgressPreview() {
 function CoreWorkflowCarousel() {
   const [activeIndex, setActiveIndex] = React.useState(0);
   const totalSlides = CORE_COMPONENTS.length;
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const goTo = React.useCallback(
     (index: number) => {
@@ -1012,7 +1025,7 @@ function CoreWorkflowCarousel() {
   );
 
   React.useEffect(() => {
-    if (totalSlides <= 1) {
+    if (totalSlides <= 1 || prefersReducedMotion) {
       return;
     }
 
@@ -1021,7 +1034,7 @@ function CoreWorkflowCarousel() {
     }, CORE_WORKFLOW_AUTOPLAY_INTERVAL);
 
     return () => window.clearTimeout(timer);
-  }, [activeIndex, goTo, totalSlides]);
+  }, [activeIndex, goTo, prefersReducedMotion, totalSlides]);
   
   const handlePrevious = React.useCallback(() => goTo(activeIndex - 1), [activeIndex, goTo]);
   const handleNext = React.useCallback(() => goTo(activeIndex + 1), [activeIndex, goTo]);
@@ -1040,69 +1053,102 @@ function CoreWorkflowCarousel() {
     [handleNext, handlePrevious],
   );
 
-  return (
-    <div className="rounded-3xl border border-white/20 bg-white/10 p-6 shadow-lg backdrop-blur">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">Core workflows</h2>
-          <p className="mt-2 text-sm text-emerald-50/80">
-          </p>
-        </div>
-      </div>
-      <div
-        className="mt-6"
-        role="group"
-        aria-roledescription="carousel"
-        aria-label="Core platform workflows"
-        onKeyDown={handleKeyDown}
-        tabIndex={0}
-      >
-        <div className="relative overflow-hidden">
-          <div
-            className="flex transition-transform duration-500 ease-out"
-            style={{ transform: `translateX(-${activeIndex * 100}%)` }}
-          >
-            {CORE_COMPONENTS.map((component, index) => (
-              <article
-                key={component.id}
-                className="w-full shrink-0 grow-0 basis-full px-1"
-                aria-hidden={activeIndex !== index}
-                aria-label={component.title}
-              >
-                <div className="rounded-2xl border border-white/15 bg-white/5 p-5 shadow-sm">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h3 className="text-base font-semibold text-white">{component.title}</h3>
-                      <p className="mt-1 text-sm text-emerald-50/85">{component.description}</p>
-                    </div>
-                  </div>
-                  {component.renderPreview()}
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
+  const activeComponent = CORE_COMPONENTS[activeIndex] ?? CORE_COMPONENTS[0];
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+  if (!activeComponent) {
+    return null;
+  }
+  
+  return (
+    <div
+      className="relative overflow-hidden rounded-3xl border border-white/15 bg-white/10 p-6 shadow-xl backdrop-blur-lg sm:p-8"
+      role="region"
+      aria-roledescription="carousel"
+      aria-label="Core platform workflows"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
+      <div className="pointer-events-none absolute -left-24 -top-32 h-64 w-64 rounded-full bg-emerald-400/20 blur-3xl" aria-hidden />
+      <div className="pointer-events-none absolute -bottom-32 -right-28 h-72 w-72 rounded-full bg-teal-400/20 blur-3xl" aria-hidden />
+
+      <div className="relative grid gap-8 lg:grid-cols-[minmax(0,0.54fr)_minmax(0,0.46fr)]">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">Core workflows</p>
+          <h3 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">
+            Explore the operating system for water trading
+          </h3>
+          <p className="mt-2 text-sm leading-relaxed text-emerald-50/80">
+            Guided workspaces keep growers, advisors, and districts aligned from first offer to final delivery.
+          </p>
+
+          <div className="mt-6 space-y-2">
             {CORE_COMPONENTS.map((component, index) => {
               const isActive = index === activeIndex;
+              const Icon = component.icon;
+
               return (
                 <button
                   key={component.id}
                   type="button"
                   onClick={() => goTo(index)}
-                  className={`h-2.5 w-8 rounded-full transition ${
-                    isActive ? "bg-emerald-300" : "bg-white/20 hover:bg-white/30"
+                  className={`group flex w-full items-start gap-3 rounded-2xl border px-4 py-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 ${
+                    isActive
+                      ? "border-white/60 bg-white/15 shadow-lg"
+                      : "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/10"
                   }`}
-                  aria-label={`Show ${component.title}`}
                   aria-pressed={isActive}
+                  aria-current={isActive ? "true" : undefined}
+                  aria-label={`Show workflow: ${component.title}`}
+                >
+                  <span
+                    className={`mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold transition ${
+                      isActive ? "bg-white text-emerald-800" : "bg-emerald-400/10 text-emerald-100/80"
+                    }`}
+                  >
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Icon
+                        className={`h-4 w-4 transition ${
+                          isActive ? "text-emerald-200" : "text-emerald-100/70 group-hover:text-emerald-100"
+                        }`}
+                        aria-hidden
+                      />
+                      <span
+                        className={`text-[11px] font-semibold uppercase tracking-[0.25em] transition ${
+                          isActive ? "text-emerald-100" : "text-emerald-100/70 group-hover:text-emerald-100"
+                        }`}
+                      >
+                        {component.highlight}
+                      </span>
+                    </div>
+                    <p className="text-base font-semibold text-white">{component.title}</p>
+                    <p className="text-sm leading-relaxed text-emerald-50/80">{component.description}</p>
+                </button>
+              );
+            })}
                 />
               );
             })}
           </div>
-          <div className="flex gap-2">
-            <button
+        <div className="relative isolate">
+          <div className="pointer-events-none absolute -right-20 -top-16 h-60 w-60 rounded-full bg-emerald-300/20 blur-3xl" aria-hidden />
+          <div className="pointer-events-none absolute -bottom-20 left-10 h-48 w-48 rounded-full bg-emerald-500/15 blur-2xl" aria-hidden />
+          <div className="relative rounded-2xl border border-white/15 bg-slate-900/60 p-4 shadow-xl ring-1 ring-white/10" aria-live="polite">
+            {activeComponent.renderPreview()}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <p className="text-xs text-emerald-50/70">
+          {prefersReducedMotion
+            ? "Select a workflow to explore the UI at your own pace."
+            : "Carousel advances every 8 seconds. Use the controls to explore manually."}
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+                <button
               type="button"
               onClick={handlePrevious}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
