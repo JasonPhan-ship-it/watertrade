@@ -57,16 +57,18 @@ const FEATURED_DISTRICTS = [
   { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 400, height: 96 },
 ] as const;
 
-type CoreWorkflowSlide = {
+type CoreWorkflowDefinition = {
   id: string;
   title: string;
   description: string;
   highlight: string;
   icon: LucideIcon;
-  renderPreview: () => React.ReactNode;
+  badge: string;
+  icon: LucideIcon;
+  preview: React.ComponentType;
 };
 
-const CORE_COMPONENTS = [
+const CORE_WORKFLOWS: readonly CoreWorkflowDefinition[] = [
   {
     id: "offer",
     title: "Make an offer",
@@ -74,7 +76,9 @@ const CORE_COMPONENTS = [
       "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
     highlight: "Deal rooms",
     icon: PenLine,
-    renderPreview: () => <OfferPreview />,
+    badge: "Deal rooms",
+    icon: PenLine,
+    preview: OfferPreview,
   },
   {
     id: "buy-now",
@@ -83,7 +87,9 @@ const CORE_COMPONENTS = [
       "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
     highlight: "Instant escrow",
     icon: MousePointerClick,
-    renderPreview: () => <BuyNowPreview />,
+    badge: "Instant escrow",
+    icon: MousePointerClick,
+    preview: BuyNowPreview,
   },
   {
     id: "create-listing",
@@ -92,7 +98,9 @@ const CORE_COMPONENTS = [
       "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
     highlight: "Inventory",
     icon: FileText,
-    renderPreview: () => <CreateListingPreview />,
+    badge: "Inventory",
+    icon: FileText,
+    preview: CreateListingPreview,
   },
   {
     id: "track-progress",
@@ -101,9 +109,11 @@ const CORE_COMPONENTS = [
       "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
     highlight: "Delivery tracking",
     icon: CheckCircle2,
-    renderPreview: () => <TrackProgressPreview />,
+    badge: "Delivery tracking",
+    icon: CheckCircle2,
+    preview: TrackProgressPreview,
   },
-] satisfies readonly CoreWorkflowSlide[];
+] as const;
 
 const CORE_WORKFLOW_AUTOPLAY_INTERVAL = 8000;
 
@@ -1008,55 +1018,54 @@ function TrackProgressPreview() {
   );
 }
 
-function CoreWorkflowCarousel() {
-  const [activeIndex, setActiveIndex] = React.useState(0);
-  const totalSlides = CORE_COMPONENTS.length;
+function CoreWorkflowShowcase() {
   const prefersReducedMotion = usePrefersReducedMotion();
-
-  const goTo = React.useCallback(
-    (index: number) => {
-      setActiveIndex((prev) => {
-        if (totalSlides === 0) return prev;
-        const normalized = ((index % totalSlides) + totalSlides) % totalSlides;
-        return normalized;
-      });
-    },
-    [totalSlides],
-  );
-
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  const workflowCount = CORE_WORKFLOWS.length;
+  
   React.useEffect(() => {
-    if (totalSlides <= 1 || prefersReducedMotion) {
+    if (workflowCount <= 1 || prefersReducedMotion) {
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      goTo(activeIndex + 1);
+    const timer = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % workflowCount);
     }, CORE_WORKFLOW_AUTOPLAY_INTERVAL);
 
-    return () => window.clearTimeout(timer);
-  }, [activeIndex, goTo, prefersReducedMotion, totalSlides]);
-  
-  const handlePrevious = React.useCallback(() => goTo(activeIndex - 1), [activeIndex, goTo]);
-  const handleNext = React.useCallback(() => goTo(activeIndex + 1), [activeIndex, goTo]);
+    return () => window.clearInterval(timer);
+  }, [prefersReducedMotion, workflowCount]);
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const setIndex = React.useCallback(
+    (index: number) => {
+      if (workflowCount === 0) return;
+      const normalized = ((index % workflowCount) + workflowCount) % workflowCount;
+      setActiveIndex(normalized);
+    },
+    [workflowCount],
+  );
+
+  const handleKeyDown = React.useCallback<React.KeyboardEventHandler<HTMLDivElement>>(
+    (event) => {
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         handlePrevious();
       }
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        handleNext();
+        setIndex(activeIndex - 1);
       }
     },
-    [handleNext, handlePrevious],
+    [activeIndex, setIndex],
   );
 
-  const activeComponent = CORE_COMPONENTS[activeIndex] ?? CORE_COMPONENTS[0];
+  const activeWorkflow = CORE_WORKFLOWS[activeIndex] ?? CORE_WORKFLOWS[0];
 
-  if (!activeComponent) {
+  if (!activeWorkflow) {
     return null;
+  }
+
+  const Preview = activeWorkflow.preview;
+
   }
   
   return (
@@ -1150,17 +1159,16 @@ function CoreWorkflowCarousel() {
         <div className="flex flex-wrap items-center gap-3">
                 <button
               type="button"
-              onClick={handlePrevious}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
+              onClick={() => setIndex(activeIndex - 1)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-white/5 text-white transition hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
               aria-label="View previous workflow"
             >
               <ChevronLeft className="h-4 w-4" aria-hidden />
             </button>
             <button
               type="button"
-              onClick={handleNext}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
-              aria-label="View next workflow"
+              onClick={() => setIndex(activeIndex + 1)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-white/5 text-white transition hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
             >
               <ChevronRight className="h-4 w-4" aria-hidden />
             </button>
@@ -1248,7 +1256,7 @@ function HeroSection({
             <FeaturedDistricts />
           </div>
 
-          <CoreWorkflowCarousel />
+          <CoreWorkflowShowcase />
         </div>
       </div>
     </section>
