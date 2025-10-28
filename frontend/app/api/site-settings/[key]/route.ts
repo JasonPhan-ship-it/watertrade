@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DEFAULT_SITE_SETTINGS, getSiteSetting, setSiteSetting, type HomepageCopy, type SiteSettingKey } from "@/lib/site-settings";
+import {
+  DEFAULT_SITE_SETTINGS,
+  getSiteSetting,
+  setSiteSetting,
+  type HomepageCopy,
+  type MetricFormatter,
+  type SiteSettingKey,
+} from "@/lib/site-settings";
 import { requireAdmin } from "@/lib/rbac";
 
 type RouteContext = {
@@ -58,7 +65,7 @@ function normalizeHomepageCopy(value: unknown): HomepageCopy {
     const fallback = defaults.metrics.cards[index] ?? defaults.metrics.cards[0];
     if (!card || typeof card !== "object") return fallback;
     const cardObj = card as Record<string, unknown>;
-    const formatter = cardObj.formatter === "currency" ? "currency" : "integer";
+    const formatter: MetricFormatter = cardObj.formatter === "currency" ? "currency" : "integer";
     return {
       label: ensureString(cardObj.label, fallback.label),
       formatter,
