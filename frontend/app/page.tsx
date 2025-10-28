@@ -1127,7 +1127,6 @@ function CoreWorkflowShowcase() {
     return null;
   }
   const Preview = activeWorkflow.preview;
-  }
   return (
     <div
       className="relative overflow-hidden rounded-3xl border border-white/15 bg-white/10 p-6 shadow-xl backdrop-blur-lg sm:p-8"
