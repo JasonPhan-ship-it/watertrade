@@ -63,8 +63,6 @@ type CoreWorkflowDefinition = {
   description: string;
   highlight: string;
   icon: LucideIcon;
-  badge: string;
-  icon: LucideIcon;
   preview: React.ComponentType;
 };
 
@@ -76,8 +74,6 @@ const CORE_WORKFLOWS: readonly CoreWorkflowDefinition[] = [
       "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
     highlight: "Deal rooms",
     icon: PenLine,
-    badge: "Deal rooms",
-    icon: PenLine,
     preview: OfferPreview,
   },
   {
@@ -85,8 +81,6 @@ const CORE_WORKFLOWS: readonly CoreWorkflowDefinition[] = [
     title: "Use Buy Now",
     description:
       "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
-    highlight: "Instant escrow",
-    icon: MousePointerClick,
     badge: "Instant escrow",
     icon: MousePointerClick,
     preview: BuyNowPreview,
@@ -98,8 +92,6 @@ const CORE_WORKFLOWS: readonly CoreWorkflowDefinition[] = [
       "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
     highlight: "Inventory",
     icon: FileText,
-    badge: "Inventory",
-    icon: FileText,
     preview: CreateListingPreview,
   },
   {
@@ -108,8 +100,6 @@ const CORE_WORKFLOWS: readonly CoreWorkflowDefinition[] = [
     description:
       "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
     highlight: "Delivery tracking",
-    icon: CheckCircle2,
-    badge: "Delivery tracking",
     icon: CheckCircle2,
     preview: TrackProgressPreview,
   },
@@ -140,6 +130,8 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 });
 const formatInteger = (value: number) => integerFormatter.format(Math.max(0, Math.round(value)));
 const formatCurrency = (value: number) => currencyFormatter.format(Math.max(0, Math.round(value)));
+const WATER_TRADER_FEE_RATE = 0.05;
+const WATER_TRADER_FEE_PERCENT = `${Math.round(WATER_TRADER_FEE_RATE * 100)}%`;
 
 const METRICS: readonly MetricDefinition[] = [
   {
@@ -556,7 +548,16 @@ function OfferPreview() {
 function BuyNowPreview() {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = React.useState<"details" | "clicked" | "redirect">("details");
-
+  const checkoutQuantityAf = 250;
+  const checkoutPricePerAf = 845;
+  const checkoutSubtotal = checkoutQuantityAf * checkoutPricePerAf;
+  const checkoutFee = checkoutSubtotal * WATER_TRADER_FEE_RATE;
+  const checkoutTotal = checkoutSubtotal + checkoutFee;
+  const checkoutPriceDisplay = `$${checkoutPricePerAf.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+  
   React.useEffect(() => {
     if (prefersReducedMotion) {
       setPhase("details");
@@ -605,21 +606,35 @@ function BuyNowPreview() {
         <div className="mt-3 grid gap-3 text-[11px] text-slate-600 sm:grid-cols-2">
           <div className="space-y-1 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Quantity (AF)</p>
-            <p className="text-base font-semibold text-slate-900">250</p>
+            <p className="text-base font-semibold text-slate-900">{formatInteger(checkoutQuantityAf)}</p>
             <p className="text-[10px] text-slate-500">Server locks final volume</p>
           </div>
           <div className="space-y-1 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Price per AF</p>
-            <p className="text-base font-semibold text-slate-900">$845</p>
+            <p className="text-base font-semibold text-slate-900">{checkoutPriceDisplay}</p>
             <p className="text-[10px] text-slate-500">Pulled from listing controls</p>
           </div>
         </div>
-        <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3 text-sm text-emerald-900">
-          <div className="flex items-center justify-between">
-            <span>Preview total</span>
-            <span className="font-semibold">$211,250</span>
+        <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3 text-sm text-emerald-900" aria-live="polite">
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
+            <span>Checkout summary</span>
+            <span>Escrow ready</span>
           </div>
-          <p className="text-[10px] text-emerald-700/80">Auto-reconciled in escrow packet</p>
+          <dl className="mt-2 space-y-1 text-[11px] text-emerald-800">
+            <div className="flex items-center justify-between">
+              <dt>Listing subtotal</dt>
+              <dd>{formatCurrency(checkoutSubtotal)}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt>Water Trader Fee ({WATER_TRADER_FEE_PERCENT})</dt>
+              <dd>{formatCurrency(checkoutFee)}</dd>
+            </div>
+          </dl>
+          <div className="mt-3 flex items-center justify-between text-sm font-semibold text-emerald-900">
+            <span>Total due</span>
+            <span>{formatCurrency(checkoutTotal)}</span>
+          </div>
+          <p className="mt-1 text-[10px] text-emerald-700/80">Auto-reconciled in escrow packet</p>
         </div>
         <button
           type="button"
@@ -671,6 +686,15 @@ function BuyNowPreview() {
 function CreateListingPreview() {
 
   const prefersReducedMotion = usePrefersReducedMotion();
+  const listingVolumeAf = 1200;
+  const listingPricePerAf = 795;
+  const listingGrossValue = listingVolumeAf * listingPricePerAf;
+  const listingFee = listingGrossValue * WATER_TRADER_FEE_RATE;
+  const listingNet = listingGrossValue - listingFee;
+  const listingPriceDisplay = `$${listingPricePerAf.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
   const sectionOrder = ["basics", "volume", "distribution"] as const;
   const sectionCount = sectionOrder.length;
   const [activeSection, setActiveSection] = React.useState(prefersReducedMotion ? -1 : 0);
@@ -794,7 +818,7 @@ function CreateListingPreview() {
                       : "border-slate-200 bg-slate-50/80 text-slate-800"
                   }`}
                 >
-                  1,200
+                  {formatInteger(listingVolumeAf)}
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -807,7 +831,7 @@ function CreateListingPreview() {
                         : "border-slate-200 bg-slate-50/80 text-slate-800"
                     }`}
                   >
-                    $795.00
+                    {listingPriceDisplay}
                   </div>
                 </div>
                 <div className="space-y-2 text-[10px] uppercase tracking-[0.2em] text-slate-500">
@@ -830,6 +854,36 @@ function CreateListingPreview() {
                   </div>
                   <p className="text-[9px] normal-case text-slate-500">Toggle to expose auction settings.</p>
                 </div>
+              <div
+                className={`rounded-xl border px-3 py-3 ${
+                  activeSection === 1
+                    ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+                    : "border-slate-200 bg-slate-50/80 text-slate-800"
+                }`}
+              >
+                <div
+                  className={`flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] ${
+                    activeSection === 1 ? "text-emerald-700" : "text-slate-500"
+                  }`}
+                >
+                  <span>Estimated order value</span>
+                  <span>{formatCurrency(listingGrossValue)}</span>
+                </div>
+                <div className="mt-2 space-y-1 text-[11px]">
+                  <div
+                    className={`flex items-center justify-between ${
+                      activeSection === 1 ? "text-emerald-700/80" : "text-slate-500"
+                    }`}
+                  >
+                    <span>Water Trader Fee ({WATER_TRADER_FEE_PERCENT})</span>
+                    <span>-{formatCurrency(listingFee)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm font-semibold text-emerald-600">
+                    <span>Projected seller net</span>
+                    <span>{formatCurrency(listingNet)}</span>
+                  </div>
+                </div>
+              </div>
               </div>
             </div>
           </section>
@@ -866,8 +920,9 @@ function CreateListingPreview() {
             </div>
             <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-slate-700">
               <span>DocuSign packet</span>
-              <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-600">Auto generated</span>            </div>
-          </div>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-600">Auto generated</span>
+            </div>
+            </div>
           <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-600">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-hidden />
@@ -1025,7 +1080,7 @@ function CoreWorkflowShowcase() {
   
   React.useEffect(() => {
     if (workflowCount <= 1 || prefersReducedMotion) {
-      return;
+      return undefined;
     }
 
     const timer = window.setInterval(() => {
@@ -1035,7 +1090,7 @@ function CoreWorkflowShowcase() {
     return () => window.clearInterval(timer);
   }, [prefersReducedMotion, workflowCount]);
 
-  const setIndex = React.useCallback(
+  const goTo = React.useCallback(
     (index: number) => {
       if (workflowCount === 0) return;
       const normalized = ((index % workflowCount) + workflowCount) % workflowCount;
@@ -1043,7 +1098,16 @@ function CoreWorkflowShowcase() {
     },
     [workflowCount],
   );
+  
+  const handlePrevious = React.useCallback(() => {
+    goTo(activeIndex - 1);
+  }, [activeIndex, goTo]);
 
+  const handleNext = React.useCallback(() => {
+    goTo(activeIndex + 1);
+  }, [activeIndex, goTo]);
+
+  
   const handleKeyDown = React.useCallback<React.KeyboardEventHandler<HTMLDivElement>>(
     (event) => {
       if (event.key === "ArrowLeft") {
@@ -1052,22 +1116,18 @@ function CoreWorkflowShowcase() {
       }
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        setIndex(activeIndex - 1);
+        handleNext();
       }
     },
-    [activeIndex, setIndex],
+    [handleNext, handlePrevious],
   );
 
   const activeWorkflow = CORE_WORKFLOWS[activeIndex] ?? CORE_WORKFLOWS[0];
-
   if (!activeWorkflow) {
     return null;
   }
-
   const Preview = activeWorkflow.preview;
-
   }
-  
   return (
     <div
       className="relative overflow-hidden rounded-3xl border border-white/15 bg-white/10 p-6 shadow-xl backdrop-blur-lg sm:p-8"
@@ -1091,13 +1151,13 @@ function CoreWorkflowShowcase() {
           </p>
 
           <div className="mt-6 space-y-2">
-            {CORE_COMPONENTS.map((component, index) => {
+            {CORE_WORKFLOWS.map((workflow, index) => {
               const isActive = index === activeIndex;
-              const Icon = component.icon;
+              const Icon = workflow.icon;
 
               return (
                 <button
-                  key={component.id}
+                  key={workflow.id}
                   type="button"
                   onClick={() => goTo(index)}
                   className={`group flex w-full items-start gap-3 rounded-2xl border px-4 py-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 ${
@@ -1107,7 +1167,7 @@ function CoreWorkflowShowcase() {
                   }`}
                   aria-pressed={isActive}
                   aria-current={isActive ? "true" : undefined}
-                  aria-label={`Show workflow: ${component.title}`}
+                  aria-label={`Show workflow: ${workflow.title}`}
                 >
                   <span
                     className={`mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold transition ${
@@ -1129,23 +1189,23 @@ function CoreWorkflowShowcase() {
                           isActive ? "text-emerald-100" : "text-emerald-100/70 group-hover:text-emerald-100"
                         }`}
                       >
-                        {component.highlight}
+                        {workflow.highlight}
                       </span>
                     </div>
-                    <p className="text-base font-semibold text-white">{component.title}</p>
-                    <p className="text-sm leading-relaxed text-emerald-50/80">{component.description}</p>
+                    <p className="text-base font-semibold text-white">{workflow.title}</p>
+                    <p className="text-sm leading-relaxed text-emerald-50/80">{workflow.description}</p>
+                  </div>
                 </button>
               );
             })}
-                />
-              );
-            })}
           </div>
+        </div>
+
         <div className="relative isolate">
           <div className="pointer-events-none absolute -right-20 -top-16 h-60 w-60 rounded-full bg-emerald-300/20 blur-3xl" aria-hidden />
           <div className="pointer-events-none absolute -bottom-20 left-10 h-48 w-48 rounded-full bg-emerald-500/15 blur-2xl" aria-hidden />
           <div className="relative rounded-2xl border border-white/15 bg-slate-900/60 p-4 shadow-xl ring-1 ring-white/10" aria-live="polite">
-            {activeComponent.renderPreview()}
+            <Preview />
           </div>
         </div>
       </div>
@@ -1157,22 +1217,22 @@ function CoreWorkflowShowcase() {
             : "Carousel advances every 8 seconds. Use the controls to explore manually."}
         </p>
         <div className="flex flex-wrap items-center gap-3">
-                <button
-              type="button"
-              onClick={() => setIndex(activeIndex - 1)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-white/5 text-white transition hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-              aria-label="View previous workflow"
-            >
-              <ChevronLeft className="h-4 w-4" aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => setIndex(activeIndex + 1)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-white/5 text-white transition hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-            >
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handlePrevious}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-white/5 text-white transition hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            aria-label="View previous workflow"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={handleNext}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-white/5 text-white transition hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            aria-label="View next workflow"
+          >
+            <ChevronRight className="h-4 w-4" aria-hidden />
+          </button>
         </div>
       </div>
     </div>
