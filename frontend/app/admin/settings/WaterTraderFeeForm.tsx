@@ -7,9 +7,11 @@ export function WaterTraderFeeForm({ initialRate }: { initialRate: number }) {
   const [status, setStatus] = React.useState<"idle" | "saving">("idle");
   const [message, setMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [lastSavedRate, setLastSavedRate] = React.useState<number>(initialRate);
 
   React.useEffect(() => {
     setPercent(formatPercent(initialRate));
+    setLastSavedRate(initialRate);
   }, [initialRate]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -22,11 +24,26 @@ export function WaterTraderFeeForm({ initialRate }: { initialRate: number }) {
       return;
     }
 
+    const rate = nextPercent / 100;
+    const formatted = formatPercent(rate);
+    const formattedDisplay = `${formatted}%`;
+
+    if (Math.abs(rate - lastSavedRate) < 0.000001) {
+      setMessage(`Water Trader Fee is already set to ${formattedDisplay}.`);
+      setError(null);
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Update the Water Trader Fee to ${formattedDisplay}?`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
     setStatus("saving");
     setError(null);
     setMessage(null);
-
-    const rate = nextPercent / 100;
 
     try {
       const response = await fetch("/api/site-settings/water-trader-fee", {
@@ -40,7 +57,9 @@ export function WaterTraderFeeForm({ initialRate }: { initialRate: number }) {
         throw new Error(data.error || "Failed to update fee");
       }
 
-      setMessage("Water Trader Fee updated successfully.");
+      setLastSavedRate(rate);
+      setPercent(formatted);
+      setMessage(`Water Trader Fee updated to ${formattedDisplay}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unexpected error";
       setError(message);
