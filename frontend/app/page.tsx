@@ -6,7 +6,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { useUser } from "@clerk/nextjs";
-import { CheckCircle2, ChevronLeft, ChevronRight, X } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  MousePointerClick,
+  PenLine,
+  X,
+} from "lucide-react";
 
 import Footer from "@/components/Footer";
 
@@ -525,97 +532,466 @@ function OfferPreview() {
 }
 
 function BuyNowPreview() {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [phase, setPhase] = React.useState<"details" | "clicked" | "redirect">("details");
+
+  React.useEffect(() => {
+    if (prefersReducedMotion) {
+      setPhase("details");
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const run = (next: typeof phase) => {
+      if (cancelled) return;
+      setPhase(next);
+
+      const delay =
+        next === "details"
+          ? 2400
+          : next === "clicked"
+          ? 900
+          : 2400;
+
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        const following = next === "details" ? "clicked" : next === "clicked" ? "redirect" : "details";
+        run(following);
+      }, delay);
+    };
+
+    run("details");
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [prefersReducedMotion]);
+
+  const showDocuSign = phase === "redirect";
+  const buttonActive = phase === "clicked";
+  const pointerHidden = showDocuSign;
+
   return (
     <PreviewFrame title="Buy Now" subtitle="Escrow ready">
-      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-        <div className="flex items-center justify-between text-[11px] text-emerald-50">
-          <span className="font-semibold">San Luis WD • 250 AF</span>
-          <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">Verified</span>
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-200/40 bg-white/90 p-4 text-slate-800 shadow-sm">
+        <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.25em] text-emerald-700/80">
+          <span>Listing summary</span>
+          <span className="text-emerald-500">Verified</span>
         </div>
-        <div className="mt-3 grid gap-2 text-[11px] text-emerald-50/90">
-          <div className="flex items-center justify-between">
-            <span>Price per AF</span>
-            <span className="font-semibold">$845</span>
+        <div className="mt-3 grid gap-3 text-[11px] text-slate-600 sm:grid-cols-2">
+          <div className="space-y-1 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Quantity (AF)</p>
+            <p className="text-base font-semibold text-slate-900">250</p>
+            <p className="text-[10px] text-slate-500">Server locks final volume</p>
           </div>
-          <div className="flex items-center justify-between">
-            <span>Closing packet</span>
-            <span className="text-emerald-200">Auto generated</span>
+          <div className="space-y-1 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Price per AF</p>
+            <p className="text-base font-semibold text-slate-900">$845</p>
+            <p className="text-[10px] text-slate-500">Pulled from listing controls</p>
           </div>
+        </div>
+        <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3 text-sm text-emerald-900">
           <div className="flex items-center justify-between">
-            <span>Stakeholders</span>
-            <span className="text-emerald-200">6 notified</span>
+            <span>Preview total</span>
+            <span className="font-semibold">$211,250</span>
+          </div>
+          <p className="text-[10px] text-emerald-700/80">Auto-reconciled in escrow packet</p>
+        </div>
+        <button
+          type="button"
+          className={`relative mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+            buttonActive ? "bg-emerald-400 text-emerald-950 shadow-inner" : "bg-emerald-600 text-white shadow"
+          }`}
+        >
+          <span>Buy Now</span>
+          <ChevronRight className="h-4 w-4" aria-hidden />
+          <span
+            className={`pointer-events-none absolute inset-0 rounded-xl border border-emerald-300/70 transition-opacity duration-500 ${
+              buttonActive ? "opacity-100" : "opacity-0"
+            }`}
+            aria-hidden
+          />
+        </button>
+        <MousePointerClick
+          className={`pointer-events-none absolute -bottom-2 right-6 h-6 w-6 text-emerald-500/80 transition-all duration-500 ${
+            pointerHidden ? "translate-y-3 opacity-0" : buttonActive ? "translate-y-1 scale-95" : "opacity-100"
+          }`}
+          aria-hidden
+        />
+        <div
+          className={`pointer-events-none absolute inset-x-4 top-[56%] z-20 rounded-2xl border border-emerald-200/60 bg-white/95 p-4 text-[11px] text-slate-700 shadow-lg transition-all duration-500 ${
+            showDocuSign ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-800">
+            <span>DocuSign session</span>
+            <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-500">Signing</span>
+          </div>
+          <div className="mt-3 flex items-start gap-3 rounded-xl border border-dashed border-slate-300 bg-white/80 p-3">
+            <PenLine className="h-5 w-5 text-emerald-600" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Water transfer agreement</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Awaiting buyer signature</p>
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs">
+            <span className="text-slate-500">Auto-redirected after click</span>
+            <span className="rounded-lg bg-emerald-600 px-3 py-1 text-[10px] font-semibold text-white">Sign &amp; finish</span>
           </div>
         </div>
       </div>
-      <div className="flex items-center justify-between rounded-xl bg-emerald-400/15 px-3 py-2 text-[11px] text-emerald-50">
-        <span>Reserve now</span>
-        <span className="font-semibold text-emerald-100">2m hold</span>
       </div>
     </PreviewFrame>
   );
 }
 
 function CreateListingPreview() {
+
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const sectionOrder = ["basics", "volume", "distribution"] as const;
+  const sectionCount = sectionOrder.length;
+  const [activeSection, setActiveSection] = React.useState(prefersReducedMotion ? -1 : 0);
+
+  React.useEffect(() => {
+    if (prefersReducedMotion) {
+      setActiveSection(-1);
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    const durations = [2600, 2200, 2600];
+
+    const run = (index: number) => {
+      if (cancelled) return;
+      setActiveSection(index);
+      const delay = durations[index % durations.length] ?? 2400;
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        const next = (index + 1) % sectionCount;
+        run(next);
+      }, delay);
+    };
+
+    run(0);
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [prefersReducedMotion, sectionCount]);
+
+  const completion = activeSection < 0 ? 0.5 : (activeSection + 1) / sectionCount;
+
+  const baseSectionClass = "rounded-2xl border bg-white/90 p-4 text-slate-800 shadow-sm transition-all duration-500";
+  const inactiveSectionClass = "border-white/50";
+  const activeSectionClass =
+    "border-emerald-200 ring-2 ring-emerald-300/70 shadow-[0_18px_40px_rgba(16,185,129,0.18)]";
+  
   return (
     <PreviewFrame title="Listing composer" subtitle="Guided">
-      <div className="space-y-2 text-[11px]">
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Listing title</span>
-          <div className="mt-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-emerald-50/85">2024 Allocation – Kern</div>
-        </label>
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Water type</span>
-          <div className="mt-1 flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-emerald-50/85">
-            <span>Surface</span>
-            <span className="text-emerald-200">Eligible</span>
+      <div className="grid gap-3 text-[11px] sm:grid-cols-[1.1fr,0.9fr]">
+        <div className="space-y-3">
+          <section
+            className={`${baseSectionClass} ${activeSection === 0 ? activeSectionClass : inactiveSectionClass}`}
+            aria-label="Listing basics"
+          >
+            <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-emerald-600/80">
+              <span>Listing basics</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                  activeSection === 0 ? "bg-emerald-100 text-emerald-700" : "bg-emerald-50 text-emerald-600/80"
+                }`}
+              >
+                Step 1
+              </span>
+            </div>
+            <div className="mt-3 space-y-2">
+              <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                Listing title
+                <div
+                  className={`mt-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                    activeSection === 0
+                      ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
+                      : "border-slate-200 bg-slate-50/80 text-slate-800"
+                  }`}
+                >
+                  2024 Allocation — Kern
+                </div>
+              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                  District
+                  <div
+                    className={`mt-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                      activeSection === 0
+                        ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
+                        : "border-slate-200 bg-slate-50/80 text-slate-800"
+                    }`}
+                  >
+                    Kern Water Bank
+                  </div>
+                </label>
+                <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                  Water type
+                  <div
+                    className={`mt-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                      activeSection === 0
+                        ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
+                        : "border-slate-200 bg-slate-50/80 text-slate-800"
+                    }`}
+                  >
+                    Surface allocation
+                  </div>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section
+            className={`${baseSectionClass} ${activeSection === 1 ? activeSectionClass : inactiveSectionClass}`}
+            aria-label="Volume and pricing"
+          >
+            <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-emerald-600/80">
+              <span>Volume &amp; pricing</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                  activeSection === 1 ? "bg-emerald-100 text-emerald-700" : "bg-emerald-50 text-emerald-600/80"
+                }`}
+              >
+                Step 2
+              </span>
+            </div>
+            <div className="mt-3 space-y-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Volume (acre-feet)</p>
+                <div
+                  className={`mt-1 rounded-lg border px-3 py-2 text-base font-semibold ${
+                    activeSection === 1
+                      ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
+                      : "border-slate-200 bg-slate-50/80 text-slate-800"
+                  }`}
+                >
+                  1,200
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Price per AF ($)</p>
+                  <div
+                    className={`mt-1 rounded-lg border px-3 py-2 text-base font-semibold ${
+                      activeSection === 1
+                        ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
+                        : "border-slate-200 bg-slate-50/80 text-slate-800"
+                    }`}
+                  >
+                    $795.00
+                  </div>
+                </div>
+                <div className="space-y-2 text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                  Pricing mode
+                  <div
+                    className={`flex rounded-full border p-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
+                      activeSection === 1
+                        ? "border-emerald-200 bg-emerald-50"
+                        : "border-slate-200 bg-slate-50"
+                    }`}
+                  >
+                    <span
+                      className={`flex-1 rounded-full px-2 py-1 text-center text-[10px] ${
+                        activeSection === 1 ? "bg-emerald-600 text-white shadow" : "bg-white text-slate-600"
+                      }`}
+                    >
+                      Fixed
+                    </span>
+                    <span className="flex-1 rounded-full px-2 py-1 text-center text-slate-400">Auction</span>
+                  </div>
+                  <p className="text-[9px] normal-case text-slate-500">Toggle to expose auction settings.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section
+          className={`${baseSectionClass} ${activeSection === 2 ? activeSectionClass : inactiveSectionClass}`}
+          aria-label="Distribution controls"
+        >
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-emerald-600/80">
+            <span>Visibility &amp; routing</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                activeSection === 2 ? "bg-emerald-100 text-emerald-700" : "bg-emerald-50 text-emerald-600/80"
+              }`}
+            >
+              Step 3
+            </span>
           </div>
-        </label>
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Visibility</span>
-          <div className="mt-1 grid gap-1">
-            <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-emerald-50/85">
+          <div className="mt-3 space-y-2 text-sm">
+            <div
+              className={`flex items-center justify-between rounded-xl border px-3 py-2 ${
+                activeSection === 2
+                  ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
+                  : "border-slate-200 bg-slate-50/80 text-slate-800"
+              }`}
+            >
               <span>District partners</span>
-              <span className="rounded-full bg-emerald-400/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">Default</span>
+              <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Default</span>
             </div>
-            <div className="flex items-center justify-between rounded-lg border border-dashed border-white/10 px-3 py-2 text-emerald-50/60">
+            <div className="flex items-center justify-between rounded-xl border border-dashed border-slate-200 px-3 py-2 text-slate-500">
               <span>Private buyers</span>
-              <span>Invite only</span>
+              <span className="text-[10px] uppercase tracking-[0.2em]">Invite only</span>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-slate-700">
+              <span>DocuSign packet</span>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-600">Auto generated</span>            </div>
+          </div>
+          <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-600">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-hidden />
+              <span>Counterparty guardrails saved</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-hidden />
+              <span>Stakeholders notified on publish</span>
             </div>
           </div>
-        </label>
+          <button
+            type="button"
+            className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              activeSection === 2 ? "bg-emerald-600 text-white shadow-lg" : "bg-emerald-500/90 text-white shadow"
+            }`}
+          >
+            Create listing
+            <ChevronRight className="h-4 w-4" aria-hidden />
+          </button>
+        </section>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/30 bg-white/10 p-3 text-[10px] uppercase tracking-[0.3em] text-emerald-100/80">
+        <div className="flex items-center justify-between text-[10px] font-semibold">
+          <span>Submission readiness</span>
+          <span>{Math.round(completion * 100)}%</span>
+        </div>
+        <div className="mt-2 h-1.5 rounded-full bg-white/20">
+          <div
+            className="h-full rounded-full bg-emerald-300 transition-all duration-700"
+            style={{ width: `${Math.min(100, Math.round(completion * 100))}%` }}
+            aria-hidden
+          />
+        </div>
       </div>
     </PreviewFrame>
   );
 }
 
 function TrackProgressPreview() {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const steps = React.useMemo(
+    () => [
+      { id: "accepted", title: "Offer accepted", description: "Seller locked the terms." },
+      { id: "seller", title: "Seller signature", description: "DocuSign sent to seller." },
+      { id: "buyer", title: "Buyer signature", description: "Invite follows the seller." },
+      { id: "district", title: "District confirmation", description: "District verifies delivery." },
+    ],
+    [],
+  );
+  const totalSteps = steps.length;
+  const [progressIndex, setProgressIndex] = React.useState(prefersReducedMotion ? totalSteps : 0);
+
+  React.useEffect(() => {
+    if (prefersReducedMotion) {
+      setProgressIndex(totalSteps);
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const run = (nextIndex: number) => {
+      if (cancelled) return;
+      setProgressIndex(nextIndex);
+      const isFinal = nextIndex >= totalSteps;
+      const delay = isFinal ? 2400 : 1700;
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        const following = isFinal ? 0 : nextIndex + 1;
+        run(following);
+      }, delay);
+    };
+
+    run(0);
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [prefersReducedMotion, totalSteps]);
+
+  const computedSteps = steps.map((step, index) => {
+    const status =
+      progressIndex >= totalSteps
+        ? "complete"
+        : index < progressIndex
+        ? "complete"
+        : index === progressIndex
+        ? "current"
+        : "upcoming";
+    return { ...step, status };
+  });
+
+  const progressRatio = progressIndex >= totalSteps ? 1 : Math.max(0, progressIndex / totalSteps);
+  const progressPercent = Math.round(progressRatio * 100);
+  const headline =
+    progressIndex >= totalSteps
+      ? "All steps complete"
+      : steps[progressIndex]?.title ?? steps[0]?.title ?? "Progress";
+  
   return (
     <PreviewFrame title="Deal timeline" subtitle="Real-time">
-      <div className="space-y-3 text-[11px]">
-        {["Offer sent", "Diligence", "Contracts", "Delivery"].map((step, index) => {
-          const isCompleted = index < 2;
-          const isCurrent = index === 2;
-          return (
-            <div key={step} className="flex items-start gap-3">
-              <span
-                className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
-                  isCompleted ? "bg-emerald-400/30 text-emerald-100" : isCurrent ? "bg-emerald-400/10 text-emerald-100" : "bg-white/5 text-emerald-200/60"
-                }`}
+      <div className="rounded-2xl border border-white/15 bg-white/90 p-4 text-slate-800 shadow-sm">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+          <span>{headline}</span>
+          <span className="text-[10px] uppercase tracking-[0.25em] text-emerald-600">{progressPercent}%</span>
+        </div>
+        <div className="mt-3 h-1.5 rounded-full bg-slate-200">
+          <div
+            className={`h-full rounded-full ${progressIndex >= totalSteps ? "bg-emerald-500" : "bg-emerald-400"}`}
+            style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
+            aria-hidden
+          />
+        </div>
+        <ol className="mt-4 space-y-3 text-sm">
+          {computedSteps.map((step) => {
+            const indicatorClass =
+              step.status === "complete"
+                ? "bg-emerald-500 text-white"
+                : step.status === "current"
+                ? "border-2 border-emerald-500 text-emerald-600"
+                : "border border-slate-300 text-slate-400";
+            const containerClass =
+              step.status === "complete"
+                ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+                : step.status === "current"
+                ? "border-emerald-300/60 bg-white text-emerald-800"
+                : "border-slate-200 bg-white/70 text-slate-600";
+
+            return (
+              <li
+                key={step.id}
+                className={`flex items-start gap-3 rounded-xl border px-3 py-3 shadow-sm transition ${containerClass}`}
               >
-                {isCompleted ? <CheckCircle2 className="h-3 w-3" aria-hidden /> : isCurrent ? "•" : ""}
-              </span>
-              <div className="flex-1">
-                <p className="font-semibold text-emerald-50">{step}</p>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">
-                  {index === 0 && "Completed 2h ago"}
-                  {index === 1 && "Files uploading"}
-                  {index === 2 && "Pending signatures"}
-                  {index === 3 && "Scheduled"}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+                <span className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${indicatorClass}`}>
+                  {step.status === "complete" ? <CheckCircle2 className="h-4 w-4" aria-hidden /> : "•"}
+                </span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">{step.title}</p>
+                  <p className="text-xs text-slate-500">{step.description}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       </div>
     </PreviewFrame>
   );
