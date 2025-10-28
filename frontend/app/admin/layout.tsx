@@ -67,6 +67,7 @@ export default async function AdminRootLayout({ children }: { children: ReactNod
               <NavLink href="/admin/users">Users</NavLink>
               <NavLink href="/admin/transactions">Transactions</NavLink>
               <NavLink href="/admin/water">Water</NavLink>
+              <NavLink href="/admin/homepage">Homepage</NavLink>
               <NavLink href="/admin/settings">Settings</NavLink>
             </nav>
           </aside>
