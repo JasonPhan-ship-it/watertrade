@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import Footer from "@/components/Footer";
+import { DEFAULT_SITE_SETTINGS, type HomepageCopy } from "@/lib/site-settings/defaults";
 
 type Listing = {
   id: string;
@@ -35,20 +36,8 @@ type ListingsResponse = {
   total: number;
 };
 
-type MetricDefinition = {
-  label: string;
-  compute: (data: ListingsResponse | null) => number;
-  formatter: (value: number) => string;
-};
-
 const LISTINGS_ENDPOINT =
   "/api/listings?premium=false&page=1&pageSize=3&sortBy=createdAt&sortDir=desc";
-
-const HERO_PHRASES = [
-  "California water infrastructure.",
-  "From growers, for growers.",
-  "List fast. Move water faster.",
-] as const;
 
 const FEATURED_DISTRICTS = [
   { name: "Westlands Water District", file: "westlands.png", width: 360, height: 96 },
@@ -57,70 +46,19 @@ const FEATURED_DISTRICTS = [
   { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 400, height: 96 },
 ] as const;
 
-type CoreWorkflowDefinition = {
-  id: string;
-  title: string;
-  description: string;
-  highlight: string;
-  icon: LucideIcon;
-  preview: React.ComponentType;
+type WorkflowPreviewComponent = React.ComponentType<{ feeRate: number }>;
+
+const CORE_WORKFLOW_PREVIEWS: Record<
+  string,
+  { icon: LucideIcon; preview: WorkflowPreviewComponent }
+> = {
+  offer: { icon: PenLine, preview: OfferPreview },
+  "buy-now": { icon: MousePointerClick, preview: BuyNowPreview },
+  "create-listing": { icon: FileText, preview: CreateListingPreview },
+  "track-progress": { icon: CheckCircle2, preview: TrackProgressPreview },
 };
 
-const CORE_WORKFLOWS: readonly CoreWorkflowDefinition[] = [
-  {
-    id: "offer",
-    title: "Make an offer",
-    description:
-      "Structure term sheets with district-specific guardrails and route them to qualified counterparties in a few clicks.",
-    highlight: "Deal rooms",
-    icon: PenLine,
-    preview: OfferPreview,
-  },
-  {
-    id: "buy-now",
-    title: "Use Buy Now",
-    description:
-      "Secure verified supply instantly with escrow-ready paperwork and automated notifications to stakeholders.",
-    badge: "Instant escrow",
-    icon: MousePointerClick,
-    preview: BuyNowPreview,
-  },
-  {
-    id: "create-listing",
-    title: "Create a listing",
-    description:
-      "Publish demand or supply with standardized data capture, eligibility controls, and visibility settings you define.",
-    highlight: "Inventory",
-    icon: FileText,
-    preview: CreateListingPreview,
-  },
-  {
-    id: "track-progress",
-    title: "Track progress",
-    description:
-      "Monitor diligence, signatures, and delivery milestones across every deal from a single shared timeline.",
-    highlight: "Delivery tracking",
-    icon: CheckCircle2,
-    preview: TrackProgressPreview,
-  },
-] as const;
-
 const CORE_WORKFLOW_AUTOPLAY_INTERVAL = 8000;
-
-const PROCESS_STEPS = [
-  {
-    title: "Curate inventory",
-    description: "List premium supply or demand with standardized data capture and district metadata.",
-  },
-  {
-    title: "Qualify and match",
-    description: "Screen counterparties with built-in guardrails and auto-flagged window restrictions.",
-  },
-  {
-    title: "Execute with confidence",
-    description: "Generate district-specific packets, collect e-signatures, and monitor fulfillment status in real time.",
-  },
-] as const;
 
 const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -130,29 +68,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 });
 const formatInteger = (value: number) => integerFormatter.format(Math.max(0, Math.round(value)));
 const formatCurrency = (value: number) => currencyFormatter.format(Math.max(0, Math.round(value)));
-const WATER_TRADER_FEE_RATE = 0.05;
-const WATER_TRADER_FEE_PERCENT = `${Math.round(WATER_TRADER_FEE_RATE * 100)}%`;
 
-const METRICS: readonly MetricDefinition[] = [
-  {
-    label: "Live listings",
-    compute: (data) => data?.total ?? 0,
-    formatter: formatInteger,
-  },
-  {
-    label: "Acre-feet posted",
-    compute: (data) => (data?.listings ?? []).reduce((sum, listing) => sum + listing.acreFeet, 0),
-    formatter: formatInteger,
-  },
-  {
-    label: "Avg $/AF",
-    compute: (data) => {
-      const listings = data?.listings ?? [];
-      if (!listings.length) return 0;
-      const total = listings.reduce((sum, listing) => sum + listing.pricePerAf, 0);
-      return total / listings.length;
-    },
-    formatter: formatCurrency,
   },
 ];
 
@@ -180,7 +96,7 @@ function useListingsPreview() {
       } catch (error) {
         if (controller.signal.aborted) return;
         console.error(error);
-        setError("We couldn't load the latest market metrics right now. Please try again later.");
+        setError(DEFAULT_HOMEPAGE_COPY.hero.metricsError);
         setData(null);
       } finally {
         if (!controller.signal.aborted) {
@@ -194,6 +110,48 @@ function useListingsPreview() {
   }, []);
 
   return { data, loading, error };
+}
+
+function useHomepageSettings() {
+  const [copy, setCopy] = React.useState<HomepageCopy>(DEFAULT_HOMEPAGE_COPY);
+  const [feeRate, setFeeRate] = React.useState<number>(DEFAULT_WATER_TRADER_FEE_RATE);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const [copyRes, feeRes] = await Promise.all([
+          fetch("/api/site-settings/homepage-copy"),
+          fetch("/api/site-settings/water-trader-fee"),
+        ]);
+
+        if (!cancelled && copyRes.ok) {
+          const json = (await copyRes.json().catch(() => ({}))) as { value?: HomepageCopy };
+          if (json?.value) {
+            setCopy(json.value);
+          }
+        }
+
+        if (!cancelled && feeRes.ok) {
+          const json = (await feeRes.json().catch(() => ({}))) as { value?: { rate?: number } };
+          const rate = json?.value?.rate;
+          if (typeof rate === "number" && Number.isFinite(rate)) {
+            setFeeRate(rate);
+          }
+        }
+      } catch {
+        // Ignore network errors and keep defaults
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { copy, feeRate };
 }
 
 function usePrefersReducedMotion() {
@@ -348,10 +306,16 @@ function MetricCard({
   );
 }
 
-function MetricsGrid({ data, loading }: { data: ListingsResponse | null; loading: boolean }) {
+function MetricsGrid({
+  data,
+  loading,
+  cards,
+}: {
+  data: ListingsResponse | null;
+  loading: boolean;
+  cards: HomepageCopy["metrics"]["cards"];
+}) {
   const metrics = React.useMemo(
-    () => METRICS.map((metric) => ({ ...metric, value: metric.compute(data) })),
-    [data],
   );
 
   return (
