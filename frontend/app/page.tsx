@@ -18,7 +18,11 @@ import {
 } from "lucide-react";
 
 import Footer from "@/components/Footer";
-import { DEFAULT_SITE_SETTINGS, type HomepageCopy } from "@/lib/site-settings/defaults";
+import {
+  DEFAULT_HOMEPAGE_COPY,
+  DEFAULT_WATER_TRADER_FEE_RATE,
+  type HomepageCopy,
+} from "@/lib/site-settings/defaults";
 
 type Listing = {
   id: string;
