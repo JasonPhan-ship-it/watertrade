@@ -642,7 +642,6 @@ function BuyNowPreview() {
           </div>
         </div>
       </div>
-      </div>
     </PreviewFrame>
   );
 }
