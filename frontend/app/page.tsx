@@ -1115,7 +1115,6 @@ function CoreWorkflowShowcase({
 
   const workflowCount = workflows.length;
   const [activeIndex, setActiveIndex] = React.useState(0);
-  const workflowCount = CORE_WORKFLOWS.length;
   
   React.useEffect(() => {
     if (workflowCount <= 1 || prefersReducedMotion) {
@@ -1146,7 +1145,6 @@ function CoreWorkflowShowcase({
     goTo(activeIndex + 1);
   }, [activeIndex, goTo]);
 
-  
   const handleKeyDown = React.useCallback<React.KeyboardEventHandler<HTMLDivElement>>(
     (event) => {
       if (event.key === "ArrowLeft") {
@@ -1161,11 +1159,20 @@ function CoreWorkflowShowcase({
     [handleNext, handlePrevious],
   );
 
-  const activeWorkflow = CORE_WORKFLOWS[activeIndex] ?? CORE_WORKFLOWS[0];
+  const activeWorkflow = workflows[activeIndex] ?? workflows[0];
   if (!activeWorkflow) {
     return null;
   }
   const Preview = activeWorkflow.preview;
+  const preheading = copy.preheading || DEFAULT_HOMEPAGE_COPY.coreWorkflows.preheading;
+  const heading = copy.heading || DEFAULT_HOMEPAGE_COPY.coreWorkflows.heading;
+  const description = copy.description || DEFAULT_HOMEPAGE_COPY.coreWorkflows.description;
+  const defaultInstructions =
+    copy.carouselInstructions.default || DEFAULT_HOMEPAGE_COPY.coreWorkflows.carouselInstructions.default;
+  const reducedInstructions =
+    copy.carouselInstructions.reducedMotion ||
+    DEFAULT_HOMEPAGE_COPY.coreWorkflows.carouselInstructions.reducedMotion;
+    
   return (
     <div
       className="relative overflow-hidden rounded-3xl border border-white/15 bg-white/10 p-6 shadow-xl backdrop-blur-lg sm:p-8"
@@ -1180,16 +1187,12 @@ function CoreWorkflowShowcase({
 
       <div className="relative grid gap-8 lg:grid-cols-[minmax(0,0.54fr)_minmax(0,0.46fr)]">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">Core workflows</p>
-          <h3 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">
-            Explore the operating system for water trading
-          </h3>
-          <p className="mt-2 text-sm leading-relaxed text-emerald-50/80">
-            Guided workspaces keep growers, advisors, and districts aligned from first offer to final delivery.
-          </p>
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">{preheading}</p>
+          <h3 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">{heading}</h3>
+          <p className="mt-2 text-sm leading-relaxed text-emerald-50/80">{description}</p>
 
           <div className="mt-6 space-y-2">
-            {CORE_WORKFLOWS.map((workflow, index) => {
+            {workflows.map((workflow, index) => {
               const isActive = index === activeIndex;
               const Icon = workflow.icon;
 
@@ -1243,16 +1246,14 @@ function CoreWorkflowShowcase({
           <div className="pointer-events-none absolute -right-20 -top-16 h-60 w-60 rounded-full bg-emerald-300/20 blur-3xl" aria-hidden />
           <div className="pointer-events-none absolute -bottom-20 left-10 h-48 w-48 rounded-full bg-emerald-500/15 blur-2xl" aria-hidden />
           <div className="relative rounded-2xl border border-white/15 bg-slate-900/60 p-4 shadow-xl ring-1 ring-white/10" aria-live="polite">
-            <Preview />
+            <Preview feeRate={feeRate} />
           </div>
         </div>
       </div>
 
       <div className="mt-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <p className="text-xs text-emerald-50/70">
-          {prefersReducedMotion
-            ? "Select a workflow to explore the UI at your own pace."
-            : "Carousel advances every 8 seconds. Use the controls to explore manually."}
+          {prefersReducedMotion ? reducedInstructions : defaultInstructions}
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -1285,6 +1286,8 @@ type HeroSectionProps = {
   listingsData: ListingsResponse | null;
   loading: boolean;
   error: string | null;
+  copy: HomepageCopy;
+  feeRate: number;
 };
 
 function HeroSection({
@@ -1295,7 +1298,22 @@ function HeroSection({
   listingsData,
   loading,
   error,
+  copy,
+  feeRate,
 }: HeroSectionProps) {
+  const heroCopy = copy.hero ?? DEFAULT_HOMEPAGE_COPY.hero;
+  const phrases = heroCopy.phrases.length ? heroCopy.phrases : DEFAULT_HOMEPAGE_COPY.hero.phrases;
+  const metricsCards = copy.metrics.cards.length ? copy.metrics.cards : DEFAULT_METRIC_CARDS;
+  const featuredHeading = copy.featuredDistricts.heading || DEFAULT_HOMEPAGE_COPY.featuredDistricts.heading;
+  const logoutCopy = copy.logoutToast ?? DEFAULT_HOMEPAGE_COPY.logoutToast;
+  const workflowsCopy = copy.coreWorkflows ?? DEFAULT_HOMEPAGE_COPY.coreWorkflows;
+  const displayError = React.useMemo(() => {
+    if (!error) return null;
+    if (error === DEFAULT_HOMEPAGE_COPY.hero.metricsError && heroCopy.metricsError) {
+      return heroCopy.metricsError;
+    }
+    return error;
+  }, [error, heroCopy.metricsError]);
   return (
     <section className="relative isolate flex-1 overflow-hidden bg-[#004434]">
       <div className="pointer-events-none absolute -left-32 top-16 h-64 w-64 rounded-full bg-[#1A6F5A]/40 blur-3xl" aria-hidden />
@@ -1306,25 +1324,22 @@ function HeroSection({
       />
 
       <div className="mx-auto flex h-full w-full max-w-7xl flex-col px-4 py-16 sm:px-6 lg:py-24">
-        {showLogoutMessage && <LogoutToast onDismiss={onDismissLogout} />}
+        {showLogoutMessage && <LogoutToast copy={logoutCopy} onDismiss={onDismissLogout} />}
 
         <div className="grid flex-1 items-center gap-12 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">California water desk</p>
+            <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">{heroCopy.preheading}</p>
             <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
               <TypewriterHeadline phrases={HERO_PHRASES} />
             </h1>
-            <p className="mt-4 max-w-xl text-base text-emerald-100/90">
-              Water Traders connects California growers, advisors, and districts with a trusted operating system for trading surface water,
-              transfers, and recharge. List inventory, qualify demand, and execute with institutional rigor.
-            </p>
+            <p className="mt-4 max-w-xl text-base text-emerald-100/90">{heroCopy.description}</p>
             <div className="mt-8 flex flex-wrap gap-3">
               {isSignedIn ? (
                 <button
                   onClick={() => onNavigate("/dashboard")}
                   className="inline-flex h-11 items-center justify-center rounded-xl bg-white px-6 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-white/70"
                 >
-                  Go to dashboard
+                  {heroCopy.signedInCta}
                 </button>
               ) : (
                 <>
@@ -1332,58 +1347,59 @@ function HeroSection({
                     onClick={() => onNavigate("/sign-up")}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-white px-6 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-white/70"
                   >
-                    Create free account
+                  {heroCopy.signedInCta}
                   </button>
                   <button
                     onClick={() => onNavigate("/sign-in")}
                     className="inline-flex h-11 items-center justify-center rounded-xl border border-white/60 px-6 text-sm font-semibold text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/70"
                   >
-                    Sign in
+                    {heroCopy.signedOutSecondaryCta}
                   </button>
                 </>
               )}
             </div>
 
-            {error ? (
+            {displayError ? (
               <p className="mt-10 rounded-2xl border border-rose-300/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-50">
-                {error}
+                {displayError}
               </p>
             ) : (
-              <MetricsGrid data={listingsData} loading={loading} />
+              <MetricsGrid data={listingsData} loading={loading} cards={metricsCards} />
             )}
-            <FeaturedDistricts />
+            <FeaturedDistricts heading={featuredHeading} />
           </div>
 
-          <CoreWorkflowShowcase />
+          <CoreWorkflowShowcase copy={workflowsCopy} feeRate={feeRate} />
         </div>
       </div>
     </section>
   );
 }
 
-function HowItWorksSection() {
-  return (
+function HowItWorksSection({ copy }: { copy: HomepageCopy["process"] }) {
+  const preheading = copy.preheading || DEFAULT_HOMEPAGE_COPY.process.preheading;
+  const heading = copy.heading || DEFAULT_HOMEPAGE_COPY.process.heading;
+  const description = copy.description || DEFAULT_HOMEPAGE_COPY.process.description;
+  const quote = copy.quote || DEFAULT_HOMEPAGE_COPY.process.quote;
+  const attribution = copy.attribution || DEFAULT_HOMEPAGE_COPY.process.attribution;
+  const steps = copy.steps.length ? copy.steps : DEFAULT_HOMEPAGE_COPY.process.steps;
+    return (
     <section className="border-t bg-white py-16">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
         <div className="grid gap-12 lg:grid-cols-[1fr_minmax(0,1.2fr)] lg:items-center">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">How it works</p>
-            <h2 className="mt-4 text-3xl font-semibold text-slate-900 sm:text-4xl">Full lifecycle coverage</h2>
-            <p className="mt-3 text-base text-slate-600">
-              Water Traders streamlines every step—from sourcing inventory to filing closing paperwork—so that your compliance, finance, and
-              operations teams move in lockstep.
+            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">{preheading}</p>
+            <h2 className="mt-4 text-3xl font-semibold text-slate-900 sm:text-4xl">{heading}</h2>
+            <p className="mt-3 text-base text-slate-600">{description}</p>
             </p>
             <div className="mt-6 rounded-3xl border border-slate-100 bg-slate-50/70 p-6">
-              <blockquote className="text-sm text-slate-700">
-                “Water Traders gives our growers the confidence of an institutional desk with the speed of a startup. The audit trail alone
-                has transformed how we report to stakeholders.”
-              </blockquote>
-              <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Agribusiness COO</p>
+              <blockquote className="text-sm text-slate-700">{quote}</blockquote>
+              <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{attribution}</p>
             </div>
           </div>
 
           <ol className="grid gap-6">
-            {PROCESS_STEPS.map((step, index) => (
+            {steps.map((step, index) => (
               <li
                 key={step.title}
                 className="group relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-emerald-200 hover:shadow-lg"
@@ -1406,31 +1422,32 @@ function HowItWorksSection() {
   );
 }
 
-function GradientCtaSection() {
+function GradientCtaSection({ copy }: { copy: HomepageCopy["gradientCta"] }) {
+  const preheading = copy.preheading || DEFAULT_HOMEPAGE_COPY.gradientCta.preheading;
+  const heading = copy.heading || DEFAULT_HOMEPAGE_COPY.gradientCta.heading;
+  const description = copy.description || DEFAULT_HOMEPAGE_COPY.gradientCta.description;
+  const primaryLabel = copy.primaryCtaLabel || DEFAULT_HOMEPAGE_COPY.gradientCta.primaryCtaLabel;
+  const secondaryLabel = copy.secondaryCtaLabel || DEFAULT_HOMEPAGE_COPY.gradientCta.secondaryCtaLabel;
+
   return (
     <section className="relative border-t bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-600 py-16">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.2),_transparent_55%)]" aria-hidden />
       <div className="relative mx-auto max-w-7xl px-4 text-center sm:px-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-100">Ready to modernize</p>
-        <h2 className="mt-4 text-3xl font-semibold text-white sm:text-4xl">
-          Bring institutional-grade execution to your water trades
-        </h2>
-        <p className="mx-auto mt-3 max-w-2xl text-base text-emerald-50">
-          Schedule a walkthrough with our team to see how Water Traders powers advisory firms, growers, and districts with a connected
-          operating system.
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-100">{preheading}</p>
+        <h2 className="mt-4 text-3xl font-semibold text-white sm:text-4xl">{heading}</h2>
+        <p className="mx-auto mt-3 max-w-2xl text-base text-emerald-50">{description}</p>
         <div className="mt-8 flex flex-wrap justify-center gap-4">
           <Link
             href="/contact"
             className="inline-flex h-11 items-center justify-center rounded-xl bg-white px-6 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-white/80"
           >
-            Talk to our team
+            {primaryLabel}
           </Link>
           <Link
             href="/pricing"
             className="inline-flex h-11 items-center justify-center rounded-xl border border-white/60 px-6 text-sm font-semibold text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/70"
           >
-            Explore pricing
+            {secondaryLabel}
           </Link>
         </div>
       </div>
@@ -1443,6 +1460,7 @@ export default function HomePage() {
   const searchParams = useSearchParams();
   const { isSignedIn } = useUser();
   const { data, loading, error } = useListingsPreview();
+  const { copy, feeRate } = useHomepageSettings();
 
   const logoutStatus = React.useMemo(() => searchParams?.get("logout"), [searchParams]);
   const [showLogoutMessage, setShowLogoutMessage] = React.useState(false);
@@ -1476,13 +1494,15 @@ export default function HomePage() {
         listingsData={data}
         loading={loading}
         error={error}
+        copy={copy}
+        feeRate={feeRate}
       />
 
-      <HowItWorksSection />
-      <GradientCtaSection />
+      <HowItWorksSection copy={copy.process} />
+      <GradientCtaSection copy={copy.gradientCta} />
 
       <Footer />
-      <CookieConsentBanner />
+      <CookieConsentBanner copy={copy.cookieBanner} />
     </div>
   );
 }
