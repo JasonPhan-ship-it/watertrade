@@ -1287,7 +1287,6 @@ type HeroSectionProps = {
   loading: boolean;
   error: string | null;
   copy: HomepageCopy;
-  feeRate: number;
 };
 
 function HeroSection({
@@ -1299,14 +1298,12 @@ function HeroSection({
   loading,
   error,
   copy,
-  feeRate,
 }: HeroSectionProps) {
   const heroCopy = copy.hero ?? DEFAULT_HOMEPAGE_COPY.hero;
   const phrases = heroCopy.phrases.length ? heroCopy.phrases : DEFAULT_HOMEPAGE_COPY.hero.phrases;
   const metricsCards = copy.metrics.cards.length ? copy.metrics.cards : DEFAULT_METRIC_CARDS;
   const featuredHeading = copy.featuredDistricts.heading || DEFAULT_HOMEPAGE_COPY.featuredDistricts.heading;
   const logoutCopy = copy.logoutToast ?? DEFAULT_HOMEPAGE_COPY.logoutToast;
-  const workflowsCopy = copy.coreWorkflows ?? DEFAULT_HOMEPAGE_COPY.coreWorkflows;
   const displayError = React.useMemo(() => {
     if (!error) return null;
     if (error === DEFAULT_HOMEPAGE_COPY.hero.metricsError && heroCopy.metricsError) {
@@ -1326,8 +1323,8 @@ function HeroSection({
       <div className="mx-auto flex h-full w-full max-w-7xl flex-col px-4 py-16 sm:px-6 lg:py-24">
         {showLogoutMessage && <LogoutToast copy={logoutCopy} onDismiss={onDismissLogout} />}
 
-        <div className="grid flex-1 items-center gap-12 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-          <div>
+        <div className="flex flex-1 items-center">
+          <div className="w-full max-w-3xl">
             <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">{heroCopy.preheading}</p>
             <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
               <TypewriterHeadline phrases={phrases} />
@@ -1347,7 +1344,7 @@ function HeroSection({
                     onClick={() => onNavigate("/sign-up")}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-white px-6 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-white/70"
                   >
-                  {heroCopy.signedInCta}
+                    {heroCopy.signedOutPrimaryCta || heroCopy.signedInCta}
                   </button>
                   <button
                     onClick={() => onNavigate("/sign-in")}
@@ -1369,6 +1366,34 @@ function HeroSection({
             <FeaturedDistricts heading={featuredHeading} />
           </div>
 
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CoreWorkflowsSection({
+  copy,
+  feeRate,
+}: {
+  copy: HomepageCopy["coreWorkflows"];
+  feeRate: number;
+}) {
+  const workflowsCopy = copy ?? DEFAULT_HOMEPAGE_COPY.coreWorkflows;
+
+  return (
+    <section className="relative border-t border-emerald-900/30 bg-[#023F33] py-20 text-white">
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.18),_transparent_60%)]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 bg-[radial-gradient(circle_at_center,_rgba(45,212,191,0.12),_transparent_70%)] sm:block"
+        aria-hidden
+      />
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          
           <CoreWorkflowShowcase copy={workflowsCopy} feeRate={feeRate} />
         </div>
       </div>
@@ -1495,8 +1520,9 @@ export default function HomePage() {
         loading={loading}
         error={error}
         copy={copy}
-        feeRate={feeRate}
       />
+
+      <CoreWorkflowsSection copy={copy.coreWorkflows} feeRate={feeRate} />
 
       <HowItWorksSection copy={copy.process} />
       <GradientCtaSection copy={copy.gradientCta} />
