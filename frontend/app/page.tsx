@@ -447,8 +447,8 @@ function CookieConsentBanner({ copy }: { copy: HomepageCopy["cookieBanner"] }) {
           <p className="text-sm leading-5">
             {message}{" "}
             <Link href="/privacy-policy" className="text-white/90 underline hover:text-white">
-              Learn more
               {learnMoreLabel}
+            </Link>
             .
           </p>
           <div className="flex gap-2">
@@ -473,7 +473,7 @@ function CookieConsentBanner({ copy }: { copy: HomepageCopy["cookieBanner"] }) {
 
 function FeaturedDistricts({ heading }: { heading: string }) {
   const title = heading || DEFAULT_HOMEPAGE_COPY.featuredDistricts.heading;
-      return (
+  return (
     <div className="mt-12">
       <h2 className="text-sm font-semibold uppercase tracking-[0.4em] text-emerald-200">{title}</h2>
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -1330,7 +1330,7 @@ function HeroSection({
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">{heroCopy.preheading}</p>
             <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-              <TypewriterHeadline phrases={HERO_PHRASES} />
+              <TypewriterHeadline phrases={phrases} />
             </h1>
             <p className="mt-4 max-w-xl text-base text-emerald-100/90">{heroCopy.description}</p>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -1383,15 +1383,15 @@ function HowItWorksSection({ copy }: { copy: HomepageCopy["process"] }) {
   const quote = copy.quote || DEFAULT_HOMEPAGE_COPY.process.quote;
   const attribution = copy.attribution || DEFAULT_HOMEPAGE_COPY.process.attribution;
   const steps = copy.steps.length ? copy.steps : DEFAULT_HOMEPAGE_COPY.process.steps;
-    return (
-    <section className="border-t bg-white py-16">
+
+  return (
+  <section className="border-t bg-white py-16">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
         <div className="grid gap-12 lg:grid-cols-[1fr_minmax(0,1.2fr)] lg:items-center">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">{preheading}</p>
             <h2 className="mt-4 text-3xl font-semibold text-slate-900 sm:text-4xl">{heading}</h2>
             <p className="mt-3 text-base text-slate-600">{description}</p>
-            </p>
             <div className="mt-6 rounded-3xl border border-slate-100 bg-slate-50/70 p-6">
               <blockquote className="text-sm text-slate-700">{quote}</blockquote>
               <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{attribution}</p>
