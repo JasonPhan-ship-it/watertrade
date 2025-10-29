@@ -73,8 +73,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 const formatInteger = (value: number) => integerFormatter.format(Math.max(0, Math.round(value)));
 const formatCurrency = (value: number) => currencyFormatter.format(Math.max(0, Math.round(value)));
 
-  },
-];
+const DEFAULT_METRIC_CARDS = DEFAULT_HOMEPAGE_COPY.metrics.cards;
 
 function useListingsPreview() {
   const [data, setData] = React.useState<ListingsResponse | null>(null);
@@ -319,8 +318,36 @@ function MetricsGrid({
   loading: boolean;
   cards: HomepageCopy["metrics"]["cards"];
 }) {
-  const metrics = React.useMemo(
-  );
+  const metrics = React.useMemo(() => {
+    const cardsToRender = cards.length ? cards : DEFAULT_METRIC_CARDS;
+    const listings = data?.listings ?? [];
+    const totalListings = data?.total ?? listings.length;
+    const totalVolumeAf = listings.reduce((total, listing) => total + (listing.acreFeet ?? 0), 0);
+    const totalValue = listings.reduce(
+      (total, listing) => total + listing.acreFeet * listing.pricePerAf,
+      0,
+    );
+
+    return cardsToRender.map((card, index) => {
+      let rawValue: number;
+      if (index === 0) {
+        rawValue = totalListings;
+      } else if (index === 1) {
+        rawValue = totalVolumeAf;
+      } else if (index === 2) {
+        rawValue = totalValue;
+      } else {
+        rawValue = totalListings;
+      }
+
+      const safeValue = Number.isFinite(rawValue) ? rawValue : 0;
+      return {
+        label: card.label,
+        value: safeValue,
+        formatter: card.formatter === "currency" ? formatCurrency : formatInteger,
+      };
+    });
+  }, [cards, data]);
 
   return (
     <dl className="mt-10 grid max-w-lg grid-cols-1 gap-6 text-white sm:grid-cols-3">
@@ -356,8 +383,16 @@ function TypewriterHeadline({ phrases }: { phrases: readonly string[] }) {
   );
 }
 
-function LogoutToast({ onDismiss }: { onDismiss: () => void }) {
-  return (
+function LogoutToast({
+  copy,
+  onDismiss,
+}: {
+  copy: HomepageCopy["logoutToast"];
+  onDismiss: () => void;
+}) {
+  const title = copy.title || DEFAULT_HOMEPAGE_COPY.logoutToast.title;
+  const body = copy.body || DEFAULT_HOMEPAGE_COPY.logoutToast.body;
+return (
     <div
       role="status"
       aria-live="polite"
@@ -367,8 +402,8 @@ function LogoutToast({ onDismiss }: { onDismiss: () => void }) {
         <CheckCircle2 className="h-4 w-4" aria-hidden />
       </span>
       <div className="flex-1">
-        <p className="font-semibold text-white">Signed out successfully</p>
-        <p className="mt-0.5 text-emerald-100/90">You're now signed out. Come back anytime to manage your listings.</p>
+        <p className="font-semibold text-white">{title}</p>
+        <p className="mt-0.5 text-emerald-100/90">{body}</p>
       </div>
       <button
         type="button"
@@ -382,7 +417,7 @@ function LogoutToast({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-function CookieConsentBanner() {
+function CookieConsentBanner({ copy }: { copy: HomepageCopy["cookieBanner"] }) {
   const [visible, setVisible] = React.useState(false);
 
   React.useEffect(() => {
@@ -400,15 +435,20 @@ function CookieConsentBanner() {
     setVisible(false);
   };
 
+  const message = copy.message || DEFAULT_HOMEPAGE_COPY.cookieBanner.message;
+  const learnMoreLabel = copy.learnMoreLabel || DEFAULT_HOMEPAGE_COPY.cookieBanner.learnMoreLabel;
+  const declineLabel = copy.declineLabel || DEFAULT_HOMEPAGE_COPY.cookieBanner.declineLabel;
+  const acceptLabel = copy.acceptLabel || DEFAULT_HOMEPAGE_COPY.cookieBanner.acceptLabel;
+  
   return (
     <div role="dialog" aria-live="polite" className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-7xl px-4 pb-4 sm:px-6">
       <div className="rounded-2xl border border-white/20 bg-[#004434] p-4 text-white shadow-lg">
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm leading-5">
-            We use cookies to improve your experience, analyze traffic, and provide essential site functionality.{" "}
+            {message}{" "}
             <Link href="/privacy-policy" className="text-white/90 underline hover:text-white">
               Learn more
-            </Link>
+              {learnMoreLabel}
             .
           </p>
           <div className="flex gap-2">
@@ -416,13 +456,13 @@ function CookieConsentBanner() {
               onClick={() => setConsent("rejected")}
               className="h-9 rounded-xl border border-white/30 bg-transparent px-4 text-sm font-medium text-white hover:bg-white/10"
             >
-              No thanks
+              {declineLabel}
             </button>
             <button
               onClick={() => setConsent("accepted")}
               className="h-9 rounded-xl bg-white px-4 text-sm font-semibold text-[#004434] hover:bg-slate-100"
             >
-              Allow cookies
+              {acceptLabel}
             </button>
           </div>
         </div>
@@ -431,10 +471,11 @@ function CookieConsentBanner() {
   );
 }
 
-function FeaturedDistricts() {
-  return (
+function FeaturedDistricts({ heading }: { heading: string }) {
+  const title = heading || DEFAULT_HOMEPAGE_COPY.featuredDistricts.heading;
+      return (
     <div className="mt-12">
-      <h2 className="text-sm font-semibold uppercase tracking-[0.4em] text-emerald-200">Featured districts</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-[0.4em] text-emerald-200">{title}</h2>
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {FEATURED_DISTRICTS.map((logo) => (
           <div
@@ -483,7 +524,7 @@ function PreviewFrame({
   );
 }
 
-function OfferPreview() {
+function OfferPreview(_props: { feeRate: number }) {
   return (
     <PreviewFrame title="Offer workspace" subtitle="SJV growers">
       <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -513,19 +554,22 @@ function OfferPreview() {
   );
 }
 
-function BuyNowPreview() {
+function BuyNowPreview({ feeRate }: { feeRate: number }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = React.useState<"details" | "clicked" | "redirect">("details");
   const checkoutQuantityAf = 250;
   const checkoutPricePerAf = 845;
   const checkoutSubtotal = checkoutQuantityAf * checkoutPricePerAf;
-  const checkoutFee = checkoutSubtotal * WATER_TRADER_FEE_RATE;
+  const normalizedFeeRate =
+    Number.isFinite(feeRate) && feeRate >= 0 ? feeRate : DEFAULT_WATER_TRADER_FEE_RATE;
+  const checkoutFee = checkoutSubtotal * normalizedFeeRate;
   const checkoutTotal = checkoutSubtotal + checkoutFee;
   const checkoutPriceDisplay = `$${checkoutPricePerAf.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-  
+  const feePercentLabel = `${(normalizedFeeRate * 100).toFixed(2)}%`;
+    
   React.useEffect(() => {
     if (prefersReducedMotion) {
       setPhase("details");
@@ -594,7 +638,7 @@ function BuyNowPreview() {
               <dd>{formatCurrency(checkoutSubtotal)}</dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt>Water Trader Fee ({WATER_TRADER_FEE_PERCENT})</dt>
+              <dt>Water Trader Fee ({feePercentLabel})</dt>
               <dd>{formatCurrency(checkoutFee)}</dd>
             </div>
           </dl>
@@ -651,18 +695,21 @@ function BuyNowPreview() {
   );
 }
 
-function CreateListingPreview() {
+function CreateListingPreview({ feeRate }: { feeRate: number }) {
+  const normalizedFeeRate =
+    Number.isFinite(feeRate) && feeRate >= 0 ? feeRate : DEFAULT_WATER_TRADER_FEE_RATE;
 
   const prefersReducedMotion = usePrefersReducedMotion();
   const listingVolumeAf = 1200;
   const listingPricePerAf = 795;
   const listingGrossValue = listingVolumeAf * listingPricePerAf;
-  const listingFee = listingGrossValue * WATER_TRADER_FEE_RATE;
+  const listingFee = listingGrossValue * normalizedFeeRate;
   const listingNet = listingGrossValue - listingFee;
   const listingPriceDisplay = `$${listingPricePerAf.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+  const feePercentLabel = `${(normalizedFeeRate * 100).toFixed(2)}%`;
   const sectionOrder = ["basics", "volume", "distribution"] as const;
   const sectionCount = sectionOrder.length;
   const [activeSection, setActiveSection] = React.useState(prefersReducedMotion ? -1 : 0);
@@ -843,7 +890,7 @@ function CreateListingPreview() {
                       activeSection === 1 ? "text-emerald-700/80" : "text-slate-500"
                     }`}
                   >
-                    <span>Water Trader Fee ({WATER_TRADER_FEE_PERCENT})</span>
+                    <span>Water Trader Fee ({feePercentLabel})</span>
                     <span>-{formatCurrency(listingFee)}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm font-semibold text-emerald-600">
@@ -930,7 +977,7 @@ function CreateListingPreview() {
   );
 }
 
-function TrackProgressPreview() {
+function TrackProgressPreview(_props: { feeRate: number }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const steps = React.useMemo(
     () => [
@@ -1041,8 +1088,32 @@ function TrackProgressPreview() {
   );
 }
 
-function CoreWorkflowShowcase() {
+function CoreWorkflowShowcase({
+  copy,
+  feeRate,
+}: {
+  copy: HomepageCopy["coreWorkflows"];
+  feeRate: number;
+}) {
   const prefersReducedMotion = usePrefersReducedMotion();
+  const workflows = React.useMemo(() => {
+    const fallbackItems = DEFAULT_HOMEPAGE_COPY.coreWorkflows.items;
+    const baseItems = copy.items.length ? copy.items : fallbackItems;
+    const fallbackId = baseItems[0]?.id ?? fallbackItems[0]?.id ?? "offer";
+    const fallbackPreview = CORE_WORKFLOW_PREVIEWS[fallbackId] ?? CORE_WORKFLOW_PREVIEWS["offer"];
+    return baseItems
+      .map((item) => {
+        const mapping = CORE_WORKFLOW_PREVIEWS[item.id] ?? fallbackPreview;
+        return {
+          ...item,
+          icon: mapping.icon,
+          preview: mapping.preview,
+        };
+      })
+      .filter((item) => Boolean(item.preview));
+  }, [copy.items]);
+
+  const workflowCount = workflows.length;
   const [activeIndex, setActiveIndex] = React.useState(0);
   const workflowCount = CORE_WORKFLOWS.length;
   
