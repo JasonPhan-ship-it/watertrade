@@ -110,22 +110,16 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
       },
       items: [
         {
-          id: "offer",
-          highlight: "Offer desk",
-          title: "Structure multi-party offers",
-          description: "Manage counterparty negotiations with guardrails for compliance.",
+          id: "create-listing",
+          highlight: "Listings",
+          title: "Publish verified supply",
+          description: "Compose listings with pricing, volume, and distribution controls.",
         },
         {
           id: "buy-now",
           highlight: "Checkout",
           title: "Launch escrow-ready Buy Now",
           description: "Automate payment, DocuSign, and district notifications in one click.",
-        },
-        {
-          id: "create-listing",
-          highlight: "Listings",
-          title: "Publish verified supply",
-          description: "Compose listings with pricing, volume, and distribution controls.",
         },
         {
           id: "track-progress",
