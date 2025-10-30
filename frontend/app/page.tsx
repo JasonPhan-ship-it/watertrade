@@ -767,8 +767,7 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
   const completion = activeStep < 0 || stepCount === 0 ? 1 : (activeStep + 1) / stepCount;
   const progressIndex = stepCount === 0 ? 0 : activeStep < 0 ? stepCount - 1 : activeStep;
 
-    const detailsHeading =
-    steps[progressIndex]?.title ?? steps[0]?.title ?? "Details & pricing";
+  const detailsHeading = steps[progressIndex]?.title ?? steps[0]?.title ?? "Details & pricing";
   
   return (
     <PreviewFrame title="Listing composer" subtitle="Guided">
