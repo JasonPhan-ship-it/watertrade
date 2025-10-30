@@ -710,27 +710,64 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
     maximumFractionDigits: 2,
   })}`;
   const feePercentLabel = `${(normalizedFeeRate * 100).toFixed(2)}%`;
-  const sectionOrder = ["basics", "volume", "distribution"] as const;
-  const sectionCount = sectionOrder.length;
-  const [activeSection, setActiveSection] = React.useState(prefersReducedMotion ? -1 : 0);
 
+
+  const steps = React.useMemo(
+    () => [
+      {
+        id: "basics",
+        title: "Listing basics",
+        caption: "Start with the essentials so buyers can qualify at a glance.",
+        highlights: [
+          "Title • 2024 Allocation — Kern",
+          "District • Kern Water Bank",
+          "Water type • Surface allocation",
+        ],
+      },
+      {
+        id: "pricing",
+        title: "Price & volume",
+        caption: "Set the terms without juggling extra toggles or fields.",
+        highlights: [
+          `Volume • ${formatInteger(listingVolumeAf)} AF`,
+          `Price • ${listingPriceDisplay}`,
+          `Projected net • ${formatCurrency(listingNet)}`,
+        ],
+      },
+      {
+        id: "share",
+        title: "Share & route",
+        caption: "Decide who sees the deal and keep paperwork automated.",
+        highlights: [
+          "District partners • Default routing",
+          "Private buyers • Invite-only",
+          "DocuSign packet • Auto generated",
+        ],
+      },
+    ],
+    [listingNet, listingPriceDisplay, listingVolumeAf],
+  );
+
+  const stepCount = steps.length;
+  const [activeStep, setActiveStep] = React.useState(prefersReducedMotion ? -1 : 0);
+  
   React.useEffect(() => {
     if (prefersReducedMotion) {
-      setActiveSection(-1);
+      setActiveStep(-1);
       return;
     }
 
     let cancelled = false;
     let timeoutId: number | null = null;
-    const durations = [2600, 2200, 2600];
+    const durations = [2400, 2200, 2400];
 
     const run = (index: number) => {
       if (cancelled) return;
-      setActiveSection(index);
+      setActiveStep(index);
       const delay = durations[index % durations.length] ?? 2400;
       timeoutId = window.setTimeout(() => {
         if (cancelled) return;
-        const next = (index + 1) % sectionCount;
+        const next = (index + 1) % stepCount;
         run(next);
       }, delay);
     };
@@ -742,160 +779,74 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
     };
   }, [prefersReducedMotion, sectionCount]);
 
-  const completion = activeSection < 0 ? 0.5 : (activeSection + 1) / sectionCount;
-
-  const baseSectionClass = "rounded-2xl border bg-white/90 p-4 text-slate-800 shadow-sm transition-all duration-500";
-  const inactiveSectionClass = "border-white/50";
-  const activeSectionClass =
-    "border-emerald-200 ring-2 ring-emerald-300/70 shadow-[0_18px_40px_rgba(16,185,129,0.18)]";
+  const completion = activeStep < 0 ? 1 : (activeStep + 1) / stepCount;
+  const progressIndex = activeStep < 0 ? stepCount - 1 : activeStep;
   
   return (
     <PreviewFrame title="Listing composer" subtitle="Guided">
       <div className="grid gap-3 text-[11px] sm:grid-cols-[1.1fr,0.9fr]">
         <div className="space-y-3">
-          <section
-            className={`${baseSectionClass} ${activeSection === 0 ? activeSectionClass : inactiveSectionClass}`}
-            aria-label="Listing basics"
-          >
-            <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-emerald-600/80">
-              <span>Listing basics</span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                  activeSection === 0 ? "bg-emerald-100 text-emerald-700" : "bg-emerald-50 text-emerald-600/80"
+          {steps.map((step, index) => {
+            const isActive = activeStep < 0 || activeStep === index;
+            return (
+              <section
+                key={step.id}
+                className={`rounded-2xl border bg-white/90 p-4 text-slate-800 shadow-sm transition-all duration-500 ${
+                  isActive
+                    ? "border-emerald-200 ring-2 ring-emerald-300/70 shadow-[0_18px_40px_rgba(16,185,129,0.18)]"
+                    : "border-white/40"
                 }`}
+                aria-label={step.title}
               >
-                Step 1
-              </span>
-            </div>
-            <div className="mt-3 space-y-2">
-              <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                Listing title
-                <div
-                  className={`mt-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                    activeSection === 0
-                      ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
-                      : "border-slate-200 bg-slate-50/80 text-slate-800"
-                  }`}
-                >
-                  2024 Allocation — Kern
+                <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-emerald-600/80">
+                  <span>Step {index + 1}</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      isActive ? "bg-emerald-100 text-emerald-700" : "bg-emerald-50 text-emerald-600/80"
+                    }`}
+                  >
+                    {step.title}
+                  </span>
                 </div>
-              </label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                  District
-                  <div
-                    className={`mt-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                      activeSection === 0
-                        ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
-                        : "border-slate-200 bg-slate-50/80 text-slate-800"
-                    }`}
-                  >
-                    Kern Water Bank
-                  </div>
-                </label>
-                <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                  Water type
-                  <div
-                    className={`mt-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                      activeSection === 0
-                        ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
-                        : "border-slate-200 bg-slate-50/80 text-slate-800"
-                    }`}
-                  >
-                    Surface allocation
-                  </div>
-                </label>
-              </div>
-            </div>
-          </section>
-
-          <section
-            className={`${baseSectionClass} ${activeSection === 1 ? activeSectionClass : inactiveSectionClass}`}
-            aria-label="Volume and pricing"
-          >
-            <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-emerald-600/80">
-              <span>Volume &amp; pricing</span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                  activeSection === 1 ? "bg-emerald-100 text-emerald-700" : "bg-emerald-50 text-emerald-600/80"
-                }`}
-              >
-                Step 2
-              </span>
-            </div>
-            <div className="mt-3 space-y-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Volume (acre-feet)</p>
-                <div
-                  className={`mt-1 rounded-lg border px-3 py-2 text-base font-semibold ${
-                    activeSection === 1
-                      ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
-                      : "border-slate-200 bg-slate-50/80 text-slate-800"
-                  }`}
-                >
-                  {formatInteger(listingVolumeAf)}
-                </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Price per AF ($)</p>
-                  <div
-                    className={`mt-1 rounded-lg border px-3 py-2 text-base font-semibold ${
-                      activeSection === 1
-                        ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
-                        : "border-slate-200 bg-slate-50/80 text-slate-800"
-                    }`}
-                  >
-                    {listingPriceDisplay}
-                  </div>
-                </div>
-                <div className="space-y-2 text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                  Pricing mode
-                  <div
-                    className={`flex rounded-full border p-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
-                      activeSection === 1
-                        ? "border-emerald-200 bg-emerald-50"
-                        : "border-slate-200 bg-slate-50"
-                    }`}
-                  >
-                    <span
-                      className={`flex-1 rounded-full px-2 py-1 text-center text-[10px] ${
-                        activeSection === 1 ? "bg-emerald-600 text-white shadow" : "bg-white text-slate-600"
+                <p className="mt-3 text-[12px] text-slate-600">{step.caption}</p>
+                <ul className="mt-4 space-y-2" role="list">
+                  {step.highlights.map((highlight) => (
+                    <li
+                      key={highlight}
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-medium transition ${
+                        isActive
+                          ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+                          : "border-white/50 bg-white/70 text-slate-700"
                       }`}
                     >
-                      Fixed
-                    </span>
-                    <span className="flex-1 rounded-full px-2 py-1 text-center text-slate-400">Auction</span>
-                  </div>
-                  <p className="text-[9px] normal-case text-slate-500">Toggle to expose auction settings.</p>
-                </div>
-              <div
-                className={`rounded-xl border px-3 py-3 ${
-                  activeSection === 1
-                    ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
-                    : "border-slate-200 bg-slate-50/80 text-slate-800"
-                }`}
-              >
-                <div
-                  className={`flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] ${
-                    activeSection === 1 ? "text-emerald-700" : "text-slate-500"
-                  }`}
-                >
-                  <span>Estimated order value</span>
-                  <span>{formatCurrency(listingGrossValue)}</span>
-                </div>
-                <div className="mt-2 space-y-1 text-[11px]">
-                  <div
-                    className={`flex items-center justify-between ${
-                      activeSection === 1 ? "text-emerald-700/80" : "text-slate-500"
-                    }`}
-                  >
-                    <span>Water Trader Fee ({feePercentLabel})</span>
-                    <span>-{formatCurrency(listingFee)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm font-semibold text-emerald-600">
-                    <span>Projected seller net</span>
-                    <span>{formatCurrency(listingNet)}</span>
+                      <CheckCircle2
+                        className={`h-4 w-4 ${isActive ? "text-emerald-500" : "text-slate-300"}`}
+                        aria-hidden
+                      />
+                      <span>{highlight}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+        <aside className="space-y-3">
+          <div className="rounded-2xl border border-emerald-200/60 bg-white/85 p-4 text-slate-800 shadow-sm">
+            <div className="text-[10px] uppercase tracking-[0.3em] text-emerald-600/80">Publish in minutes</div>
+            <p className="mt-2 text-[12px] text-slate-600">
+              Water Trader guides you through the essentials and keeps the heavy lifting automated.
+            </p>
+            <div className="mt-4 space-y-2 text-[11px]">
+              <div className="flex items-center justify-between rounded-xl border border-white/50 bg-white/80 px-3 py-2">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Gross value</span>
+                <span className="text-sm font-semibold text-slate-900">{formatCurrency(listingGrossValue)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-white/50 bg-white/80 px-3 py-2">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Water Trader Fee</span>
+                <span className="text-sm font-semibold text-slate-900">
+                  {formatCurrency(listingFee)} <span className="text-[10px] text-slate-500">({feePercentLabel})</span>
+                </span>
                   </div>
                 </div>
               </div>
@@ -903,74 +854,43 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
             </div>
           </section>
         </div>
-
-        <section
-          className={`${baseSectionClass} ${activeSection === 2 ? activeSectionClass : inactiveSectionClass}`}
-          aria-label="Distribution controls"
-        >
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-emerald-600/80">
-            <span>Visibility &amp; routing</span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                activeSection === 2 ? "bg-emerald-100 text-emerald-700" : "bg-emerald-50 text-emerald-600/80"
-              }`}
+            <button
+              type="button"
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
             >
-              Step 3
-            </span>
+              Publish listing
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
           </div>
-          <div className="mt-3 space-y-2 text-sm">
-            <div
-              className={`flex items-center justify-between rounded-xl border px-3 py-2 ${
-                activeSection === 2
-                  ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
-                  : "border-slate-200 bg-slate-50/80 text-slate-800"
-              }`}
-            >
-              <span>District partners</span>
-              <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Default</span>
-            </div>
-            <div className="flex items-center justify-between rounded-xl border border-dashed border-slate-200 px-3 py-2 text-slate-500">
-              <span>Private buyers</span>
-              <span className="text-[10px] uppercase tracking-[0.2em]">Invite only</span>
-            </div>
-            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-slate-700">
-              <span>DocuSign packet</span>
-              <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-600">Auto generated</span>
-            </div>
-            </div>
-          <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-600">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-hidden />
-              <span>Counterparty guardrails saved</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-hidden />
-              <span>Stakeholders notified on publish</span>
+          <div className="rounded-2xl border border-white/40 bg-white/60 p-4 text-[11px] text-slate-700 shadow-sm">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-emerald-500" aria-hidden />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-slate-900">Guardrails stay on</p>
+                <p>Counterparty rules and notifications are saved to every template.</p>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-600">Auto reminders included</p>
+              </div>
             </div>
           </div>
-          <button
-            type="button"
-            className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              activeSection === 2 ? "bg-emerald-600 text-white shadow-lg" : "bg-emerald-500/90 text-white shadow"
-            }`}
-          >
-            Create listing
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          </button>
-        </section>
+            </aside>
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/30 bg-white/10 p-3 text-[10px] uppercase tracking-[0.3em] text-emerald-100/80">
         <div className="flex items-center justify-between text-[10px] font-semibold">
-          <span>Submission readiness</span>
+          <span>Guided flow</span>
           <span>{Math.round(completion * 100)}%</span>
         </div>
-        <div className="mt-2 h-1.5 rounded-full bg-white/20">
-          <div
-            className="h-full rounded-full bg-emerald-300 transition-all duration-700"
-            style={{ width: `${Math.min(100, Math.round(completion * 100))}%` }}
-            aria-hidden
-          />
+        <div className="mt-2 flex items-center gap-2">
+          {steps.map((step, index) => {
+            const filled = index <= progressIndex;
+            return (
+              <span
+                key={step.id}
+                className={`h-1.5 flex-1 rounded-full transition ${filled ? "bg-emerald-300" : "bg-white/20"}`}
+                aria-hidden
+              />
+            );
+          })}
         </div>
       </div>
     </PreviewFrame>
