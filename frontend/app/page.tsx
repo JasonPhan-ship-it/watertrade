@@ -704,7 +704,6 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
   const listingPricePerAf = 795;
   const listingGrossValue = listingVolumeAf * listingPricePerAf;
   const listingFee = listingGrossValue * normalizedFeeRate;
-  const listingNet = listingGrossValue - listingFee;
   const listingPriceDisplay = `$${listingPricePerAf.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -715,40 +714,23 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
   const steps = React.useMemo(
     () => [
       {
-        id: "basics",
-        title: "Listing basics",
-        caption: "Start with the essentials so buyers can qualify at a glance.",
+        id: "details",
+        title: "Details & pricing",
+        caption: "Set the essentials and terms without juggling extra toggles or fields.",
         highlights: [
           "Title • 2024 Allocation — Kern",
           "District • Kern Water Bank",
           "Water type • Surface allocation",
-        ],
-      },
-      {
-        id: "pricing",
-        title: "Price & volume",
-        caption: "Set the terms without juggling extra toggles or fields.",
-        highlights: [
           `Volume • ${formatInteger(listingVolumeAf)} AF`,
           `Price • ${listingPriceDisplay}`,
-          `Projected net • ${formatCurrency(listingNet)}`,
-        ],
-      },
-      {
-        id: "share",
-        title: "Share & route",
-        caption: "Decide who sees the deal and keep paperwork automated.",
-        highlights: [
-          "District partners • Default routing",
-          "Private buyers • Invite-only",
-          "DocuSign packet • Auto generated",
         ],
       },
     ],
-    [listingNet, listingPriceDisplay, listingVolumeAf],
+    [listingPriceDisplay, listingVolumeAf],
   );
 
   const stepCount = steps.length;
+  const durations = React.useMemo(() => steps.map(() => 2400), [steps]);
   const [activeStep, setActiveStep] = React.useState(prefersReducedMotion ? -1 : 0);
   
   React.useEffect(() => {
@@ -757,9 +739,12 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
       return;
     }
 
+    if (stepCount === 0) {
+      return;
+    }
+
     let cancelled = false;
     let timeoutId: number | null = null;
-    const durations = [2400, 2200, 2400];
 
     const run = (index: number) => {
       if (cancelled) return;
@@ -777,10 +762,10 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
       cancelled = true;
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     };
-  }, [prefersReducedMotion, stepCount]);
+  }, [durations, prefersReducedMotion, stepCount]);
 
-  const completion = activeStep < 0 ? 1 : (activeStep + 1) / stepCount;
-  const progressIndex = activeStep < 0 ? stepCount - 1 : activeStep;
+  const completion = activeStep < 0 || stepCount === 0 ? 1 : (activeStep + 1) / stepCount;
+  const progressIndex = stepCount === 0 ? 0 : activeStep < 0 ? stepCount - 1 : activeStep;
   
   return (
     <PreviewFrame title="Listing composer" subtitle="Guided">
@@ -849,6 +834,13 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
                 </span>
               </div>
             </div>
+            <button
+              type="button"
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
+            >
+              Publish listing
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
           </div>
           <div className="rounded-2xl border border-white/40 bg-white/60 p-4 text-[11px] text-slate-700 shadow-sm">
             <div className="flex items-start gap-3">
@@ -859,13 +851,6 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
                 <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-600">Auto reminders included</p>
               </div>
             </div>
-            <button
-              type="button"
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
-            >
-              Publish listing
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </button>
           </div>
         </aside>
       </div>
