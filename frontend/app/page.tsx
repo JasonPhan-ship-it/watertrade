@@ -766,9 +766,17 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
 
   const completion = activeStep < 0 || stepCount === 0 ? 1 : (activeStep + 1) / stepCount;
   const progressIndex = stepCount === 0 ? 0 : activeStep < 0 ? stepCount - 1 : activeStep;
+
+    const detailsHeading =
+    steps[progressIndex]?.title ?? steps[0]?.title ?? "Details & pricing";
   
   return (
     <PreviewFrame title="Listing composer" subtitle="Guided">
+
+      <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold text-emerald-700">
+        <span>{detailsHeading}</span>
+        <span>Publish in minutes</span>
+      </div>
       <div className="grid gap-3 text-[11px] sm:grid-cols-[1.1fr,0.9fr]">
         <div className="space-y-3">
           {steps.map((step, index) => {
@@ -782,18 +790,8 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
                     : "border-white/40"
                 }`}
                 aria-label={step.title}
-              >
-                <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-emerald-600/80">
-                  <span>Step {index + 1}</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      isActive ? "bg-emerald-100 text-emerald-700" : "bg-emerald-50 text-emerald-600/80"
-                    }`}
-                  >
-                    {step.title}
-                  </span>
-                </div>
-                <p className="mt-3 text-[12px] text-slate-600">{step.caption}</p>
+                <span className="sr-only">{step.title}</span>
+                <p className="mt-1 text-[12px] text-slate-600">{step.caption}</p>
                 <ul className="mt-4 space-y-2" role="list">
                   {step.highlights.map((highlight) => (
                     <li
@@ -818,8 +816,8 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
         </div>
         <aside className="space-y-3">
           <div className="rounded-2xl border border-emerald-200/60 bg-white/85 p-4 text-slate-800 shadow-sm">
-            <div className="text-[10px] uppercase tracking-[0.3em] text-emerald-600/80">Publish in minutes</div>
-            <p className="mt-2 text-[12px] text-slate-600">
+            <span className="sr-only">Publish in minutes</span>
+            <p className="text-[12px] text-slate-600">
               Water Trader guides you through the essentials and keeps the heavy lifting automated.
             </p>
             <div className="mt-4 space-y-2 text-[11px]">
