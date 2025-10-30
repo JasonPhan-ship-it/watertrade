@@ -789,6 +789,7 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
                     : "border-white/40"
                 }`}
                 aria-label={step.title}
+              >
                 <span className="sr-only">{step.title}</span>
                 <p className="mt-1 text-[12px] text-slate-600">{step.caption}</p>
                 <ul className="mt-4 space-y-2" role="list">
