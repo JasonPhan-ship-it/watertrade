@@ -158,6 +158,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
       description:
         "Schedule a walkthrough with our team to see how Water Traders powers advisory firms, growers, and districts with a connected operating system.",
       primaryCtaLabel: "Talk to our team",
+      secondaryCtaLabel: "Learn more", // <-- add this
     },
     cookieBanner: {
       message:
