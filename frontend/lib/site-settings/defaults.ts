@@ -24,7 +24,7 @@ export type HomepageCopy = {
     heading: string;
     description: string;
     carouselInstructions: {
-        default: "",
+      default: string;
       reducedMotion: string;
     };
     items: Array<{
