@@ -842,16 +842,6 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
               <ChevronRight className="h-4 w-4" aria-hidden />
             </button>
           </div>
-          <div className="rounded-2xl border border-white/40 bg-white/60 p-4 text-[11px] text-slate-700 shadow-sm">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-emerald-500" aria-hidden />
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900">Guardrails stay on</p>
-                <p>Counterparty rules and notifications are saved to every template.</p>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-600">Auto reminders included</p>
-              </div>
-            </div>
-          </div>
         </aside>
       </div>
 
