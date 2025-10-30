@@ -159,12 +159,11 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
       ],
     },
     gradientCta: {
-      preheading: "Ready to modernize",
-      heading: "Bring institutional-grade execution to your water trades",
+      preheading: "Ready to trade",
+      heading: "Start exchanging water now",
       description:
         "Schedule a walkthrough with our team to see how Water Traders powers advisory firms, growers, and districts with a connected operating system.",
       primaryCtaLabel: "Talk to our team",
-      secondaryCtaLabel: "Explore pricing",
     },
     cookieBanner: {
       message:
