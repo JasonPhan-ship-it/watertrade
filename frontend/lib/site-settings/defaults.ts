@@ -105,7 +105,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
       description:
         "Guided workspaces keep growers, advisors, and districts aligned from first offer to final delivery.",
       carouselInstructions: {
-        default: "Carousel advances every 8 seconds. Use the controls to explore manually.",
+        default: "",
         reducedMotion: "Select a workflow to explore the UI at your own pace.",
       },
       items: [
@@ -141,8 +141,8 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
       description:
         "Water Traders streamlines every step—from sourcing inventory to filing closing paperwork—so that your compliance, finance, and operations teams move in lockstep.",
       quote:
-        "\"Water Traders gives our growers the confidence of an institutional desk with the speed of a startup. The audit trail alone has transformed how we report to stakeholders.\"",
-      attribution: "Agribusiness COO",
+        "\"Water Traders gives us growers the confidence we need to trade water.\"",
+      attribution: "Farmer LLC - COO",
       steps: [
         {
           title: "Source and qualify supply",
