@@ -52,13 +52,20 @@ const FEATURED_DISTRICTS = [
 
 type WorkflowPreviewComponent = React.ComponentType<{ feeRate: number }>;
 
+const CORE_WORKFLOW_ORDER = [
+  "create-listing",
+  "buy-now",
+  "track-progress",
+] as const;
+
+type CoreWorkflowId = (typeof CORE_WORKFLOW_ORDER)[number];
+
 const CORE_WORKFLOW_PREVIEWS: Record<
-  string,
+  CoreWorkflowId,
   { icon: LucideIcon; preview: WorkflowPreviewComponent }
 > = {
-  offer: { icon: PenLine, preview: OfferPreview },
-  "buy-now": { icon: MousePointerClick, preview: BuyNowPreview },
   "create-listing": { icon: FileText, preview: CreateListingPreview },
+  "buy-now": { icon: MousePointerClick, preview: BuyNowPreview },
   "track-progress": { icon: CheckCircle2, preview: TrackProgressPreview },
 };
 
@@ -524,36 +531,6 @@ function PreviewFrame({
   );
 }
 
-function OfferPreview(_props: { feeRate: number }) {
-  return (
-    <PreviewFrame title="Offer workspace" subtitle="SJV growers">
-      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-        <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">
-          <span>Delivery window</span>
-          <span>Jul 1 – Aug 15</span>
-        </div>
-        <div className="mt-3 grid gap-2 text-[11px]">
-          <div className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-emerald-50/90">
-            <span>Westlands WD</span>
-            <span className="font-semibold">1,200 AF</span>
-          </div>
-          <div className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-emerald-50/90">
-            <span>Panoche WD</span>
-            <span className="font-semibold">600 AF</span>
-          </div>
-        </div>
-      </div>
-      <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Approval flow</p>
-          <p className="text-[11px] text-emerald-50/90">Grower → Advisor → District</p>
-        </div>
-        <span className="rounded-full bg-emerald-400/20 px-3 py-1 text-[11px] font-semibold text-emerald-200">Ready</span>
-      </div>
-    </PreviewFrame>
-  );
-}
-
 function BuyNowPreview({ feeRate }: { feeRate: number }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = React.useState<"details" | "clicked" | "redirect">("details");
@@ -987,20 +964,27 @@ function CoreWorkflowShowcase({
   const workflows = React.useMemo(() => {
     const fallbackItems = DEFAULT_HOMEPAGE_COPY.coreWorkflows.items;
     const baseItems = copy.items.length ? copy.items : fallbackItems;
-    const fallbackId = baseItems[0]?.id ?? fallbackItems[0]?.id ?? "offer";
-    const fallbackPreview = CORE_WORKFLOW_PREVIEWS[fallbackId] ?? CORE_WORKFLOW_PREVIEWS["offer"];
-    return baseItems
-      .map((item) => {
-        const mapping = CORE_WORKFLOW_PREVIEWS[item.id] ?? fallbackPreview;
-        return {
-          ...item,
-          icon: mapping.icon,
-          preview: mapping.preview,
-        };
-      })
-      .filter((item) => Boolean(item.preview));
-  }, [copy.items]);
 
+
+    return CORE_WORKFLOW_ORDER.map((id) => {
+      const source =
+        baseItems.find((item) => item.id === id) ??
+        fallbackItems.find((item) => item.id === id);
+
+      if (!source) {
+        return null;
+      }
+
+      const mapping = CORE_WORKFLOW_PREVIEWS[id];
+
+      return {
+        ...source,
+        icon: mapping.icon,
+        preview: mapping.preview,
+      };
+    }).filter((item): item is NonNullable<typeof item> => Boolean(item));
+  }, [copy.items]);
+    
   const workflowCount = workflows.length;
   const [activeIndex, setActiveIndex] = React.useState(0);
   
