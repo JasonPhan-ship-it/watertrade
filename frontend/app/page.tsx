@@ -777,7 +777,7 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
       cancelled = true;
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     };
-  }, [prefersReducedMotion, sectionCount]);
+  }, [prefersReducedMotion, stepCount]);
 
   const completion = activeStep < 0 ? 1 : (activeStep + 1) / stepCount;
   const progressIndex = activeStep < 0 ? stepCount - 1 : activeStep;
@@ -847,20 +847,8 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
                 <span className="text-sm font-semibold text-slate-900">
                   {formatCurrency(listingFee)} <span className="text-[10px] text-slate-500">({feePercentLabel})</span>
                 </span>
-                  </div>
-                </div>
-              </div>
               </div>
             </div>
-          </section>
-        </div>
-            <button
-              type="button"
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
-            >
-              Publish listing
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </button>
           </div>
           <div className="rounded-2xl border border-white/40 bg-white/60 p-4 text-[11px] text-slate-700 shadow-sm">
             <div className="flex items-start gap-3">
@@ -871,8 +859,15 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
                 <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-600">Auto reminders included</p>
               </div>
             </div>
+            <button
+              type="button"
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
+            >
+              Publish listing
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
           </div>
-            </aside>
+        </aside>
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/30 bg-white/10 p-3 text-[10px] uppercase tracking-[0.3em] text-emerald-100/80">
