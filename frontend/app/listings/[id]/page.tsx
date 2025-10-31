@@ -309,30 +309,51 @@ export default async function ListingDetailPage({ params }: PageProps) {
     return (
       <div className="mx-auto max-w-6xl">
         {/* Sticky summary header */}
-        <nav className="sticky top-0 z-30 border-b bg-white/85 backdrop-blur">
-          <div className="px-6 py-3 flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <Breadcrumbs />
-                <span className="text-slate-300">/</span>
-                <h1 className="truncate text-lg font-semibold text-slate-900">{displayTitle}</h1>
-                <StatusPill status={row.status} />
+        {isOwner ? (
+          <nav className="sticky top-0 z-30 border-b bg-white/85 backdrop-blur">
+            <div className="px-6 py-3 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Breadcrumbs />
+                  <span className="text-slate-300">/</span>
+                  <h1 className="truncate text-lg font-semibold text-slate-900">{displayTitle}</h1>
+                  <StatusPill status={row.status} />
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                  <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
+                  <Meta label="Transaction Type" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
+                  <Meta label="Created" value={formatDate(row.createdAt)} />
+                </div>
               </div>
-              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-                <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
-                <Meta label="Transaction Type" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
-                <Meta label="Created" value={formatDate(row.createdAt)} />
+
+              <div className="flex shrink-0 items-center gap-3">
+                {isOwner && (
+                  <Link
+                    href={`/listings/${row.id}/edit`}
+                    className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f]"
+                  >
+                    Edit Listing
+                  </Link>
+                )}
+                <Link
+                  href="/dashboard"
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Back to Listings
+                </Link>
               </div>
             </div>
-
-            <div className="flex shrink-0 items-center gap-3">
-              {isOwner && (
-                <Link
-                  href={`/listings/${row.id}/edit`}
-                  className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00392f]"
-                >
-                  Edit Listing
-                </Link>
+          </nav>
+        ) : (
+          <div className="px-6 pt-6">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold text-slate-900">{displayTitle}</h1>
+              <StatusPill status={row.status} />
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+              <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
+              <Meta label="Transaction Type" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
+              <Meta label="Created" value={formatDate(row.createdAt)} />
               )}
               <Link
                 href="/dashboard"
@@ -342,10 +363,10 @@ export default async function ListingDetailPage({ params }: PageProps) {
               </Link>
             </div>
           </div>
-        </nav>
+        )}
 
         {/* Body */}
-        <div className="p-6">
+        <div className={isOwner ? "p-6" : "px-6 pb-6"}>
 
           <div className="mt-6">
             {isOwner ? (
