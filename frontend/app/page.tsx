@@ -791,6 +791,8 @@ function CreateListingPreview({ feeRate: _feeRate }: { feeRate: number }) {
           <ChevronRight className="h-4 w-4" aria-hidden />
         </button>
 
+      </div>
+
       <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-[#0E6A59]/40 p-3 text-[10px] uppercase tracking-[0.3em] text-emerald-100/80">
         <div className="flex items-center justify-between text-[10px] font-semibold">
           <span>Flow progress</span>
