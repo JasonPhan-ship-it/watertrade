@@ -354,10 +354,11 @@ export default async function ListingDetailPage({ params }: PageProps) {
               <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
               <Meta label="Transaction Type" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
               <Meta label="Created" value={formatDate(row.createdAt)} />
-              )}
+            </div>
+            <div className="mt-4">
               <Link
                 href="/dashboard"
-                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Back to Listings
               </Link>
