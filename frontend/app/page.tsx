@@ -736,16 +736,10 @@ function CreateListingPreview({ feeRate: _feeRate }: { feeRate: number }) {
 
   const completion = activeStep < 0 || stepCount === 0 ? 1 : (activeStep + 1) / stepCount;
   const progressIndex = stepCount === 0 ? 0 : activeStep < 0 ? stepCount - 1 : activeStep;
-
-  const detailsHeading = steps[progressIndex]?.title ?? steps[0]?.title ?? "Details & pricing";
   
   return (
     <PreviewFrame title="Listing composer">
 
-      <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold text-emerald-700">
-        <span>{detailsHeading}</span>
-        <span>Publish in minutes</span>
-      </div>
       <div className="space-y-3 text-[11px]">
         {steps.map((step, index) => {
           const isActive = activeStep < 0 || activeStep === index;
