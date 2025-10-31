@@ -521,10 +521,10 @@ function PreviewFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mt-6 rounded-2xl border border-white/15 bg-slate-900/60 p-4 text-left text-xs text-emerald-50 shadow-lg">
+    <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-[#004434]/80 p-4 text-left text-xs text-emerald-50 shadow-lg">
       <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-200/80">
         <span>{title}</span>
-        {subtitle ? <span className="text-emerald-100/60">{subtitle}</span> : <span className="text-emerald-100/60">Live</span>}
+        {subtitle ? <span className="text-emerald-100/70">{subtitle}</span> : <span className="text-emerald-100/70">Live</span>}
       </div>
       <div className="mt-3 space-y-3 text-[11px] leading-5 text-emerald-50/90">{children}</div>
     </div>
@@ -672,21 +672,14 @@ function BuyNowPreview({ feeRate }: { feeRate: number }) {
   );
 }
 
-function CreateListingPreview({ feeRate }: { feeRate: number }) {
-  const normalizedFeeRate =
-    Number.isFinite(feeRate) && feeRate >= 0 ? feeRate : DEFAULT_WATER_TRADER_FEE_RATE;
-
+function CreateListingPreview({ feeRate: _feeRate }: { feeRate: number }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const listingVolumeAf = 1200;
   const listingPricePerAf = 795;
-  const listingGrossValue = listingVolumeAf * listingPricePerAf;
-  const listingFee = listingGrossValue * normalizedFeeRate;
   const listingPriceDisplay = `$${listingPricePerAf.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-  const feePercentLabel = `${(normalizedFeeRate * 100).toFixed(2)}%`;
-
 
   const steps = React.useMemo(
     () => [
@@ -747,82 +740,60 @@ function CreateListingPreview({ feeRate }: { feeRate: number }) {
   const detailsHeading = steps[progressIndex]?.title ?? steps[0]?.title ?? "Details & pricing";
   
   return (
-    <PreviewFrame title="Listing composer" subtitle="Guided">
+    <PreviewFrame title="Listing composer">
 
       <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold text-emerald-700">
         <span>{detailsHeading}</span>
         <span>Publish in minutes</span>
       </div>
-      <div className="grid gap-3 text-[11px] sm:grid-cols-[1.1fr,0.9fr]">
-        <div className="space-y-3">
-          {steps.map((step, index) => {
-            const isActive = activeStep < 0 || activeStep === index;
-            return (
-              <section
-                key={step.id}
-                className={`rounded-2xl border bg-white/90 p-4 text-slate-800 shadow-sm transition-all duration-500 ${
-                  isActive
-                    ? "border-emerald-200 ring-2 ring-emerald-300/70 shadow-[0_18px_40px_rgba(16,185,129,0.18)]"
-                    : "border-white/40"
-                }`}
-                aria-label={step.title}
-              >
-                <span className="sr-only">{step.title}</span>
-                <p className="mt-1 text-[12px] text-slate-600">{step.caption}</p>
-                <ul className="mt-4 space-y-2" role="list">
-                  {step.highlights.map((highlight) => (
-                    <li
-                      key={highlight}
-                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-medium transition ${
-                        isActive
-                          ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
-                          : "border-white/50 bg-white/70 text-slate-700"
-                      }`}
-                    >
-                      <CheckCircle2
-                        className={`h-4 w-4 ${isActive ? "text-emerald-500" : "text-slate-300"}`}
-                        aria-hidden
-                      />
-                      <span>{highlight}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })}
-        </div>
-        <aside className="space-y-3">
-          <div className="rounded-2xl border border-emerald-200/60 bg-white/85 p-4 text-slate-800 shadow-sm">
-            <span className="sr-only">Publish in minutes</span>
-            <p className="text-[12px] text-slate-600">
-              Water Trader guides you through the essentials and keeps the heavy lifting automated.
-            </p>
-            <div className="mt-4 space-y-2 text-[11px]">
-              <div className="flex items-center justify-between rounded-xl border border-white/50 bg-white/80 px-3 py-2">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Gross value</span>
-                <span className="text-sm font-semibold text-slate-900">{formatCurrency(listingGrossValue)}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/50 bg-white/80 px-3 py-2">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Water Trader Fee</span>
-                <span className="text-sm font-semibold text-slate-900">
-                  {formatCurrency(listingFee)} <span className="text-[10px] text-slate-500">({feePercentLabel})</span>
-                </span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
+      <div className="space-y-3 text-[11px]">
+        {steps.map((step, index) => {
+          const isActive = activeStep < 0 || activeStep === index;
+          return (
+            <section
+              key={step.id}
+              className={`rounded-2xl border bg-white/90 p-4 text-slate-800 shadow-sm transition-all duration-500 ${
+                isActive
+                  ? "border-emerald-200 ring-2 ring-emerald-300/70 shadow-[0_18px_40px_rgba(16,185,129,0.18)]"
+                  : "border-white/40"
+              }`}
+              aria-label={step.title}
             >
-              Publish listing
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </button>
-          </div>
-        </aside>
-      </div>
+              <span className="sr-only">{step.title}</span>
+              <p className="mt-1 text-[12px] text-slate-600">{step.caption}</p>
+              <ul className="mt-4 space-y-2" role="list">
+                {step.highlights.map((highlight) => (
+                  <li
+                    key={highlight}
+                    className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-medium transition ${
+                      isActive
+                        ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+                        : "border-white/50 bg-white/70 text-slate-700"
+                    }`}
+                  >
+                    <CheckCircle2
+                      className={`h-4 w-4 ${isActive ? "text-emerald-500" : "text-slate-300"}`}
+                      aria-hidden
+                    />
+                    <span>{highlight}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          );
+        })}
 
-      <div className="mt-4 rounded-2xl border border-white/30 bg-white/10 p-3 text-[10px] uppercase tracking-[0.3em] text-emerald-100/80">
+        <button
+          type="button"
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
+        >
+          Publish listing
+          <ChevronRight className="h-4 w-4" aria-hidden />
+        </button>
+
+      <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-[#0E6A59]/40 p-3 text-[10px] uppercase tracking-[0.3em] text-emerald-100/80">
         <div className="flex items-center justify-between text-[10px] font-semibold">
-          <span>Guided flow</span>
+          <span>Flow progress</span>
           <span>{Math.round(completion * 100)}%</span>
         </div>
         <div className="mt-2 flex items-center gap-2">
@@ -1047,7 +1018,7 @@ function CoreWorkflowShowcase({
     
   return (
     <div
-      className="relative overflow-hidden rounded-3xl border border-white/15 bg-white/10 p-6 shadow-xl backdrop-blur-lg sm:p-8"
+      className="relative overflow-hidden rounded-3xl border border-emerald-500/30 bg-[#004434]/60 p-6 shadow-xl backdrop-blur-lg sm:p-8"
       role="region"
       aria-roledescription="carousel"
       aria-label="Core platform workflows"
@@ -1117,8 +1088,7 @@ function CoreWorkflowShowcase({
         <div className="relative isolate">
           <div className="pointer-events-none absolute -right-20 -top-16 h-60 w-60 rounded-full bg-emerald-300/20 blur-3xl" aria-hidden />
           <div className="pointer-events-none absolute -bottom-20 left-10 h-48 w-48 rounded-full bg-emerald-500/15 blur-2xl" aria-hidden />
-          <div className="relative rounded-2xl border border-white/15 bg-slate-900/60 p-4 shadow-xl ring-1 ring-white/10" aria-live="polite">
-            <Preview feeRate={feeRate} />
+          <div className="relative rounded-2xl border border-emerald-400/40 bg-[#0E6A59]/60 p-4 shadow-xl ring-1 ring-emerald-300/20" aria-live="polite">            <Preview feeRate={feeRate} />
           </div>
         </div>
       </div>
