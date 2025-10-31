@@ -336,18 +336,22 @@ export default async function ListingDetailPage({ params }: PageProps) {
               )}
               <Link
                 href="/dashboard"
-                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="hidden rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex"
               >
                 Back to Listings
               </Link>
-            <div className="mt-4">
-              <Link
-                href="/dashboard"
-                className="inline-flex rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Back to Listings
-              </Link>
+            </div>
+          </div>
         </nav>
+
+        <div className="px-6 pt-3 sm:hidden">
+          <Link
+            href="/dashboard"
+            className="inline-flex w-full justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Back to Listings
+          </Link>
+        </div>
 
         {/* Body */}
         <div className={isOwner ? "p-6" : "px-6 pb-6"}>
