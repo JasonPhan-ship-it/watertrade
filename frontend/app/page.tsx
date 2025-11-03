@@ -82,6 +82,71 @@ const formatCurrency = (value: number) => currencyFormatter.format(Math.max(0, M
 
 const DEFAULT_METRIC_CARDS = DEFAULT_HOMEPAGE_COPY.metrics.cards;
 
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends Array<infer _U>
+    ? T[K]
+    : T[K] extends object
+      ? DeepPartial<T[K]>
+      : T[K];
+};
+
+function mergeHomepageCopy(
+  defaults: HomepageCopy,
+  overrides: DeepPartial<HomepageCopy>,
+): HomepageCopy {
+  const heroOverride: DeepPartial<HomepageCopy["hero"]> = overrides.hero ?? {};
+  const metricsOverride: DeepPartial<HomepageCopy["metrics"]> = overrides.metrics ?? {};
+  const featuredOverride: DeepPartial<HomepageCopy["featuredDistricts"]> =
+    overrides.featuredDistricts ?? {};
+  const coreOverride: DeepPartial<HomepageCopy["coreWorkflows"]> = overrides.coreWorkflows ?? {};
+  const carouselOverride: DeepPartial<HomepageCopy["coreWorkflows"]["carouselInstructions"]> =
+    coreOverride.carouselInstructions ?? {};
+  const processOverride: DeepPartial<HomepageCopy["process"]> = overrides.process ?? {};
+  const gradientOverride: DeepPartial<HomepageCopy["gradientCta"]> = overrides.gradientCta ?? {};
+  const cookieOverride: DeepPartial<HomepageCopy["cookieBanner"]> = overrides.cookieBanner ?? {};
+  const logoutOverride: DeepPartial<HomepageCopy["logoutToast"]> = overrides.logoutToast ?? {};
+
+  return {
+    hero: {
+      ...defaults.hero,
+      ...heroOverride,
+      phrases: heroOverride.phrases ?? defaults.hero.phrases,
+    },
+    metrics: {
+      cards: metricsOverride.cards ?? defaults.metrics.cards,
+    },
+    featuredDistricts: {
+      heading: featuredOverride.heading ?? defaults.featuredDistricts.heading,
+    },
+    coreWorkflows: {
+      ...defaults.coreWorkflows,
+      ...coreOverride,
+      carouselInstructions: {
+        ...defaults.coreWorkflows.carouselInstructions,
+        ...carouselOverride,
+      },
+      items: coreOverride.items ?? defaults.coreWorkflows.items,
+    },
+    process: {
+      ...defaults.process,
+      ...processOverride,
+      steps: processOverride.steps ?? defaults.process.steps,
+    },
+    gradientCta: {
+      ...defaults.gradientCta,
+      ...gradientOverride,
+    },
+    cookieBanner: {
+      ...defaults.cookieBanner,
+      ...cookieOverride,
+    },
+    logoutToast: {
+      ...defaults.logoutToast,
+      ...logoutOverride,
+    },
+  };
+}
+
 function useListingsPreview() {
   const [data, setData] = React.useState<ListingsResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -137,9 +202,11 @@ function useHomepageSettings() {
         ]);
 
         if (!cancelled && copyRes.ok) {
-          const json = (await copyRes.json().catch(() => ({}))) as { value?: HomepageCopy };
+          const json = (await copyRes.json().catch(() => ({}))) as {
+            value?: DeepPartial<HomepageCopy>;
+          };
           if (json?.value) {
-            setCopy(json.value);
+            setCopy(mergeHomepageCopy(DEFAULT_HOMEPAGE_COPY, json.value ?? {}));
           }
         }
 
