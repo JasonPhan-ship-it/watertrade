@@ -1,7 +1,7 @@
 // middleware.ts
 import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import type { NextMiddleware, NextRequest } from "next/server";
 
 // ---------- Helpers ----------
 const isStatic = (pathname: string) =>
@@ -76,7 +76,26 @@ function signCsp(): string {
   ].join("; ");
 }
 
-export default withClerkMiddleware((req) => {
+const rawSecretKey =
+  (process.env.CLERK_SECRET_KEY ?? process.env.CLERK_API_KEY ?? "").trim();
+const rawFrontendKey =
+  (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ??
+    process.env.NEXT_PUBLIC_CLERK_FRONTEND_API ??
+    "").trim();
+
+const clerkMiddlewareEnabled = rawSecretKey.length > 0 && rawFrontendKey.length > 0;
+
+let loggedMissingConfig = false;
+
+const logMissingClerkConfig = () => {
+  if (loggedMissingConfig) return;
+  loggedMissingConfig = true;
+  console.warn(
+    "[middleware] Clerk keys missing – skipping auth middleware. Set CLERK_SECRET_KEY and NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY to enable it.",
+  );
+};
+
+const baseMiddleware: NextMiddleware = (req) => {
   const { pathname, searchParams } = req.nextUrl;
 
   // Always allow static files and public routes
@@ -93,6 +112,11 @@ export default withClerkMiddleware((req) => {
     return res;
   }
 
+  if (!clerkMiddlewareEnabled) {
+    logMissingClerkConfig();
+    return NextResponse.next();
+  }
+  
   try {
     const { userId } = getAuth(req);
 
@@ -132,7 +156,11 @@ export default withClerkMiddleware((req) => {
 
     return NextResponse.next();
   }
-});
+};
+
+export default clerkMiddlewareEnabled
+  ? withClerkMiddleware(baseMiddleware)
+  : baseMiddleware;
 
 export const config = {
   // Run on all pages except next internals & files
