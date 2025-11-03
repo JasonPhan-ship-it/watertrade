@@ -349,8 +349,11 @@ model Notification {
   @@index([kind, createdAt])
 }
 
+/* ========== Site Settings (UPDATED) ========== */
+// changed: added surrogate `id` and made `key` unique instead of the primary key
 model SiteSetting {
-  key       String   @id
+  id        String   @id @default(cuid())
+  key       String   @unique
   value     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
