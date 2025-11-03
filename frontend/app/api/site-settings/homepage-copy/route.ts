@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { getSiteSetting } from "@/lib/site-settings";
 
 // ---------- helpers ----------
 async function getOrCreateUser(clerkId: string) {
@@ -57,6 +58,16 @@ const CopySchema = z.object({
 });
 
 export const runtime = "nodejs"; // Prisma requires Node runtime
+
+export async function GET() {
+  try {
+    const value = await getSiteSetting("homepageCopy");
+    return NextResponse.json({ value });
+  } catch (err: any) {
+    console.error("[GET /api/site-settings/homepage-copy] ERROR", err);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+}
 
 export async function PUT(req: Request) {
   try {
