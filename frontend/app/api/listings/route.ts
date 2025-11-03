@@ -44,13 +44,14 @@ export async function GET(req: NextRequest) {
 
     // Viewer → DB user
     const { userId: clerkUserId } = auth();
-    let viewerDbUserId: string | null = null;
+    let viewerRole: "ADMIN" | "USER" | null = null;
     if (clerkUserId) {
       const viewer = await prisma.user.findUnique({
         where: { clerkId: clerkUserId },
-        select: { id: true },
+        select: { id: true, role: true },
       });
       viewerDbUserId = viewer?.id ?? null;
+      viewerRole = (viewer?.role as "ADMIN" | "USER" | null) ?? null;
     }
 
     const whereAND: any[] = [];
@@ -131,7 +132,9 @@ export async function GET(req: NextRequest) {
       sellerFarmId: r.sellerFarmId,
     }));
 
-    return noCache(NextResponse.json({ listings, total, limited: !q.premium }, { status: 200 }));
+    return noCache(
+      NextResponse.json({ listings, total, limited: !q.premium, viewerRole }, { status: 200 })
+    );
   } catch (err: any) {
     console.error("[api/listings] error", err);
     return noCache(
