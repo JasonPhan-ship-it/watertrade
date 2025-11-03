@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 
@@ -20,7 +21,7 @@ async function getOrCreateUser(clerkId: string) {
 }
 
 // If you already have a SiteSetting model + helpers, you can replace this with your own
-async function setSiteSetting<T = unknown>(key: string, value: T) {
+async function setSiteSetting(key: string, value: Prisma.InputJsonValue) {
   return prisma.siteSetting.upsert({
     where: { key },
     update: { value },
