@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 
-// --- Prisma helpers (or import from your lib) ---
+// ---------- helpers ----------
 async function getOrCreateUser(clerkId: string) {
   let user = await prisma.user.findUnique({ where: { clerkId } });
   if (!user) {
@@ -20,7 +20,6 @@ async function getOrCreateUser(clerkId: string) {
   return user;
 }
 
-// If you already have a SiteSetting model + helpers, you can replace this with your own
 async function setSiteSetting(key: string, value: Prisma.InputJsonValue) {
   return prisma.siteSetting.upsert({
     where: { key },
@@ -29,31 +28,35 @@ async function setSiteSetting(key: string, value: Prisma.InputJsonValue) {
   });
 }
 
-// --- Validation (loosened to match your current shape) ---
+// ---------- validation (defensive) ----------
+const s = z.string().catch("").default("");
 const MetricCard = z.object({
-  label: z.string(),
-  formatter: z.enum(["integer", "currency"]),
-});
-const CopySchema = z.object({
-  hero: z.object({
-    preheading: z.string(),
-    signedInCta: z.string(),
-    signedOutPrimaryCta: z.string(),
-    signedOutSecondaryCta: z.string(),
-    description: z.string(),
-    metricsError: z.string(),
-    phrases: z.array(z.string()),
-  }),
-  metrics: z.object({ cards: z.array(MetricCard) }),
-  // These sections are complex; accept as-is but still require objects
-  coreWorkflows: z.record(z.any()),
-  process: z.record(z.any()),
-  gradientCta: z.record(z.any()),
-  cookieBanner: z.record(z.any()),
-  logoutToast: z.record(z.any()),
+  label: s,
+  formatter: z.enum(["integer", "currency"]).catch("integer"),
 });
 
-export const runtime = "nodejs"; // Prisma needs Node (not Edge)
+const CopySchema = z.object({
+  hero: z.object({
+    preheading: s,
+    signedInCta: s,
+    signedOutPrimaryCta: s,
+    signedOutSecondaryCta: s,
+    description: s,
+    metricsError: s,
+    phrases: z.array(z.string()).catch([]).default([]),
+  }),
+  metrics: z.object({
+    cards: z.array(MetricCard).catch([]).default([]),
+  }),
+  // Keep these permissive to avoid breaking on extra fields while you iterate
+  coreWorkflows: z.unknown(),
+  process: z.unknown(),
+  gradientCta: z.unknown(),
+  cookieBanner: z.unknown(),
+  logoutToast: z.unknown(),
+});
+
+export const runtime = "nodejs"; // Prisma requires Node runtime
 
 export async function PUT(req: Request) {
   try {
@@ -67,10 +70,17 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch (e: any) {
+      // Bad/empty JSON bodies manifest as 500s by default—make this explicit
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
     const parsed = CopySchema.parse(body);
 
-    await setSiteSetting("homepageCopy", parsed);
+    await setSiteSetting("homepageCopy", parsed as Prisma.InputJsonValue);
 
     // Revalidate the admin edit page and the public homepage
     revalidatePath("/admin/homepage");
@@ -78,10 +88,26 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
+    // Log with rich context (watch Vercel logs)
+    console.error("[PUT /api/site-settings/homepage-copy] ERROR", {
+      message: err?.message,
+      name: err?.name,
+      code: err?.code,      // Prisma code like P2021, P2002, etc.
+      meta: err?.meta,
+      stack: err?.stack,
+    });
+
     if (err?.name === "ZodError") {
-      return NextResponse.json({ error: "Validation failed", issues: err.flatten() }, { status: 400 });
+      return NextResponse.json(
+        { error: "Validation failed", issues: err.flatten() },
+        { status: 400 }
+      );
     }
-    console.error("[PUT /api/site-settings/homepage-copy]", err);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+
+    // While debugging, expose minimal details to the client
+    return NextResponse.json(
+      { error: "Internal error", details: err?.message ?? null, code: err?.code ?? null },
+      { status: 500 }
+    );
   }
 }
