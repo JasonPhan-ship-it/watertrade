@@ -88,6 +88,7 @@ type ApiResponse = {
   listings: Listing[];
   total: number;
   limited?: boolean;
+  viewerRole?: "ADMIN" | "USER" | null;
 };
 
 type SortBy = "district" | "acreFeet" | "pricePerAf" | "createdAt";
@@ -240,6 +241,7 @@ export default function DashboardPage() {
   }
 
   const rows: Listing[] = Array.isArray(data?.listings) ? data!.listings : [];
+  const isAdmin = data?.viewerRole === "ADMIN";
   const active = data?.total ?? 0;
   const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
   const avgPriceRaw = rows.length > 0 ? rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length : 0;
@@ -287,6 +289,16 @@ export default function DashboardPage() {
           >
             Your Listings
           </TabButton>
+          {isAdmin && (
+            <TabButton
+              active={false}
+              onClick={() => {
+                router.push("/admin");
+              }}
+            >
+              Admin Panel
+            </TabButton>
+          )}
         </div>
 
         {/* Filters (header) */}
