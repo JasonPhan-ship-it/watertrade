@@ -122,3 +122,15 @@ export async function PUT(req: Request) {
     );
   }
 }
+
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": process.env.NEXT_PUBLIC_APP_ORIGIN ?? "*",
+      "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
+}
