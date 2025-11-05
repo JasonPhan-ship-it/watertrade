@@ -57,9 +57,12 @@ export async function POST(
       );
     }
 
-    const data: Record<string, unknown> = {
-      buyerId: tx.buyerId ?? viewer.id,
-    };
+    const data: Record<string, unknown> = {};
+
+    const buyerId = tx.buyerId ?? viewer.id;
+    if (buyerId) {
+      data.buyer = { connect: { id: buyerId } };
+    }
 
     let pendingStatus: string | undefined;
 
