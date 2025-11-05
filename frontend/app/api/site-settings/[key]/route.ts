@@ -51,6 +51,8 @@ function normalizeHomepageCopy(value: unknown): HomepageCopy {
   const metricsRaw = (raw.metrics as Record<string, unknown>) ?? {};
   const featuredRaw = (raw.featuredDistricts as Record<string, unknown>) ?? {};
   const workflowsRaw = (raw.coreWorkflows as Record<string, unknown>) ?? {};
+  const listingComposerExampleRaw =
+    (workflowsRaw.listingComposerExample as Record<string, unknown>) ?? {};
   const processRaw = (raw.process as Record<string, unknown>) ?? {};
   const gradientRaw = (raw.gradientCta as Record<string, unknown>) ?? {};
   const cookieRaw = (raw.cookieBanner as Record<string, unknown>) ?? {};
@@ -129,6 +131,24 @@ function normalizeHomepageCopy(value: unknown): HomepageCopy {
         ),
       },
       items: coreWorkflowItems.length ? coreWorkflowItems : defaults.coreWorkflows.items,
+      listingComposerExample: {
+        waterDistrict: ensureString(
+          listingComposerExampleRaw.waterDistrict,
+          defaults.coreWorkflows.listingComposerExample.waterDistrict,
+        ),
+        waterType: ensureString(
+          listingComposerExampleRaw.waterType,
+          defaults.coreWorkflows.listingComposerExample.waterType,
+        ),
+        volume: ensureString(
+          listingComposerExampleRaw.volume,
+          defaults.coreWorkflows.listingComposerExample.volume,
+        ),
+        pricePerAf: ensureString(
+          listingComposerExampleRaw.pricePerAf,
+          defaults.coreWorkflows.listingComposerExample.pricePerAf,
+        ),
+      },
     },
     process: {
       preheading: ensureString(processRaw.preheading, defaults.process.preheading),
