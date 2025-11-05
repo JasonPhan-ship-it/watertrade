@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
 
     // Viewer → DB user
     const { userId: clerkUserId } = auth();
+    let viewerDbUserId: string | null = null;
     let viewerRole: "ADMIN" | "USER" | null = null;
     if (clerkUserId) {
       const viewer = await prisma.user.findUnique({
