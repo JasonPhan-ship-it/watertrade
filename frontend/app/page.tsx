@@ -827,16 +827,6 @@ function CreateListingPreview({
   const priceDisplay = prefersReducedMotion ? listingExample.pricePerAf : typedPrice;
   const isTyping = !prefersReducedMotion && priceDisplay.length < listingExample.pricePerAf.length;
 
-  const summaryItems = React.useMemo(
-    () => [
-      { label: "Water district", value: listingExample.waterDistrict },
-      { label: "Water type", value: listingExample.waterType },
-      { label: "Volume", value: listingExample.volume },
-      { label: "Price per AF", value: listingExample.pricePerAf },
-    ],
-    [listingExample],
-  );
-
   const highlight = workflowCopy?.highlight ?? "Listings";
   const title = workflowCopy?.title ?? "Publish verified supply";
   const description = workflowCopy?.description ??
@@ -925,19 +915,6 @@ function CreateListingPreview({
           </button>
         </div>
 
-        <div className="rounded-2xl border border-emerald-200/60 bg-emerald-50/80 p-4 text-emerald-900 shadow-inner">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-emerald-600">
-            Listing summary
-          </p>
-          <dl className="mt-3 space-y-2">
-            {summaryItems.map((item) => (
-              <div key={item.label} className="flex items-center justify-between gap-3 rounded-xl bg-white/70 px-3 py-2 text-[11px] shadow">
-                <dt className="font-medium text-emerald-700">{item.label}</dt>
-                <dd className="font-semibold text-slate-900">{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
       </div>
     </PreviewFrame>
   );
