@@ -50,7 +50,10 @@ const FEATURED_DISTRICTS = [
   { name: "Arvin Edison Water District", file: "arvin-edison.png", width: 400, height: 96 },
 ] as const;
 
-type WorkflowPreviewComponent = React.ComponentType<{ feeRate: number }>;
+type WorkflowPreviewComponent = React.ComponentType<{
+  feeRate: number;
+  copy: HomepageCopy["coreWorkflows"];
+}>;
 
 const CORE_WORKFLOW_ORDER = [
   "create-listing",
@@ -126,6 +129,20 @@ function mergeHomepageCopy(
         ...carouselOverride,
       },
       items: coreOverride.items ?? defaults.coreWorkflows.items,
+      listingComposerExample: {
+        waterDistrict:
+          coreOverride.listingComposerExample?.waterDistrict ??
+          defaults.coreWorkflows.listingComposerExample.waterDistrict,
+        waterType:
+          coreOverride.listingComposerExample?.waterType ??
+          defaults.coreWorkflows.listingComposerExample.waterType,
+        volume:
+          coreOverride.listingComposerExample?.volume ??
+          defaults.coreWorkflows.listingComposerExample.volume,
+        pricePerAf:
+          coreOverride.listingComposerExample?.pricePerAf ??
+          defaults.coreWorkflows.listingComposerExample.pricePerAf,
+      },
     },
     process: {
       ...defaults.process,
@@ -598,7 +615,7 @@ function PreviewFrame({
   );
 }
 
-function BuyNowPreview({ feeRate }: { feeRate: number }) {
+function BuyNowPreview({ feeRate }: { feeRate: number; copy: HomepageCopy["coreWorkflows"] }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = React.useState<"details" | "clicked" | "redirect">("details");
   const checkoutQuantityAf = 250;
@@ -739,144 +756,194 @@ function BuyNowPreview({ feeRate }: { feeRate: number }) {
   );
 }
 
-function CreateListingPreview({ feeRate: _feeRate }: { feeRate: number }) {
+function CreateListingPreview({
+  feeRate: _feeRate,
+  copy,
+}: {
+  feeRate: number;
+  copy: HomepageCopy["coreWorkflows"];
+}) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  const listingVolumeAf = 1200;
-  const listingPricePerAf = 795;
-  const listingPriceDisplay = `$${listingPricePerAf.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  const fallbackWorkflow = React.useMemo(
+    () => DEFAULT_HOMEPAGE_COPY.coreWorkflows.items.find((item) => item.id === "create-listing"),
+    [],
+  );
+  const workflowCopy = React.useMemo(() => {
+    const fromSettings = copy.items.find((item) => item.id === "create-listing");
+    return fromSettings ?? fallbackWorkflow;
+  }, [copy.items, fallbackWorkflow]);
 
-  const steps = React.useMemo(
-    () => [
-      {
-        id: "details",
-        title: "Details & pricing",
-        caption: "Set the essentials and terms without juggling extra toggles or fields.",
-        highlights: [
-          "Title • 2024 Allocation — Kern",
-          "District • Kern Water Bank",
-          "Water type • Surface allocation",
-          `Volume • ${formatInteger(listingVolumeAf)} AF`,
-          `Price • ${listingPriceDisplay}`,
-        ],
-      },
-    ],
-    [listingPriceDisplay, listingVolumeAf],
+  const defaults = DEFAULT_HOMEPAGE_COPY.coreWorkflows.listingComposerExample;
+  const listingExample = React.useMemo(
+    () => ({
+      waterDistrict: copy.listingComposerExample?.waterDistrict?.trim() || defaults.waterDistrict,
+      waterType: copy.listingComposerExample?.waterType?.trim() || defaults.waterType,
+      volume: copy.listingComposerExample?.volume?.trim() || defaults.volume,
+      pricePerAf: copy.listingComposerExample?.pricePerAf?.trim() || defaults.pricePerAf,
+    }),
+    [copy.listingComposerExample, defaults],
   );
 
-  const stepCount = steps.length;
-  const durations = React.useMemo(() => steps.map(() => 2400), [steps]);
-  const [activeStep, setActiveStep] = React.useState(prefersReducedMotion ? -1 : 0);
-  
+  const [typedPrice, setTypedPrice] = React.useState(
+    prefersReducedMotion ? listingExample.pricePerAf : "",
+  );
+
   React.useEffect(() => {
     if (prefersReducedMotion) {
-      setActiveStep(-1);
-      return;
-    }
-
-    if (stepCount === 0) {
+      setTypedPrice(listingExample.pricePerAf);
       return;
     }
 
     let cancelled = false;
+    let index = 0;
     let timeoutId: number | null = null;
 
-    const run = (index: number) => {
+    const animate = () => {
       if (cancelled) return;
-      setActiveStep(index);
-      const delay = durations[index % durations.length] ?? 2400;
+
+      if (index <= listingExample.pricePerAf.length) {
+        setTypedPrice(listingExample.pricePerAf.slice(0, index));
+        index += 1;
+        timeoutId = window.setTimeout(animate, 90);
+        return;
+      }
+      
       timeoutId = window.setTimeout(() => {
         if (cancelled) return;
-        const next = (index + 1) % stepCount;
-        run(next);
-      }, delay);
+        index = 0;
+        setTypedPrice("");
+        timeoutId = window.setTimeout(animate, 480);
+      }, 1400);
     };
 
-    run(0);
+    animate();
+    
     return () => {
       cancelled = true;
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     };
-  }, [durations, prefersReducedMotion, stepCount]);
+  }, [listingExample.pricePerAf, prefersReducedMotion]);
 
-  const completion = activeStep < 0 || stepCount === 0 ? 1 : (activeStep + 1) / stepCount;
-  const progressIndex = stepCount === 0 ? 0 : activeStep < 0 ? stepCount - 1 : activeStep;
-  
+  const priceDisplay = prefersReducedMotion ? listingExample.pricePerAf : typedPrice;
+  const isTyping = !prefersReducedMotion && priceDisplay.length < listingExample.pricePerAf.length;
+
+  const summaryItems = React.useMemo(
+    () => [
+      { label: "Water district", value: listingExample.waterDistrict },
+      { label: "Water type", value: listingExample.waterType },
+      { label: "Volume", value: listingExample.volume },
+      { label: "Price per AF", value: listingExample.pricePerAf },
+    ],
+    [listingExample],
+  );
+
+  const highlight = workflowCopy?.highlight ?? "Listings";
+  const title = workflowCopy?.title ?? "Publish verified supply";
+  const description = workflowCopy?.description ??
+    "Compose listings with pricing, volume, and distribution controls.";
+
   return (
     <PreviewFrame title="Listing composer">
+      <div className="space-y-4 text-[11px] sm:text-[12px]">
+        <div className="rounded-2xl border border-white/60 bg-white/95 p-4 shadow-[0_20px_45px_rgba(16,185,129,0.18)]">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.32em] text-emerald-700">
+                {highlight}
+              </span>
+              <p className="mt-3 text-base font-semibold text-slate-900">{title}</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{description}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-[0.32em] text-emerald-600 shadow-inner">
+              Ready to publish
+            </div>
+          </div>
 
-      <div className="space-y-3 text-[11px]">
-        {steps.map((step, index) => {
-          const isActive = activeStep < 0 || activeStep === index;
-          return (
-            <section
-              key={step.id}
-              className={`rounded-2xl border bg-white/90 p-4 text-slate-800 shadow-sm transition-all duration-500 ${
-                isActive
-                  ? "border-emerald-200 ring-2 ring-emerald-300/70 shadow-[0_18px_40px_rgba(16,185,129,0.18)]"
-                  : "border-white/40"
-              }`}
-              aria-label={step.title}
-            >
-              <span className="sr-only">{step.title}</span>
-              <p className="mt-1 text-[12px] text-slate-600">{step.caption}</p>
-              <ul className="mt-4 space-y-2" role="list">
-                {step.highlights.map((highlight) => (
-                  <li
-                    key={highlight}
-                    className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-medium transition ${
-                      isActive
-                        ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
-                        : "border-white/50 bg-white/70 text-slate-700"
-                    }`}
-                  >
-                    <CheckCircle2
-                      className={`h-4 w-4 ${isActive ? "text-emerald-500" : "text-slate-300"}`}
-                      aria-hidden
-                    />
-                    <span>{highlight}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          );
-        })}
-
-        <button
-          type="button"
-          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
-        >
-          Publish listing
-          <ChevronRight className="h-4 w-4" aria-hidden />
-        </button>
-
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-[#0E6A59]/40 p-3 text-[10px] uppercase tracking-[0.3em] text-emerald-100/80">
-        <div className="flex items-center justify-between text-[10px] font-semibold">
-          <span>Flow progress</span>
-          <span>{Math.round(completion * 100)}%</span>
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          {steps.map((step, index) => {
-            const filled = index <= progressIndex;
-            return (
-              <span
-                key={step.id}
-                className={`h-1.5 flex-1 rounded-full transition ${filled ? "bg-emerald-300" : "bg-white/20"}`}
-                aria-hidden
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                Water district
+              </span>
+              <input
+                readOnly
+                value={listingExample.waterDistrict}
+                aria-readonly
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 shadow-inner shadow-slate-100 focus:outline-none"
               />
-            );
-          })}
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                Water type
+              </span>
+              <input
+                readOnly
+                value={listingExample.waterType}
+                aria-readonly
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 shadow-inner shadow-slate-100 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                Volume
+              </span>
+              <input
+                readOnly
+                value={listingExample.volume}
+                aria-readonly
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 shadow-inner shadow-slate-100 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1 sm:col-span-2" aria-live="polite">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                Price per AF
+              </span>
+              <div className="relative">
+                <input
+                  readOnly
+                  value={priceDisplay}
+                  placeholder={prefersReducedMotion ? undefined : listingExample.pricePerAf}
+                  aria-readonly
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-inner shadow-emerald-100 focus:outline-none"
+                />
+                <span
+                  className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold uppercase tracking-[0.32em] transition ${
+                    isTyping ? "text-emerald-500" : "text-emerald-400"
+                  }`}
+                >
+                  {isTyping ? "typing" : "locked"}
+                </span>
+              </div>
+            </label>
+          </div>
+
+          <button
+            type="button"
+            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
+          >
+            Publish listing
+            <ChevronRight className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-emerald-200/60 bg-emerald-50/80 p-4 text-emerald-900 shadow-inner">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-emerald-600">
+            Listing summary
+          </p>
+          <dl className="mt-3 space-y-2">
+            {summaryItems.map((item) => (
+              <div key={item.label} className="flex items-center justify-between gap-3 rounded-xl bg-white/70 px-3 py-2 text-[11px] shadow">
+                <dt className="font-medium text-emerald-700">{item.label}</dt>
+                <dd className="font-semibold text-slate-900">{item.value}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </div>
     </PreviewFrame>
   );
 }
 
-function TrackProgressPreview(_props: { feeRate: number }) {
+function TrackProgressPreview(_props: { feeRate: number; copy: HomepageCopy["coreWorkflows"] }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const steps = React.useMemo(
     () => [
@@ -1151,8 +1218,9 @@ function CoreWorkflowShowcase({
         <div className="relative isolate">
           <div className="pointer-events-none absolute -right-20 -top-16 h-60 w-60 rounded-full bg-emerald-300/20 blur-3xl" aria-hidden />
           <div className="pointer-events-none absolute -bottom-20 left-10 h-48 w-48 rounded-full bg-emerald-500/15 blur-2xl" aria-hidden />
-          <div className="relative rounded-2xl border border-emerald-400/40 bg-[#0E6A59]/60 p-4 shadow-xl ring-1 ring-emerald-300/20" aria-live="polite">            <Preview feeRate={feeRate} />
-          </div>
+          <div className="relative rounded-2xl border border-emerald-400/40 bg-[#0E6A59]/60 p-4 shadow-xl ring-1 ring-emerald-300/20" aria-live="polite">
+            <Preview feeRate={feeRate} copy={copy} />
+        </div>
         </div>
       </div>
 
