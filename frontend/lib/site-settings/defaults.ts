@@ -33,6 +33,12 @@ export type HomepageCopy = {
       title: string;
       description: string;
     }>;
+    listingComposerExample: {
+      waterDistrict: string;
+      waterType: string;
+      volume: string;
+      pricePerAf: string;
+    };
   };
   process: {
     preheading: string;
@@ -128,6 +134,12 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
           description: "Monitor signatures, payments, and district confirmations in real-time.",
         },
       ],
+      listingComposerExample: {
+        waterDistrict: "Westlands Water District",
+        waterType: "Surface allocation",
+        volume: "1,200 AF",
+        pricePerAf: "$295.00",
+      },
     },
     process: {
       preheading: "How it works",
