@@ -70,6 +70,22 @@ export function HomepageCopyForm({ initialCopy }: Props) {
     });
   };
 
+  const handleListingExampleChange = (
+    key: keyof HomepageCopy["coreWorkflows"]["listingComposerExample"],
+    value: string,
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      coreWorkflows: {
+        ...prev.coreWorkflows,
+        listingComposerExample: {
+          ...prev.coreWorkflows.listingComposerExample,
+          [key]: value,
+        },
+      },
+    }));
+  };
+  
   const handleProcessStepChange = (index: number, key: "title" | "description", value: string) => {
     setForm((prev) => {
       const nextSteps = [...prev.process.steps];
@@ -327,6 +343,35 @@ export function HomepageCopyForm({ initialCopy }: Props) {
         </div>
       </section>
 
+        <div className="mt-6 rounded-xl border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold text-slate-700">Listing composer example</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Control the sample values shown in the public listing composer preview.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <TextField
+              label="Water district"
+              value={form.coreWorkflows.listingComposerExample.waterDistrict}
+              onChange={(value) => handleListingExampleChange("waterDistrict", value)}
+            />
+            <TextField
+              label="Water type"
+              value={form.coreWorkflows.listingComposerExample.waterType}
+              onChange={(value) => handleListingExampleChange("waterType", value)}
+            />
+            <TextField
+              label="Volume"
+              value={form.coreWorkflows.listingComposerExample.volume}
+              onChange={(value) => handleListingExampleChange("volume", value)}
+            />
+            <TextField
+              label="Price per AF"
+              value={form.coreWorkflows.listingComposerExample.pricePerAf}
+              onChange={(value) => handleListingExampleChange("pricePerAf", value)}
+            />
+          </div>
+        </div>
+      
       <section>
         <h2 className="text-lg font-semibold text-slate-900">How it works</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
