@@ -2,7 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { DEFAULT_SITE_SETTINGS, type SiteSettings } from "./defaults";
 
 export { DEFAULT_SITE_SETTINGS } from "./defaults";
-export type { HomepageCopy, MetricFormatter, WaterTraderFeeSetting } from "./defaults";
+export type {
+  HomepageCopy,
+  MetricFormatter,
+  WaterTraderFeeSetting,
+  DocuSignDefaults,
+} from "./defaults";
 
 export type SiteSettingKey = keyof SiteSettings;
 
