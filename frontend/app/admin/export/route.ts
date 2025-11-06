@@ -54,6 +54,21 @@ export async function GET(req: NextRequest) {
     },
   });
 
+  const headers = [
+    "Transaction ID",
+    "Created At",
+    "Type",
+    "Status",
+    "Listing Title",
+    "Buyer Name",
+    "Buyer Email",
+    "Seller Name",
+    "Seller Email",
+    "Acre-Feet",
+    "Price / AF (USD)",
+    "Total (USD)",
+  ] as const;
+  
   const rows = txns.map(t => ({
     "Transaction ID": t.id,
     "Created At": t.createdAt.toISOString(),
@@ -71,14 +86,40 @@ export async function GET(req: NextRequest) {
 
   // ---- Robust dynamic import for both ESM/CJS bundling cases
   const mod = await import("xlsx");
-  const XLSX: any = (mod as any).default ?? mod;
 
+  const ws = XLSX.utils.json_to_sheet(rows, { header: [...headers], origin: "B2" });
+
+  // Format header row with bottom border and hide gridlines for the worksheet
+  const headerRowIndex = 1; // zero-based index (row 2 in Excel)
+  const headerColIndex = 1; // zero-based index (column B in Excel)
+  headers.forEach((_, colOffset) => {
+    const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: headerColIndex + colOffset });
+    const cell: any = ws[cellAddress];
+    if (!cell) return;
+    const currentStyle = cell.s ?? {};
+    const currentBorder = currentStyle.border ?? {};
+    cell.s = {
+      ...currentStyle,
+      border: {
+        ...currentBorder,
+        bottom: { style: "medium", color: { rgb: "000000" } },
+      },
+    };
+  });
+
+  (ws as any)["!gridlines"] = false;
+  (ws as any)["!sheetView"] = [{ showGridLines: false }];
+  const workbook: any = wb as any;
+  workbook.Workbook = workbook.Workbook ?? {};
+  workbook.Workbook.Views = workbook.Workbook.Views ?? [{}];
+  workbook.Workbook.Views[0].showGridLines = false;
+  
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   XLSX.utils.book_append_sheet(wb, ws, "Transactions");
 
   // Produce ArrayBuffer (safer for Response body than Node Buffer in some envs)
-  const ab: ArrayBuffer = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  const ab: ArrayBuffer = XLSX.write(wb, { type: "array", bookType: "xlsx", cellStyles: true });
 
   const today = new Date();
   const yyyy = today.getFullYear();
