@@ -74,9 +74,16 @@ export type WaterTraderFeeSetting = {
   rate: number;
 };
 
+export type DocuSignDefaults = {
+  sellerLegalEntity: string;
+  buyerLegalEntity: string;
+  buyerWaterAccountNumber: string;
+};
+
 export type SiteSettings = {
   homepageCopy: HomepageCopy;
   waterTraderFee: WaterTraderFeeSetting;
+  docuSignDefaults: DocuSignDefaults;
 };
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -185,10 +192,16 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
     },
   },
   waterTraderFee: {
-    rate: 0.015,
+    rate: 0.05,
+  },
+  docuSignDefaults: {
+    sellerLegalEntity: "",
+    buyerLegalEntity: "",
+    buyerWaterAccountNumber: "",
   },
 };
 
 export const DEFAULT_HOMEPAGE_COPY = DEFAULT_SITE_SETTINGS.homepageCopy;
 export const DEFAULT_WATER_TRADER_FEE = DEFAULT_SITE_SETTINGS.waterTraderFee;
 export const DEFAULT_WATER_TRADER_FEE_RATE = DEFAULT_WATER_TRADER_FEE.rate;
+export const DEFAULT_DOCUSIGN_DEFAULTS = DEFAULT_SITE_SETTINGS.docuSignDefaults;
