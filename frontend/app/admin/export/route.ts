@@ -111,11 +111,13 @@ export async function GET(req: NextRequest) {
 
   const sheet: any = ws as any;
   sheet["!gridlines"] = false;
-  sheet["!sheetViews"] = [{ showGridLines: false }];
+  sheet["!sheetViews"] = [{ showGridLines: false, workbookViewId: 0 }];
   const workbook: any = wb as any;
   workbook.Workbook = workbook.Workbook ?? {};
-  workbook.Workbook.Views = workbook.Workbook.Views ?? [{}];
-  workbook.Workbook.Views[0].showGridLines = false;
+  workbook.Workbook.Views = workbook.Workbook.Views ?? [];
+  if (!workbook.Workbook.Views.length) {
+    workbook.Workbook.Views.push({});
+  }
   
   XLSX.utils.book_append_sheet(wb, ws, "Transactions");
 
