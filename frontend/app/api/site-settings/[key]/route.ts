@@ -6,6 +6,7 @@ import {
   type HomepageCopy,
   type MetricFormatter,
   type SiteSettingKey,
+  type DocuSignDefaults,
 } from "@/lib/site-settings";
 import { requireAdmin } from "@/lib/rbac";
 
@@ -22,6 +23,9 @@ const KEY_ALIASES: Record<string, SiteSettingKey> = {
   "homepage-copy": "homepageCopy",
   homepageCopy: "homepageCopy",
   homepage_copy: "homepageCopy",
+  "docu-sign-defaults": "docuSignDefaults",
+  docuSignDefaults: "docuSignDefaults",
+  docu_sign_defaults: "docuSignDefaults",
 };
 
 function resolveKey(rawKey: string | undefined): SiteSettingKey | null {
@@ -192,6 +196,28 @@ function normalizeWaterTraderFee(value: unknown) {
   throw new Error("Invalid fee value");
 }
 
+function normalizeDocuSignDefaults(value: unknown): DocuSignDefaults {
+  const defaults = DEFAULT_SITE_SETTINGS.docuSignDefaults;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaults;
+  }
+  const raw = value as Record<string, unknown>;
+
+  function coerce(key: keyof DocuSignDefaults): string {
+    const rawValue = raw[key];
+    if (typeof rawValue === "string") {
+      return rawValue.trim();
+    }
+    return defaults[key];
+  }
+
+  return {
+    sellerLegalEntity: coerce("sellerLegalEntity"),
+    buyerLegalEntity: coerce("buyerLegalEntity"),
+    buyerWaterAccountNumber: coerce("buyerWaterAccountNumber"),
+  };
+}
+
 export async function GET(_req: NextRequest, context: RouteContext) {
   const key = resolveKey(context.params.key);
   if (!key) {
@@ -220,6 +246,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       value = normalizeWaterTraderFee(body);
     } else if (key === "homepageCopy") {
       value = normalizeHomepageCopy(body);
+    } else if (key === "docuSignDefaults") {
+      value = normalizeDocuSignDefaults(body);
     } else {
       return NextResponse.json({ error: "Unsupported setting" }, { status: 400 });
     }
