@@ -220,6 +220,7 @@ export async function getViewerById(
 
 const USD_FORMATTER = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const NUMBER_FORMATTER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric" });
 
 function formatUsd(amount: number) {
   try {
@@ -234,6 +235,14 @@ function formatNumber(amount: number) {
     return NUMBER_FORMATTER.format(amount);
   } catch {
     return amount.toString();
+  }
+}
+
+function formatDate(date: Date) {
+  try {
+    return DATE_FORMATTER.format(date);
+  } catch {
+    return date.toISOString().split("T")[0];
   }
 }
 
@@ -263,7 +272,16 @@ function buildDocuSignSellerHtml(args: {
   const waterCodeYear = listing?.waterCodeYear || listing?.waterCode?.year || "";
   const waterCodeDescription = listing?.waterCodeDescription || listing?.waterCode?.description || "";
 
-  const rows = [
+  const partyRows = [
+    { label: "Seller name", value: sellerName },
+    { label: "Seller entity", value: sellerEntity },
+    { label: "Buyer name", value: buyerName },
+    { label: "Buyer entity", value: buyerEntity },
+  ];
+
+  const detailRows = [
+    { label: "Agreement year", value: agreementYear },
+    { label: "Agreement date", value: agreementDate },
     { label: "District", value: district },
     { label: "Water type", value: waterType },
     { label: "Water code", value: waterCodeValue },
@@ -273,29 +291,41 @@ function buildDocuSignSellerHtml(args: {
     { label: "Price / AF", value: pricePerAfDollars ? formatUsd(pricePerAfDollars) : "" },
     { label: "Estimated value", value: totalValue ? formatUsd(totalValue) : "" },
     { label: "Seller farm", value: sellerFarmLabel },
-    { label: "Buyer account", value: buyerAccount },
+    { label: "Buyer water account #", value: buyerAccount },
   ];
 
-  const tableRows = rows
-    .map((row) => {
-      const safeValue = row.value ? escapeHtml(String(row.value)) : "—";
-      return `
-        <tr>
-          <td style="padding:6px 4px;border-bottom:1px solid #e2e8f0;color:#475569;width:40%;">${escapeHtml(row.label)}</td>
-          <td style="padding:6px 4px;border-bottom:1px solid #e2e8f0;color:#0f172a;">${safeValue}</td>
-        </tr>
-      `;
-    })
-    .join("");
+  function buildTableRows(rows: { label: string; value: string }[]) {
+    return rows
+      .map((row) => {
+        const safeValue = row.value ? escapeHtml(String(row.value)) : "—";
+        return `
+          <tr>
+            <td style="padding:6px 4px;border-bottom:1px solid #e2e8f0;color:#475569;width:40%;">${escapeHtml(row.label)}</td>
+            <td style="padding:6px 4px;border-bottom:1px solid #e2e8f0;color:#0f172a;">${safeValue}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  }
+
+  const partyTableRows = buildTableRows(partyRows);
+  const detailTableRows = buildTableRows(detailRows);
 
   return `<!DOCTYPE html>
   <html>
     <body style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;padding:24px;">
       <h2 style="margin-top:0;color:#0f172a;">Water Transfer Summary</h2>
       <p style="font-size:14px;color:#1e293b;">Trade ID: <strong>${escapeHtml(trade?.id || "")}</strong></p>
+      <h3 style="margin-top:24px;color:#0f172a;font-size:16px;">Parties</h3>
       <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:12px;">
         <tbody>
-          ${tableRows}
+          ${partyTableRows}
+        </tbody>
+      </table>
+      <h3 style="margin-top:24px;color:#0f172a;font-size:16px;">Transfer details</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:12px;">
+        <tbody>
+          ${detailTableRows}
         </tbody>
       </table>
       <p style="margin-top:24px;font-size:13px;color:#1e293b;">Please sign here: /sn1/</p>
@@ -316,11 +346,37 @@ async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | n
     : "";
   const buyerAccount = (transaction?.buyerWaterAccount || listing?.buyerWaterAccount || "").trim();
 
+  const buyerProfile = (trade as any)?.buyer?.profile || {};
+  const sellerProfile = (trade as any)?.seller?.profile || {};
+
+  const { name: buyerFallbackName } = await getBuyerNameEmail(trade as Trade);
+
+  const sellerNameSnapshot = transaction?.sellerNameSnapshot || "";
+  const buyerNameSnapshot = transaction?.buyerNameSnapshot || "";
+
+  const sellerName =
+    sellerNameSnapshot || sellerProfile.fullName || (trade as any)?.seller?.name || name;
+  const buyerName =
+    buyerNameSnapshot || buyerProfile.fullName || (trade as any)?.buyer?.name || buyerFallbackName;
+
+  const sellerEntity = sellerProfile.company || sellerFarm?.name || "";
+  const buyerEntity = buyerProfile.company || "";
+
+  const agreementBaseDate = transaction?.createdAt ? new Date(transaction.createdAt) : new Date();
+  const agreementDate = formatDate(agreementBaseDate);
+  const agreementYear = String(agreementBaseDate.getFullYear());
+
   const html = buildDocuSignSellerHtml({
     trade,
     listing,
     buyerAccount,
     sellerFarmLabel,
+    sellerName: string;
+    sellerEntity: string;
+    buyerName: string;
+    buyerEntity: string;
+    agreementDate: string;
+    agreementYear: string;
   });
 
   const document = new docusign.Document();
@@ -571,7 +627,33 @@ export async function createSellerSignatureLink(tradeId: string, sellerToken?: s
     include: {
       listing: { include: { waterCode: true, sellerFarm: true } },
       transaction: {
-        select: { id: true, buyerWaterAccount: true, sellerFarmId: true, docusignEnvelopeId: true },
+        select: {
+          id: true,
+          buyerWaterAccount: true,
+          sellerFarmId: true,
+          docusignEnvelopeId: true,
+          buyerNameSnapshot: true,
+          sellerNameSnapshot: true,
+          createdAt: true,
+        },
+      },
+      seller: {
+        select: {
+          id: true,
+          name: true,
+          profile: {
+            select: { company: true, fullName: true },
+          },
+        },
+      },
+      buyer: {
+        select: {
+          id: true,
+          name: true,
+          profile: {
+            select: { company: true, fullName: true },
+          },
+        },
       },
     },
   });
