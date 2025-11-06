@@ -109,8 +109,9 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  (ws as any)["!gridlines"] = false;
-  (ws as any)["!sheetView"] = [{ showGridLines: false }];
+  const sheet: any = ws as any;
+  sheet["!gridlines"] = false;
+  sheet["!sheetViews"] = [{ showGridLines: false }];
   const workbook: any = wb as any;
   workbook.Workbook = workbook.Workbook ?? {};
   workbook.Workbook.Views = workbook.Workbook.Views ?? [{}];
@@ -123,9 +124,9 @@ export async function GET(req: NextRequest) {
 
   const today = new Date();
   const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  const filename = `transactions-${yyyy}-${mm}-${dd}.xlsx`;
+  const month = today.getMonth() + 1;
+  const day = today.getDate();
+  const filename = `watertraders_transactions_${month}.${day}.${yyyy}.xlsx`;
 
   return new NextResponse(ab, {
     headers: {
