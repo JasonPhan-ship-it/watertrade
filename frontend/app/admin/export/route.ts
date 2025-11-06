@@ -86,7 +86,9 @@ export async function GET(req: NextRequest) {
 
   // ---- Robust dynamic import for both ESM/CJS bundling cases
   const mod = await import("xlsx");
+  const XLSX = (mod as any).default ?? mod;
 
+  const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows, { header: [...headers], origin: "B2" });
 
   // Format header row with bottom border and hide gridlines for the worksheet
@@ -114,8 +116,6 @@ export async function GET(req: NextRequest) {
   workbook.Workbook.Views = workbook.Workbook.Views ?? [{}];
   workbook.Workbook.Views[0].showGridLines = false;
   
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(rows);
   XLSX.utils.book_append_sheet(wb, ws, "Transactions");
 
   // Produce ArrayBuffer (safer for Response body than Node Buffer in some envs)
