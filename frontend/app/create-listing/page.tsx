@@ -73,6 +73,29 @@ async function extractErrorMessage(res: Response) {
   return text;
 }
 
+function sanitizeContactInfo(text: string) {
+  if (!text) return text;
+  let sanitized = text.replace(
+    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+    ""
+  );
+  sanitized = sanitized.replace(
+    /(?:\+?\d{1,3}[\s().-]*)?(?:\(\s*\d{3}\s*\)|\d{3})[\s().-]*\d{3}[\s().-]*\d{4}/g,
+    ""
+  );
+  return sanitized.replace(/[ \t]{2,}/g, " ");
+}
+
+function containsContactInfo(text: string) {
+  if (!text) return false;
+  if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(text)) return true;
+  if (/(?:\+?\d{1,3}[\s().-]*)?(?:\(\s*\d{3}\s*\)|\d{3})[\s().-]*\d{3}[\s().-]*\d{4}/.test(text)) {
+    return true;
+  }
+  const digitCount = text.replace(/\D/g, "").length;
+  return digitCount >= 10;
+}
+
   export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
@@ -90,7 +113,7 @@ async function extractErrorMessage(res: Response) {
   const [selectedWaterCodeId, setSelectedWaterCodeId] = React.useState<string>("custom");
   const [waterCodeValue, setWaterCodeValue] = React.useState("");
   const [waterCodeYear, setWaterCodeYear] = React.useState("");
-  const [waterCodeDescription, setWaterCodeDescription] = React.useState("");
+  const [waterCodeDescriptionWarning, setWaterCodeDescriptionWarning] = React.useState<string | null>(null);
 
   const [farms, setFarms] = React.useState<FarmOption[]>([]);
   const [farmsLoading, setFarmsLoading] = React.useState(false);
@@ -163,6 +186,7 @@ async function extractErrorMessage(res: Response) {
     if (district !== WESTLANDS) {
       setWaterCodes([]);
       setWaterCodeError(null);
+      setWaterCodeDescriptionWarning(null);
       if (selectedWaterCodeId !== "custom") setSelectedWaterCodeId("custom");
       return;
     }
@@ -204,7 +228,13 @@ async function extractErrorMessage(res: Response) {
       if (!match) return;
       setWaterCodeValue(match.code || "");
       setWaterCodeYear(match.year || "");
-      setWaterCodeDescription(match.description || "");
+      const nextDescription = sanitizeContactInfo(match.description || "");
+      setWaterCodeDescription(nextDescription);
+      setWaterCodeDescriptionWarning(
+        nextDescription !== (match.description || "")
+          ? "Contact details were removed from this preset description."
+          : null
+      );
       const nextWaterType = match.category?.trim();
       if (nextWaterType) {
         setWaterType(nextWaterType);
@@ -314,6 +344,11 @@ async function extractErrorMessage(res: Response) {
       const trimmedWaterCode = waterCodeValue.trim();
       const trimmedWaterYear = waterCodeYear.trim();
       const trimmedWaterDescription = waterCodeDescription.trim();
+      if (trimmedWaterDescription && containsContactInfo(trimmedWaterDescription)) {
+        setMessage("Please remove phone numbers or email addresses from the description.");
+        setLoading(false);
+        return;
+      }
       if (selectedWaterCodeId && selectedWaterCodeId !== "custom") {
         payload.waterCodeId = selectedWaterCodeId;
       }
@@ -343,6 +378,7 @@ async function extractErrorMessage(res: Response) {
         setWaterCodeValue("");
         setWaterCodeYear("");
         setWaterCodeDescription("");
+        setWaterCodeDescriptionWarning(null);
         setSelectedSellerFarmId("");
         setStartingBid("");
         setReservePrice("");
@@ -437,6 +473,7 @@ async function extractErrorMessage(res: Response) {
                         const next = e.target.value;
                         if (!next || next === "custom") {
                           setSelectedWaterCodeId("custom");
+                          setWaterCodeDescriptionWarning(null);
                           return;
                         }
                         setSelectedWaterCodeId(next);
@@ -486,11 +523,19 @@ async function extractErrorMessage(res: Response) {
                       placeholder="e.g. WC1802"
                       value={waterCodeValue}
                       onChange={(e) => {
-                        const next = e.target.value;
-                        setWaterCodeValue(next);
+                      const nextRaw = e.target.value;
+                      const sanitized = sanitizeContactInfo(nextRaw);
+                      if (sanitized !== nextRaw) {
+                        setWaterCodeDescriptionWarning(
+                          "Contact details are not allowed in the description and have been removed."
+                        );
+                      } else {
+                        setWaterCodeDescriptionWarning(null);
+                      }
+                      setWaterCodeDescription(sanitized);
                         if (selectedWaterCodeId !== "custom") {
                           const match = waterCodes.find((w) => w.id === selectedWaterCodeId);
-                          if (!match || match.code !== next) setSelectedWaterCodeId("custom");
+                        if (!match || (match.description || "") !== sanitized) setSelectedWaterCodeId("custom");
                         }
                       }}
                       readOnly={isPresetWaterCodeSelected}
@@ -535,6 +580,9 @@ async function extractErrorMessage(res: Response) {
                     readOnly={isPresetWaterCodeSelected}
                     disabled={isPresetWaterCodeSelected}
                   />
+                  {waterCodeDescriptionWarning ? (
+                    <p className="text-xs text-amber-600">{waterCodeDescriptionWarning}</p>
+                  ) : null}
                 </div>
               </div>
 
