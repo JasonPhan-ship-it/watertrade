@@ -93,7 +93,31 @@ type ApiResponse = {
 
 type SortBy = "district" | "acreFeet" | "pricePerAf" | "createdAt";
 type SortDir = "asc" | "desc";
-type Scope = "market" | "mine";
+type Scope = "market" | "mine" | "trades";
+
+type TradeRow = {
+  id: string;
+  tradeId: string;
+  transactionId?: string | null;
+  listingId: string;
+  listingTitle: string;
+  district: string;
+  waterType?: string | null;
+  volumeAf: number;
+  pricePerAf: number;
+  status: string;
+  updatedAt: string;
+  viewerRole: "buyer" | "seller" | "unknown";
+  counterpartName?: string | null;
+  transactionStatus?: string | null;
+  type?: string | null;
+};
+
+type TradesApiResponse = {
+  trades: TradeRow[];
+  total: number;
+  viewerRole?: "ADMIN" | "USER" | null;
+};
 
 /* ---------------- Constants ---------------- */
 const DISTRICTS = [
@@ -132,7 +156,7 @@ export default function DashboardPage() {
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [premium] = useState<boolean>(false);
-  const [data, setData] = useState<ApiResponse | null>(null);
+  const [data, setData] = useState<ApiResponse | TradesApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -147,12 +171,14 @@ export default function DashboardPage() {
     const isListingsPath = path.startsWith("/dashboard/listings");
 
     // scope: prefer explicit "scope", fallback to legacy "tab=listings" or listings path
-    const initialScope: Scope =
-      scopeParam === "mine" ||
-      tabParam === "listings" ||
-      isListingsPath
-        ? "mine"
-        : "market";
+    let initialScope: Scope = "market";
+    if (scopeParam === "mine" || tabParam === "listings" || isListingsPath) {
+      initialScope = "mine";
+    } else if (scopeParam === "trades" || tabParam === "trades") {
+      initialScope = "trades";
+    } else if (scopeParam === "market") {
+      initialScope = "market";
+    }
 
     setScope(initialScope);
     setNoCreate(nocreateParam);
@@ -178,7 +204,7 @@ export default function DashboardPage() {
     }
   }, [scope, nocreate, router, initializedFromUrl]);
 
-  const qs = useMemo(() => {
+  const listingQuery = useMemo(() => {
     const u = new URLSearchParams();
     if (district !== "All Districts") u.set("district", district);
     if (waterType !== "Any Water Type") u.set("waterType", waterType);
@@ -189,12 +215,21 @@ export default function DashboardPage() {
     u.set("pageSize", String(pageSize));
     u.set("premium", String(premium));
 
-    u.set("scope", scope);
-    if (scope === "mine") u.set("mine", "1");
+    const listingScope = scope === "mine" ? "mine" : "market";
+    u.set("scope", listingScope);
+    if (listingScope === "mine") u.set("mine", "1");
     else u.set("excludeMine", "1");
 
     return u.toString();
   }, [district, waterType, sortBy, sortDir, page, pageSize, premium, scope]);
+
+    const tradesQuery = useMemo(() => {
+    const u = new URLSearchParams();
+    u.set("scope", "trades");
+    u.set("page", String(page));
+    u.set("pageSize", String(pageSize));
+    return u.toString();
+  }, [page, pageSize]);
 
   useEffect(() => {
     if (checking) return;
@@ -203,7 +238,11 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/listings?${qs}`, {
+    const endpoint = scope === "trades" ? "/api/dashboard/trades" : "/api/listings";
+    const query = scope === "trades" ? tradesQuery : listingQuery;
+    const url = query ? `${endpoint}?${query}` : endpoint;
+
+    fetch(url, {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
@@ -214,7 +253,7 @@ export default function DashboardPage() {
           const text = await r.text().catch(() => "");
           throw new Error(`HTTP ${r.status} ${r.statusText}${text ? " - " + text.slice(0, 180) : ""}`);
         }
-        return r.json() as Promise<ApiResponse>;
+        return r.json() as Promise<ApiResponse | TradesApiResponse>;
       })
       .then((json) => setData(json))
       .catch((e: any) => {
@@ -223,7 +262,7 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
 
     return () => controller.abort();
-  }, [qs, checking]);
+  }, [listingQuery, tradesQuery, checking, scope]);
 
   if (checking) {
     return (
@@ -240,12 +279,24 @@ export default function DashboardPage() {
     );
   }
 
-  const rows: Listing[] = Array.isArray(data?.listings) ? data!.listings : [];
-  const isAdmin = data?.viewerRole === "ADMIN";
-  const active = data?.total ?? 0;
-  const totalAf = rows.reduce((s, l) => s + l.acreFeet, 0);
-  const avgPriceRaw = rows.length > 0 ? rows.reduce((s, l) => s + l.pricePerAf, 0) / rows.length : 0;
-  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
+  const listingRows = isListingsResponse(data) ? data.listings : [];
+  const tradeRows = isTradesResponse(data) ? data.trades : [];
+  const totalCount = data?.total ?? 0;
+  const totalAf =
+    scope === "trades"
+      ? tradeRows.reduce((s, t) => s + (t.volumeAf ?? 0), 0)
+      : listingRows.reduce((s, l) => s + l.acreFeet, 0);
+  const avgPriceRaw =
+    scope === "trades"
+      ? tradeRows.length > 0
+        ? tradeRows.reduce((s, t) => s + (t.pricePerAf ?? 0), 0) / tradeRows.length
+        : 0
+      : listingRows.length > 0
+        ? listingRows.reduce((s, l) => s + l.pricePerAf, 0) / listingRows.length
+        : 0;
+  const tradeAwaiting =
+    scope === "trades" ? tradeRows.filter((t) => tradeNeedsAction(t)).length : 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   function onSort(col: SortBy) {
     if (col === sortBy) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -260,12 +311,36 @@ export default function DashboardPage() {
     setScope(next);
   };
 
-  const pageTitle = scope === "market" ? "Active Water Sales" : "Your Listings";
+  const pageTitle =
+    scope === "market"
+      ? "Active Water Sales"
+      : scope === "mine"
+        ? "Your Listings"
+        : "Your Trades";
   const subtitle =
     scope === "market"
       ? "Westlands · San Luis · Panoche · Arvin Edison"
-      : `Signed in as ${user?.primaryEmailAddress?.emailAddress ?? user?.username ?? "you"}`;
+      : scope === "mine"
+        ? `Signed in as ${user?.primaryEmailAddress?.emailAddress ?? user?.username ?? "you"}`
+        : "Track offers and purchases you’re part of.";
 
+  const stats =
+    scope === "trades"
+      ? [
+          { label: "Your Trades", value: String(totalCount) },
+          { label: "Awaiting Your Action", value: String(tradeAwaiting) },
+          { label: "Total Acre-Feet", value: formatInt(totalAf) },
+        ]
+      : [
+          { label: scope === "market" ? "Active Listings" : "Your Listings", value: String(totalCount) },
+          { label: "Total Acre-Feet", value: formatInt(totalAf) },
+          { label: "Avg $/AF", value: avgPriceRaw ? formatCurrency(avgPriceRaw) : "$0.00" },
+        ];
+  const tableTitle =
+    scope === "market" ? "Listings" : scope === "mine" ? "Your Listings" : "Your Trades";
+  const totalLabel =
+    scope === "market" ? "listings" : scope === "mine" ? "your listings" : "trades";
+  
   return (
     <div className="min-h-screen bg-slate-50">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -289,6 +364,15 @@ export default function DashboardPage() {
           >
             Your Listings
           </TabButton>
+          <TabButton
+            active={scope === "trades"}
+            onClick={() => {
+              handleScopeChange("trades");
+              setPage(1);
+            }}
+          >
+            Trades
+          </TabButton>
           {isAdmin && (
             <TabButton
               active={false}
@@ -310,57 +394,66 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <select
-              value={district}
-              onChange={(e) => {
-                setDistrict(e.target.value);
-                setPage(1);
-              }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
-            >
-              {DISTRICTS.map((d) => (
-                <option key={d} value={d} className="text-slate-900">
-                  {d}
-                </option>
-              ))}
-            </select>
+          {scope === "trades" ? (
+            <div className="mt-5 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm text-white/80 sm:px-6">
+              Your offers, counters, and purchases show here. Select a trade below to open the full transaction workspace.
+            </div>
+          ) : (
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <select
+                value={district}
+                onChange={(e) => {
+                  setDistrict(e.target.value);
+                  setPage(1);
+                }}
+                className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
+              >
+                {DISTRICTS.map((d) => (
+                  <option key={d} value={d} className="text-slate-900">
+                    {d}
+                  </option>
+                ))}
+              </select>
 
-            <select
-              value={waterType}
-              onChange={(e) => {
-                setWaterType(e.target.value);
-                setPage(1);
-              }}
-              className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
-            >
-              {WATER_TYPES.map((w) => (
-                <option key={w} value={w} className="text-slate-900">
-                  {w}
-                </option>
-              ))}
-            </select>
-          </div>
+              <select
+                value={waterType}
+                onChange={(e) => {
+                  setWaterType(e.target.value);
+                  setPage(1);
+                }}
+                className="h-10 rounded-xl border border-white/30 bg-white/10 px-3 text-sm text-white outline-none backdrop-blur focus:bg-white/20 focus:ring-2 focus:ring-white/60"
+              >
+                {WATER_TYPES.map((w) => (
+                  <option key={w} value={w} className="text-slate-900">
+                    {w}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </section>
 
         {/* KPIs */}
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Stat label={scope === "market" ? "Active Listings" : "Your Listings"} value={String(active)} />
-          <Stat label="Total Acre-Feet" value={formatInt(totalAf)} />
-          <Stat label="Avg $/AF" value={avgPriceRaw ? `$${avgPriceRaw.toFixed(2)}` : "$0.00"} />
+          {stats.map((stat) => (
+            <Stat key={stat.label} label={stat.label} value={stat.value} />
+          ))}
         </section>
 
         {/* Listings */}
         <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
-            <div className="font-medium">{scope === "market" ? "Listings" : "Your Listings"}</div>
+            <div className="font-medium">{tableTitle}</div>
             <div className="flex items-center gap-3">
               <Link
-                href="/create-listing"
-                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
-              >
-                Create Listing
-              </Link>
+              {scope !== "trades" && (
+                <Link
+                  href="/create-listing"
+                  className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
+                >
+                  Create Listing
+                </Link>
+              )}
             </div>
           </div>
 
@@ -371,100 +464,168 @@ export default function DashboardPage() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-600">
-                    <tr>
-                      <Th
-                        label="District"
-                        active={sortBy === "district"}
-                        dir={sortDir}
-                        onClick={() => onSort("district")}
-                      />
-                      <Th
-                        label="Acre-Feet"
-                        align="right"
-                        active={sortBy === "acreFeet"}
-                        dir={sortDir}
-                        onClick={() => onSort("acreFeet")}
-                      />
-                      <Th
-                        label="$ / AF"
-                        align="right"
-                        active={sortBy === "pricePerAf"}
-                        dir={sortDir}
-                        onClick={() => onSort("pricePerAf")}
-                      />
-                      <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
-                      <Th
-                        label={scope === "market" ? "Action" : "Manage"}
-                        align="center"
-                        active={sortBy === "createdAt"}
-                        dir={sortDir}
-                        onClick={() => onSort("createdAt")}
-                      />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((l) => (
-                      <tr key={l.id} className="border-t border-slate-100">
-                        <Td>{l.district}</Td>
-                        <Td align="right">{formatInt(l.acreFeet)}</Td>
-                        <Td align="right">${formatInt(l.pricePerAf)}</Td>
-                        <Td>
-                          <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
-                            {l.waterType}
-                          </span>
-                        </Td>
-                        <Td align="center">
-                          {scope === "market" ? (
+                {scope === "trades" ? (
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th className="px-6 py-3 font-medium">Listing</th>
+                        <th className="px-6 py-3 text-right font-medium">Acre-Feet</th>
+                        <th className="px-6 py-3 text-right font-medium">$ / AF</th>
+                        <th className="px-6 py-3 font-medium">Status</th>
+                        <th className="px-6 py-3 font-medium">Updated</th>
+                        <th className="px-6 py-3 font-medium">Counterparty</th>
+                        <th className="px-6 py-3 text-center font-medium">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tradeRows.map((t) => (
+                        <tr key={`${t.tradeId}-${t.transactionId ?? "trade"}`} className="border-t border-slate-100">
+                          <Td>
+                            <div className="font-medium text-slate-900">{t.listingTitle}</div>
+                            <div className="text-xs text-slate-500">{t.district}</div>
+                            {t.type && (
+                              <div className="mt-1 text-xs uppercase tracking-wide text-slate-400">
+                                {formatTradeType(t.type)}
+                              </div>
+                            )}
+                          </Td>
+                          <Td align="right">{formatInt(t.volumeAf)}</Td>
+                          <Td align="right">{formatCurrency(t.pricePerAf)}</Td>
+                          <Td>
+                            <TradeStatusBadge status={t.status} highlight={tradeNeedsAction(t)} viewerRole={t.viewerRole} />
+                          </Td>
+                          <Td>
+                            <div className="text-sm text-slate-700">{t.updatedAt ? formatDateTime(t.updatedAt) : "—"}</div>
+                          </Td>
+                          <Td>
+                            <div className="text-sm text-slate-700">{t.counterpartName ?? (t.viewerRole === "buyer" ? "Seller" : t.viewerRole === "seller" ? "Buyer" : "—")}</div>
+                            <div className="text-xs capitalize text-slate-400">{t.viewerRole}</div>
+                          </Td>
+                          <Td align="center">
                             <Link
-                              href={`/listings/${l.id}`}
+                              href={`/transactions/${t.transactionId ?? t.tradeId}`}
                               className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                             >
-                              View Details
+                              View trade
                             </Link>
-                          ) : (
-                            <div className="inline-flex gap-2">
+                          </Td>
+                        </tr>
+                      ))}
+                      {tradeRows.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="px-6 py-10 text-center text-slate-600">
+                            <div className="mx-auto max-w-md">
+                              <div className="text-sm">You don’t have any trades yet.</div>
+                              <div className="mt-4">
+                                <Link
+                                  href="/dashboard"
+                                  className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
+                                >
+                                  Browse Marketplace
+                                </Link>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <Th
+                          label="District"
+                          active={sortBy === "district"}
+                          dir={sortDir}
+                          onClick={() => onSort("district")}
+                        />
+                        <Th
+                          label="Acre-Feet"
+                          align="right"
+                          active={sortBy === "acreFeet"}
+                          dir={sortDir}
+                          onClick={() => onSort("acreFeet")}
+                        />
+                        <Th
+                          label="$ / AF"
+                          align="right"
+                          active={sortBy === "pricePerAf"}
+                          dir={sortDir}
+                          onClick={() => onSort("pricePerAf")}
+                        />
+                        <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
+                        <Th
+                          label={scope === "market" ? "Action" : "Manage"}
+                          align="center"
+                          active={sortBy === "createdAt"}
+                          dir={sortDir}
+                          onClick={() => onSort("createdAt")}
+                        />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {listingRows.map((l) => (
+                        <tr key={l.id} className="border-t border-slate-100">
+                          <Td>{l.district}</Td>
+                          <Td align="right">{formatInt(l.acreFeet)}</Td>
+                          <Td align="right">${formatInt(l.pricePerAf)}</Td>
+                          <Td>
+                            <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
+                              {l.waterType}
+                            </span>
+                          </Td>
+                          <Td align="center">
+                            {scope === "market" ? (
                               <Link
                                 href={`/listings/${l.id}`}
                                 className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                               >
-                                View
+                                View Details
                               </Link>
-                              <Link
-                                href={`/listings/${l.id}/edit`}
-                                className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                Edit
-                              </Link>
+                            ) : (
+                              <div className="inline-flex gap-2">
+                                <Link
+                                  href={`/listings/${l.id}`}
+                                  className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                >
+                                  View
+                                </Link>
+                                <Link
+                                  href={`/listings/${l.id}/edit`}
+                                  className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                >
+                                  Edit
+                                </Link>
+                              </div>
+                            )}
+                          </Td>
+                        </tr>
+                      ))}
+                      {listingRows.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
+                            <div className="mx-auto max-w-md">
+                              <div className="text-sm">
+                                {scope === "market"
+                                  ? "No listings match your filters."
+                                  : "You don’t have any listings yet."}
+                              </div>
+                              <div className="mt-4">
+                                <Link
+                                  href="/create-listing"
+                                  className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
+                                >
+                                  Create Listing
+                                </Link>
+                              </div>
                             </div>
-                          )}
-                        </Td>
-                      </tr>
-                    ))}
-                    {rows.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
-                          <div className="mx-auto max-w-md">
-                            <div className="text-sm">
-                              {scope === "market"
-                                ? "No listings match your filters."
-                                : "You don’t have any listings yet."}
-                            </div>
-                            <div className="mt-4">
-                              <Link
-                                href="/create-listing"
-                                className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
-                              >
-                                Create Listing
-                              </Link>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               {/* Pagination */}
@@ -472,7 +633,7 @@ export default function DashboardPage() {
                 <div className="text-xs text-slate-500">
                   Page <span className="font-medium text-slate-700">{page}</span> of{" "}
                   <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
-                  {data?.total ?? 0} total {scope === "market" ? "listings" : "your listings"}
+                  {data?.total ?? 0} total {totalLabel}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -532,6 +693,75 @@ export default function DashboardPage() {
   );
 }
 
+function isListingsResponse(data: ApiResponse | TradesApiResponse | null): data is ApiResponse {
+  return !!data && Array.isArray((data as ApiResponse).listings);
+}
+
+function isTradesResponse(data: ApiResponse | TradesApiResponse | null): data is TradesApiResponse {
+  return !!data && Array.isArray((data as TradesApiResponse).trades);
+}
+
+function formatCurrency(value: number | string): string {
+  const num = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(num)) return "$0.00";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+}
+
+function formatTradeStatus(status: string): string {
+  if (!status) return "Unknown";
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
+function formatTradeType(type?: string | null): string {
+  if (!type) return "";
+  if (type.toUpperCase() === "BUY_NOW") return "Buy Now";
+  if (type.toUpperCase() === "OFFER") return "Offer";
+  return type
+    .toLowerCase()
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
+function formatDateTime(iso: string): string {
+  try {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return date.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function tradeNeedsAction(trade: TradeRow): boolean {
+  const status = (trade.status || "").toUpperCase();
+  if (trade.viewerRole === "buyer") {
+    return status === "COUNTERED_BY_SELLER" || status === "ACCEPTED_PENDING_BUYER_SIGNATURE";
+  }
+  if (trade.viewerRole === "seller") {
+    return (
+      status === "OFFERED" ||
+      status === "COUNTERED_BY_BUYER" ||
+      status === "ACCEPTED_PENDING_SELLER_SIGNATURE"
+    );
+  }
+  return false;
+}
+
 /* ---------------- UI bits ---------------- */
 function TabButton({
   active,
@@ -563,6 +793,32 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-slate-500 text-sm">{label}</div>
       <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
     </div>
+  );
+}
+
+function TradeStatusBadge({
+  status,
+  highlight,
+  viewerRole,
+}: {
+  status: string;
+  highlight?: boolean;
+  viewerRole: "buyer" | "seller" | "unknown";
+}) {
+  const normalized = (status || "").toUpperCase();
+  const label = formatTradeStatus(normalized);
+  let tone = "bg-slate-100 text-slate-700 border border-slate-200";
+  if (normalized === "FULLY_EXECUTED") tone = "bg-emerald-100 text-emerald-800 border border-emerald-200";
+  else if (normalized === "DECLINED" || normalized === "CANCELLED") tone = "bg-rose-100 text-rose-800 border border-rose-200";
+  else if (highlight) tone = "bg-amber-100 text-amber-800 border border-amber-200";
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${tone}`}>
+      {label}
+      {highlight && viewerRole !== "unknown" && (
+        <span className="ml-1 text-[10px] uppercase tracking-wide">Action needed</span>
+      )}
+    </span>
   );
 }
 
