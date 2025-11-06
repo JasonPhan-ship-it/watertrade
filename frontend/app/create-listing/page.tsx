@@ -96,7 +96,7 @@ function containsContactInfo(text: string) {
   return digitCount >= 10;
 }
 
-  export default function CreateListingPage() {
+export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
   const [isAuction, setIsAuction] = React.useState(false);
@@ -107,12 +107,13 @@ function containsContactInfo(text: string) {
   const [waterType, setWaterType] = React.useState("");
   const [district, setDistrict] = React.useState("");
 
- const [waterCodes, setWaterCodes] = React.useState<WaterCodeOption[]>([]);
+  const [waterCodes, setWaterCodes] = React.useState<WaterCodeOption[]>([]);
   const [waterCodesLoading, setWaterCodesLoading] = React.useState(false);
   const [waterCodeError, setWaterCodeError] = React.useState<string | null>(null);
   const [selectedWaterCodeId, setSelectedWaterCodeId] = React.useState<string>("custom");
   const [waterCodeValue, setWaterCodeValue] = React.useState("");
   const [waterCodeYear, setWaterCodeYear] = React.useState("");
+  const [waterCodeDescription, setWaterCodeDescription] = React.useState("");
   const [waterCodeDescriptionWarning, setWaterCodeDescriptionWarning] = React.useState<string | null>(null);
 
   const [farms, setFarms] = React.useState<FarmOption[]>([]);
