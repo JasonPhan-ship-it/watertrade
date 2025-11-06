@@ -324,6 +324,9 @@ export default function DashboardPage() {
         ? `Signed in as ${user?.primaryEmailAddress?.emailAddress ?? user?.username ?? "you"}`
         : "Track offers and purchases you’re part of.";
 
+  const viewerRole = data?.viewerRole ?? null;
+  const isAdmin = viewerRole === "ADMIN";
+  
   const stats =
     scope === "trades"
       ? [
@@ -445,8 +448,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
             <div className="font-medium">{tableTitle}</div>
             <div className="flex items-center gap-3">
-              <Link
-              {scope !== "trades" && (
+              {scope !== "trades" && !nocreate && (
                 <Link
                   href="/create-listing"
                   className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
