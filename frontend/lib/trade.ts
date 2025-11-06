@@ -6,6 +6,7 @@ import { appUrl } from "@/lib/email";
 import type { Trade } from "@prisma/client";
 import * as docusign from "docusign-esign";
 import { createRecipientViewUrl, getDsClient } from "@/lib/docusign";
+import { getSiteSetting } from "@/lib/site-settings";
 
 /* =========================
    Viewer / Auth helpers
@@ -358,11 +359,17 @@ async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | n
   const listing = trade?.listing || {};
   const transaction = trade?.transaction || {};
   const sellerFarm = listing?.sellerFarm || null;
+  const docuSignDefaults = await getSiteSetting("docuSignDefaults");
   const sellerFarmLabel = sellerFarm
     ? [sellerFarm.name, sellerFarm.accountNumber ? `#${sellerFarm.accountNumber}` : null].filter(Boolean).join(" ")
     : "";
-  const buyerAccount = (transaction?.buyerWaterAccount || listing?.buyerWaterAccount || "").trim();
-
+  const buyerAccount = (
+    transaction?.buyerWaterAccount ||
+    listing?.buyerWaterAccount ||
+    docuSignDefaults.buyerWaterAccountNumber ||
+    ""
+  ).trim();
+   
   const buyerProfile = (trade as any)?.buyer?.profile || {};
   const sellerProfile = (trade as any)?.seller?.profile || {};
 
@@ -376,8 +383,9 @@ async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | n
   const buyerName =
     buyerNameSnapshot || buyerProfile.fullName || (trade as any)?.buyer?.name || buyerFallbackName;
 
-  const sellerEntity = sellerProfile.company || sellerFarm?.name || "";
-  const buyerEntity = buyerProfile.company || "";
+  const sellerEntity =
+    sellerProfile.company || sellerFarm?.name || docuSignDefaults.sellerLegalEntity || "";
+  const buyerEntity = buyerProfile.company || docuSignDefaults.buyerLegalEntity || "";
 
   const agreementBaseDate = transaction?.createdAt ? new Date(transaction.createdAt) : new Date();
   const agreementDate = formatDate(agreementBaseDate);
