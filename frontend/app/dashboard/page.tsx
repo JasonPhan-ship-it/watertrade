@@ -475,7 +475,6 @@ export default function DashboardPage() {
                         <th className="px-6 py-3 text-right font-medium">$ / AF</th>
                         <th className="px-6 py-3 font-medium">Status</th>
                         <th className="px-6 py-3 font-medium">Updated</th>
-                        <th className="px-6 py-3 font-medium">Counterparty</th>
                         <th className="px-6 py-3 text-center font-medium">Action</th>
                       </tr>
                     </thead>
@@ -484,7 +483,6 @@ export default function DashboardPage() {
                         <tr key={`${t.tradeId}-${t.transactionId ?? "trade"}`} className="border-t border-slate-100">
                           <Td>
                             <div className="font-medium text-slate-900">{t.listingTitle}</div>
-                            <div className="text-xs text-slate-500">{t.district}</div>
                             {t.type && (
                               <div className="mt-1 text-xs uppercase tracking-wide text-slate-400">
                                 {formatTradeType(t.type)}
@@ -499,23 +497,20 @@ export default function DashboardPage() {
                           <Td>
                             <div className="text-sm text-slate-700">{t.updatedAt ? formatDateTime(t.updatedAt) : "—"}</div>
                           </Td>
-                          <Td>
-                            <div className="text-sm text-slate-700">{t.counterpartName ?? (t.viewerRole === "buyer" ? "Seller" : t.viewerRole === "seller" ? "Buyer" : "—")}</div>
-                            <div className="text-xs capitalize text-slate-400">{t.viewerRole}</div>
-                          </Td>
                           <Td align="center">
                             <Link
                               href={`/transactions/${t.transactionId ?? t.tradeId}`}
-                              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              className="inline-flex items-center gap-1.5 rounded-full bg-[#004434] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#00392f]"
                             >
                               View trade
+                              <span aria-hidden="true">→</span>
                             </Link>
                           </Td>
                         </tr>
                       ))}
                       {tradeRows.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="px-6 py-10 text-center text-slate-600">
+                          <td colSpan={6} className="px-6 py-10 text-center text-slate-600">
                             <div className="mx-auto max-w-md">
                               <div className="text-sm">You don’t have any trades yet.</div>
                               <div className="mt-4">
@@ -798,6 +793,21 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function getTradeStatusLabel(status: string, viewerRole: "buyer" | "seller" | "unknown") {
+  const normalized = (status || "").toUpperCase();
+  if (normalized === "ACCEPTED_PENDING_BUYER_SIGNATURE") {
+    if (viewerRole === "buyer") return "Your signature needed";
+    if (viewerRole === "seller") return "Buyer signature pending";
+    return "Awaiting buyer signature";
+  }
+  if (normalized === "ACCEPTED_PENDING_SELLER_SIGNATURE") {
+    if (viewerRole === "seller") return "Your signature needed";
+    if (viewerRole === "buyer") return "Seller signature pending";
+    return "Awaiting seller signature";
+  }
+  return formatTradeStatus(normalized);
+}
+
 function TradeStatusBadge({
   status,
   highlight,
@@ -808,7 +818,7 @@ function TradeStatusBadge({
   viewerRole: "buyer" | "seller" | "unknown";
 }) {
   const normalized = (status || "").toUpperCase();
-  const label = formatTradeStatus(normalized);
+  const label = getTradeStatusLabel(normalized, viewerRole);
   let tone = "bg-slate-100 text-slate-700 border border-slate-200";
   if (normalized === "FULLY_EXECUTED") tone = "bg-emerald-100 text-emerald-800 border border-emerald-200";
   else if (normalized === "DECLINED" || normalized === "CANCELLED") tone = "bg-rose-100 text-rose-800 border border-rose-200";
