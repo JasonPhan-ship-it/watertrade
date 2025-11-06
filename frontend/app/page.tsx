@@ -671,7 +671,7 @@ function BuyNowPreview({ feeRate }: { feeRate: number; copy: HomepageCopy["coreW
 
   return (
     <PreviewFrame title="Buy Now" subtitle="Escrow ready">
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-200/40 bg-white/90 p-4 text-slate-800 shadow-sm">
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-200/40 bg-white/90 p-4 pb-8 text-slate-800 shadow-sm">
         <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.25em] text-emerald-700/80">
           <span>Listing summary</span>
           <span className="text-emerald-500">Verified</span>
@@ -725,7 +725,7 @@ function BuyNowPreview({ feeRate }: { feeRate: number; copy: HomepageCopy["coreW
           />
         </button>
         <MousePointerClick
-          className={`pointer-events-none absolute -bottom-2 right-6 h-6 w-6 text-emerald-500/80 transition-all duration-500 ${
+          className={`pointer-events-none absolute bottom-2 right-6 h-6 w-6 text-emerald-500/80 transition-all duration-500 ${
             pointerHidden ? "translate-y-3 opacity-0" : buttonActive ? "translate-y-1 scale-95" : "opacity-100"
           }`}
           aria-hidden
@@ -825,7 +825,6 @@ function CreateListingPreview({
   }, [listingExample.pricePerAf, prefersReducedMotion]);
 
   const priceDisplay = prefersReducedMotion ? listingExample.pricePerAf : typedPrice;
-  const isTyping = !prefersReducedMotion && priceDisplay.length < listingExample.pricePerAf.length;
 
   const highlight = workflowCopy?.highlight ?? "Listings";
   const title = workflowCopy?.title ?? "Publish verified supply";
@@ -843,9 +842,6 @@ function CreateListingPreview({
               </span>
               <p className="mt-3 text-base font-semibold text-slate-900">{title}</p>
               <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{description}</p>
-            </div>
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-[0.32em] text-emerald-600 shadow-inner">
-              Ready to publish
             </div>
           </div>
 
@@ -895,13 +891,6 @@ function CreateListingPreview({
                   aria-readonly
                   className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-inner shadow-emerald-100 focus:outline-none"
                 />
-                <span
-                  className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold uppercase tracking-[0.32em] transition ${
-                    isTyping ? "text-emerald-500" : "text-emerald-400"
-                  }`}
-                >
-                  {isTyping ? "typing" : "locked"}
-                </span>
               </div>
             </label>
           </div>
