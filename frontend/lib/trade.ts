@@ -261,8 +261,25 @@ function buildDocuSignSellerHtml(args: {
   listing: any;
   buyerAccount: string;
   sellerFarmLabel: string;
+  sellerName: string;
+  sellerEntity: string;
+  buyerName: string;
+  buyerEntity: string;
+  agreementDate: string;
+  agreementYear: string;
 }) {
-  const { trade, listing, buyerAccount, sellerFarmLabel } = args;
+  const {
+    trade,
+    listing,
+    buyerAccount,
+    sellerFarmLabel,
+    sellerName,
+    sellerEntity,
+    buyerName,
+    buyerEntity,
+    agreementDate,
+    agreementYear,
+  } = args;
   const district = trade?.district || listing?.district || "";
   const waterType = trade?.waterType || listing?.waterType || "";
   const volumeAf = Number(trade?.volumeAf ?? 0);
