@@ -371,12 +371,12 @@ async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | n
     listing,
     buyerAccount,
     sellerFarmLabel,
-    sellerName: string;
-    sellerEntity: string;
-    buyerName: string;
-    buyerEntity: string;
-    agreementDate: string;
-    agreementYear: string;
+    sellerName,
+    sellerEntity,
+    buyerName,
+    buyerEntity,
+    agreementDate,
+    agreementYear,
   });
 
   const document = new docusign.Document();
