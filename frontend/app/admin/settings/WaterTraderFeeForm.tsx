@@ -94,7 +94,6 @@ export function WaterTraderFeeForm({ initialRate }: { initialRate: number }) {
             {status === "saving" ? "Saving…" : "Save"}
           </button>
         </div>
-        <p className="mt-1 text-sm text-slate-500">Applies to listing previews and checkout estimates.</p>
       </div>
 
       {message ? (
