@@ -2,7 +2,11 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { SignatureProgress, TradeStatus, TransactionStatus } from "@prisma/client";
+import { clerkClient } from "@clerk/nextjs/server";
+
 import { prisma } from "@/lib/prisma";
 import {
   sendEmail,
@@ -10,9 +14,48 @@ import {
   renderSellerNeedsSignatureEmail,
   renderBuyerSignedAckEmail,
   renderFullyExecutedEmail,
+  renderBuyerAcceptedEmail,
 } from "@/lib/email";
+import { createBuyerSignatureLink } from "@/lib/trade";
 
 let docusign: any = null;
+
+function pickAcceptedPendingBuyerStatus(): (typeof TradeStatus)[keyof typeof TradeStatus] {
+  const TS: any = TradeStatus;
+  return (
+    TS.ACCEPTED_PENDING_BUYER_SIGNATURE ??
+    TS.ACCEPTED_PENDING_SIGNATURE ??
+    TS.ACCEPTED ??
+    TS.PENDING ??
+    TS.OFFERED
+  );
+}
+
+function pickTxnPendingBuyerSig(): (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
+  const TXS: any = TransactionStatus;
+  return TXS.PENDING_BUYER_SIGNATURE ?? TXS.PENDING_SIGNATURE ?? TXS.PENDING ?? TXS.ACCEPTED ?? null;
+}
+
+async function resolveContact(userId?: string | null) {
+  if (!userId) return { email: "", name: "" };
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true, clerkId: true } });
+  if (!user) return { email: "", name: "" };
+
+  let { email = "", name = "" } = user;
+
+  if ((!email || !name) && user.clerkId) {
+    try {
+      const clerkUser = await clerkClient.users.getUser(user.clerkId);
+      name = name || clerkUser.firstName || clerkUser.username || "";
+      const primary = clerkUser.emailAddresses?.find(e => e.id === clerkUser.primaryEmailAddressId)?.emailAddress;
+      email = email || primary || clerkUser.emailAddresses?.[0]?.emailAddress || "";
+    } catch {
+      // ignore clerk lookup failures
+    }
+  }
+
+  return { email, name };
+}
 
 /* ---------------- DocuSign auth + base ---------------- */
 function normalizeOAuthBase(input?: string) {
@@ -202,8 +245,14 @@ export async function POST(req: NextRequest) {
             where: { id: tradeId },
             include: {
               listing: { select: { title: true } },
-              buyer:   { select: { email: true, name: true } },
-              seller:  { select: { email: true, name: true } },
+              buyer:   { select: { email: true, name: true, id: true, clerkId: true } },
+              seller:  { select: { email: true, name: true, id: true, clerkId: true } },
+              transaction: {
+                select: {
+                  id: true,
+                  status: true,
+                },
+              },
             },
           })
         : null;
@@ -217,8 +266,14 @@ export async function POST(req: NextRequest) {
           where: { id: cfTradeId },
           include: {
             listing: { select: { title: true } },
-            buyer:   { select: { email: true, name: true } },
-            seller:  { select: { email: true, name: true } },
+            buyer:   { select: { email: true, name: true, id: true, clerkId: true } },
+            seller:  { select: { email: true, name: true, id: true, clerkId: true } },
+            transaction: {
+              select: {
+                id: true,
+                status: true,
+              },
+            },
           },
         });
         tradeId = cfTradeId;
@@ -283,6 +338,121 @@ export async function POST(req: NextRequest) {
             idempotencyKey: `ds:${envelopeId}:ack-buyer`,
           });
         }
+      }
+
+      if (role.includes("seller")) {
+        const sellerStatus = String((trade as any)?.sellerSignStatus || "").toUpperCase();
+        const buyerStatus = String((trade as any)?.buyerSignStatus || "").toUpperCase();
+        const alreadyHandled = sellerStatus === "SIGNED" && buyerStatus !== "NONE";
+        if (alreadyHandled) {
+          return NextResponse.json({ ok: true, handled: "recipientCompletedSellerAlready", envelopeId });
+        }
+
+        let buyerSignLink = appUrl(
+          `/sign/${trade.id}?role=buyer${(trade as any)?.buyerToken ? `&token=${(trade as any)?.buyerToken}` : ""}`
+        );
+        try {
+          buyerSignLink = await createBuyerSignatureLink(trade.id, (trade as any)?.buyerToken);
+        } catch (err) {
+          console.error("[docsign webhook] createBuyerSignatureLink failed", err);
+        }
+
+        const updated = await prisma.trade.update({
+          where: { id: trade.id },
+          data: {
+            status: pickAcceptedPendingBuyerStatus(),
+            sellerSignStatus: SignatureProgress.SIGNED,
+            buyerSignStatus: SignatureProgress.REQUESTED,
+            buyerSignUrl: buyerSignLink,
+            sellerSignUrl: null,
+            events: {
+              create: {
+                id: randomUUID(),
+                actor: "seller",
+                kind: "SELLER_SIGNED",
+                payload: {
+                  previousStatus: (trade as any)?.status,
+                  sellerSignStatus: (trade as any)?.sellerSignStatus,
+                  buyerSignStatus: (trade as any)?.buyerSignStatus,
+                },
+              },
+            },
+          },
+          select: {
+            id: true,
+            buyerUserId: true,
+            sellerUserId: true,
+            buyerToken: true,
+            sellerToken: true,
+            transactionId: true,
+            district: true,
+            waterType: true,
+            volumeAf: true,
+            pricePerAf: true,
+            windowLabel: true,
+          },
+        });
+
+        if (updated.transactionId) {
+          try {
+            const nextTxnStatus = pickTxnPendingBuyerSig();
+            if (nextTxnStatus) {
+              await prisma.transaction.update({
+                where: { id: updated.transactionId },
+                data: { status: nextTxnStatus },
+              });
+            }
+          } catch (err) {
+            console.warn("[docsign webhook] transaction update failed", (err as any)?.message);
+          }
+        }
+
+        const [{ email: buyerEmail, name: buyerName }, { email: sellerEmail, name: sellerName }] = await Promise.all([
+          resolveContact(updated.buyerUserId),
+          resolveContact(updated.sellerUserId),
+        ]);
+
+        const buyerViewLink = appUrl(
+          `/t/${updated.id}?role=buyer${updated.buyerToken ? `&token=${updated.buyerToken}` : ""}&action=awaiting-buyer-signature`
+        );
+
+        if (buyerEmail) {
+          const { html, preheader } = renderBuyerAcceptedEmail({
+            buyerName,
+            sellerName,
+            offer,
+            signLink: buyerSignLink,
+            viewLink: buyerViewLink,
+          });
+          try {
+            await sendEmail({
+              to: buyerEmail,
+              subject: "Seller signed — your turn to sign",
+              html,
+              preheader,
+            });
+          } catch (err) {
+            console.warn("[docsign webhook] buyer notification failed", (err as any)?.message);
+          }
+        }
+
+        if (sellerEmail) {
+          const sellerViewLink = appUrl(
+            `/t/${updated.id}?role=seller${updated.sellerToken ? `&token=${updated.sellerToken}` : ""}`
+          );
+          const html = `
+            <p>Hi ${sellerName || "Seller"},</p>
+            <p>Thanks for signing the agreement. We've alerted the buyer to sign next.</p>
+            <p>You can monitor progress <a href="${sellerViewLink}">on Water Traders</a>.</p>
+          `;
+          try {
+            await sendEmail({ to: sellerEmail, subject: "Signature captured — awaiting buyer", html });
+          } catch (err) {
+            console.warn("[docsign webhook] seller confirmation failed", (err as any)?.message);
+          }
+        }
+
+        return NextResponse.json({ ok: true, handled: "recipientCompletedSeller", envelopeId });
       }
 
       return NextResponse.json({ ok: true, handled: "recipientCompleted", envelopeId });
