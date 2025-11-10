@@ -48,24 +48,36 @@ async function resolveContact(userId?: string | null) {
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const id = (params.id || "").trim();
-  if (!id) {
+  const rawId = (params.id || "").trim();
+  if (!rawId) {
     return NextResponse.json({ error: "Missing trade id" }, { status: 400 });
   }
 
   const token = req.nextUrl.searchParams.get("token") || "";
+  let resolvedId = rawId;
 
   try {
-    const trade = await prisma.trade.findUnique({
-      where: { id },
+    let trade = await prisma.trade.findUnique({
+      where: { id: rawId },
       include: {
         listing: { select: { title: true, district: true, waterType: true } },
       },
     });
 
     if (!trade) {
+      trade = await prisma.trade.findFirst({
+        where: { transactionId: rawId },
+        include: {
+          listing: { select: { title: true, district: true, waterType: true } },
+        },
+      });
+    }
+
+    if (!trade) {
       return NextResponse.json({ error: "Trade not found" }, { status: 404 });
     }
+
+    resolvedId = trade.id;
 
     if (trade.sellerToken && token && token !== trade.sellerToken) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -185,7 +197,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.redirect(redirectUrl);
   } catch (err) {
     console.error("[seller/signing-complete] unexpected", err);
-    const fallback = new URL(appUrl(`/t/${id}`));
+    const fallback = new URL(appUrl(`/t/${resolvedId}`));
     fallback.searchParams.set("action", "signing-error");
     fallback.searchParams.set("role", "seller");
     if (token) fallback.searchParams.set("token", token);
