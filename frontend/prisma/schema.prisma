@@ -43,6 +43,9 @@ model User {
   // Verification requests back-relation
   verificationRequests VerificationRequest[]
 
+  // External water provider integrations
+  waterIntegrations WaterIntegration[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -50,6 +53,35 @@ model User {
   @@index([subscriptionStatus])
   @@index([clerkId])
 }
+
+enum WaterProvider {
+  WESTLANDS
+}
+
+enum WaterIntegrationStatus {
+  PENDING
+  CONNECTED
+  DECLINED
+  ERROR
+}
+
+model WaterIntegration {
+  id        String                  @id @default(cuid())
+  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  provider  WaterProvider
+
+  status    WaterIntegrationStatus  @default(PENDING)
+  consentedAt      DateTime?
+  lastSyncedAt     DateTime?
+  balanceAf        Decimal?
+  balanceUpdatedAt DateTime?
+  errorMessage     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, provider])
 
 /* ========================= Listings & Bids ========================= */
 
