@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { User, LogOut } from "lucide-react"; // ⬅️ removed Crown
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
 export default function Navigation() {
@@ -14,6 +14,8 @@ export default function Navigation() {
   const [isPremium, setIsPremium] = useState(false);
   const [premiumLoading, setPremiumLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [westlandsBalance, setWestlandsBalance] = useState<{ amount: number; updatedAt: string | null } | null>(null);
+  const [westlandsLoading, setWestlandsLoading] = useState(false);
 
   useEffect(() => {
     if (!isSignedIn || !user) return;
@@ -48,6 +50,85 @@ export default function Navigation() {
 
     checkPremiumStatus();
   }, [isSignedIn, user]);
+
+  const refreshWestlandsBalance = useCallback(async () => {
+    if (!isSignedIn) {
+      setWestlandsBalance(null);
+      setWestlandsLoading(false);
+      return;
+    }
+
+    setWestlandsLoading(true);
+    try {
+      const res = await fetch("/api/integrations/westlands", {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!res.ok) throw new Error("Failed to load Westlands balance");
+
+      const data = await res.json();
+      const integration = (data?.integration ?? null) as
+        | {
+            status?: string | null;
+            balanceAf?: number | null;
+            balanceUpdatedAt?: string | null;
+            lastSyncedAt?: string | null;
+          }
+        | null;
+
+      if (
+        integration?.status === "CONNECTED" &&
+        typeof integration?.balanceAf === "number"
+      ) {
+        setWestlandsBalance({
+          amount: integration.balanceAf,
+          updatedAt: integration.balanceUpdatedAt ?? integration.lastSyncedAt ?? null,
+        });
+      } else {
+        setWestlandsBalance(null);
+      }
+    } catch (error) {
+      console.warn("Failed to load Westlands balance", error);
+      setWestlandsBalance(null);
+    } finally {
+      setWestlandsLoading(false);
+    }
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    refreshWestlandsBalance();
+
+    if (typeof window === "undefined") return;
+
+    const handler = () => {
+      refreshWestlandsBalance();
+    };
+
+    window.addEventListener("westlands-integration-updated", handler);
+    return () => {
+      window.removeEventListener("westlands-integration-updated", handler);
+    };
+  }, [refreshWestlandsBalance]);
+
+  const westlandsDisplay = useMemo(() => {
+    if (!westlandsBalance) return null;
+    const amount = westlandsBalance.amount.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    let updated: string | null = null;
+    if (westlandsBalance.updatedAt) {
+      try {
+        updated = new Date(westlandsBalance.updatedAt).toLocaleString();
+      } catch {
+        updated = westlandsBalance.updatedAt;
+      }
+    }
+
+    return { amount, updated };
+  }, [westlandsBalance]);
 
   const openBillingPortal = useCallback(async () => {
     try {
@@ -98,10 +179,44 @@ export default function Navigation() {
             </Link>
           </div>
 
+          {/* Center: Westlands balance */}
+          <div className="hidden flex-1 justify-center md:flex">
+            {westlandsLoading ? (
+              <div className="rounded-full bg-slate-100 px-4 py-1 text-xs text-slate-500">
+                Syncing Westlands…
+              </div>
+            ) : westlandsDisplay ? (
+              <div className="text-center text-xs text-slate-600">
+                <div className="font-semibold text-slate-900">
+                  Westlands balance: {westlandsDisplay.amount}
+                </div>
+                {westlandsDisplay.updated && (
+                  <div className="mt-0.5 text-[11px] text-slate-500">
+                    Updated {westlandsDisplay.updated}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+
           {/* Right side: Auth */}
           <div className="flex items-center gap-3 flex-1 justify-end">
             {isSignedIn ? (
               <div className="flex items-center gap-3">
+                {/* Mobile Westlands indicator */}
+                {westlandsLoading ? (
+                  <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-500 md:hidden">
+                    Syncing Westlands…
+                  </div>
+                ) : westlandsDisplay ? (
+                  <div className="text-right text-[11px] text-slate-600 md:hidden">
+                    <div className="font-semibold text-slate-900">Balance: {westlandsDisplay.amount}</div>
+                    {westlandsDisplay.updated && (
+                      <div className="text-[10px] text-slate-500">Updated {westlandsDisplay.updated}</div>
+                    )}
+                  </div>
+                ) : null}
+                
                 {/* Profile link */}
                 <Link
                   href="/profile"
