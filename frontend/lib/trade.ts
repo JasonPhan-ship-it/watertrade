@@ -5,7 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { appUrl } from "@/lib/email";
 import type { Trade } from "@prisma/client";
 import * as docusign from "docusign-esign";
-import { createRecipientViewUrl, getDsClient } from "@/lib/docusign";
+import { createRecipientViewUrl, getDsClient, fetchEnvelopeCombinedPdfBase64 } from "@/lib/docusign";
 import { getSiteSetting } from "@/lib/site-settings";
 
 /* =========================
