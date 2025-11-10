@@ -19,6 +19,16 @@ type FarmRow = {
   otherDistrict?: string;
 };
 
+type WestlandsIntegration = {
+  id: string;
+  status: "PENDING" | "CONNECTED" | "DECLINED" | "ERROR";
+  consentedAt: string | null;
+  lastSyncedAt: string | null;
+  balanceAf: number | null;
+  balanceUpdatedAt: string | null;
+  errorMessage: string | null;
+};
+
 export default function OnboardingPage() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -42,6 +52,129 @@ export default function OnboardingPage() {
     { name: "", accountNumber: "", district: "", otherDistrict: "" },
   ]);
 
+  const [westlandsIntegration, setWestlandsIntegration] = React.useState<WestlandsIntegration | null>(null);
+  const [loadingWestlands, setLoadingWestlands] = React.useState(true);
+  const [westlandsError, setWestlandsError] = React.useState<string | null>(null);
+  const [westlandsConsentChoice, setWestlandsConsentChoice] = React.useState<"YES" | "NO" | null>(null);
+  const [westlandsAccountNumber, setWestlandsAccountNumber] = React.useState("");
+  const [westlandsSyncing, setWestlandsSyncing] = React.useState(false);
+
+  const parseErrorResponse = React.useCallback(async (res: Response, fallback: string) => {
+    try {
+      const data = await res.json();
+      if (data?.error) return String(data.error);
+      return fallback;
+    } catch {
+      try {
+        const text = await res.text();
+        return text || fallback;
+      } catch {
+        return fallback;
+      }
+    }
+  }, []);
+
+  const fetchWestlandsStatus = React.useCallback(async () => {
+    setLoadingWestlands(true);
+    setWestlandsError(null);
+    try {
+      const res = await fetch("/api/integrations/westlands", {
+        cache: "no-store",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        throw new Error(await parseErrorResponse(res, "Failed to load Westlands integration"));
+      }
+
+      const data = await res.json();
+      const integration = (data?.integration ?? null) as WestlandsIntegration | null;
+      setWestlandsIntegration(integration);
+
+      if (integration?.status === "CONNECTED") {
+        setWestlandsConsentChoice("YES");
+      } else if (integration?.status === "DECLINED") {
+        setWestlandsConsentChoice("NO");
+      } else {
+        setWestlandsConsentChoice(null);
+      }
+    } catch (err: any) {
+      console.error("[onboarding] Failed to load Westlands integration", err);
+      setWestlandsError(err?.message || "Failed to load Westlands integration");
+    } finally {
+      setLoadingWestlands(false);
+    }
+  }, [parseErrorResponse]);
+
+  React.useEffect(() => {
+    fetchWestlandsStatus();
+  }, [fetchWestlandsStatus]);
+
+  const declineWestlands = React.useCallback(async () => {
+    setWestlandsSyncing(true);
+    setWestlandsError(null);
+    try {
+      const res = await fetch("/api/integrations/westlands", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ consent: false }),
+      });
+
+      if (!res.ok) {
+        throw new Error(await parseErrorResponse(res, "Unable to update preference"));
+      }
+
+      const data = await res.json();
+      const integration = (data?.integration ?? null) as WestlandsIntegration | null;
+      setWestlandsIntegration(integration);
+      setWestlandsConsentChoice("NO");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("westlands-integration-updated"));
+      }
+    } catch (err: any) {
+      setWestlandsError(err?.message || "Unable to update preference");
+      setWestlandsConsentChoice(null);
+    } finally {
+      setWestlandsSyncing(false);
+    }
+  }, [parseErrorResponse]);
+
+  const connectWestlands = React.useCallback(async () => {
+    setWestlandsSyncing(true);
+    setWestlandsError(null);
+    try {
+      const res = await fetch("/api/integrations/westlands", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ consent: true, accountNumber: westlandsAccountNumber || undefined }),
+      });
+
+      if (!res.ok) {
+        throw new Error(await parseErrorResponse(res, "Failed to sync Westlands balance"));
+      }
+
+      const data = await res.json();
+      const integration = (data?.integration ?? null) as WestlandsIntegration | null;
+      setWestlandsIntegration(integration);
+      setWestlandsConsentChoice("YES");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("westlands-integration-updated"));
+      }
+    } catch (err: any) {
+      setWestlandsError(err?.message || "Failed to sync Westlands balance");
+    } finally {
+      setWestlandsSyncing(false);
+    }
+  }, [parseErrorResponse, westlandsAccountNumber]);
+
+  const openWestlandsPortal = React.useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.open("https://wwd.ca.gov/", "_blank", "noopener,noreferrer");
+    }
+  }, []);
+  
   // Debug helper
   const addDebug = (msg: string) => {
     console.log(`[ONBOARDING DEBUG]: ${msg}`);
@@ -341,6 +474,34 @@ export default function OnboardingPage() {
 
   const suggestedFarmDistricts = Array.from(new Set(["", ...PRESET_DISTRICTS, ...customDistricts]));
 
+  const westlandsBalanceDisplay = React.useMemo(() => {
+    if (typeof westlandsIntegration?.balanceAf !== "number") return null;
+    return `${westlandsIntegration.balanceAf.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} AF`;
+  }, [westlandsIntegration?.balanceAf]);
+
+  const westlandsUpdatedDisplay = React.useMemo(() => {
+    if (!westlandsIntegration?.balanceUpdatedAt) return null;
+    try {
+      return new Date(westlandsIntegration.balanceUpdatedAt).toLocaleString();
+    } catch {
+      return westlandsIntegration.balanceUpdatedAt;
+    }
+  }, [westlandsIntegration?.balanceUpdatedAt]);
+
+  const westlandsStatus = westlandsIntegration?.status ?? "PENDING";
+
+  const westlandsLastSyncedDisplay = React.useMemo(() => {
+    if (!westlandsIntegration?.lastSyncedAt) return null;
+    try {
+      return new Date(westlandsIntegration.lastSyncedAt).toLocaleString();
+    } catch {
+      return westlandsIntegration.lastSyncedAt;
+    }
+  }, [westlandsIntegration?.lastSyncedAt]);
+  
   return (
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-semibold tracking-tight">Complete your profile</h1>
@@ -359,6 +520,152 @@ export default function OnboardingPage() {
           </div>
         </details>
       )}
+
+      <section className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-white/60 p-5 shadow-sm">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Connect your Westlands Water District account</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            With your consent we can pull your current allocation directly from the official Westlands portal so your dashboard is
+            always up to date.
+          </p>
+        </div>
+
+        {loadingWestlands ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" aria-hidden />
+            Loading Westlands status…
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {westlandsError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{westlandsError}</div>
+            )}
+
+            {westlandsStatus === "CONNECTED" ? (
+              <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                <p className="font-medium">Westlands account connected</p>
+                {westlandsBalanceDisplay && (
+                  <p>
+                    Current balance: <span className="font-semibold">{westlandsBalanceDisplay}</span>
+                    {westlandsUpdatedDisplay && (
+                      <span className="ml-1 text-xs text-emerald-800">(updated {westlandsUpdatedDisplay})</span>
+                    )}
+                  </p>
+                )}
+                {westlandsLastSyncedDisplay && (
+                  <p className="text-xs text-emerald-800">Last synced {westlandsLastSyncedDisplay}</p>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openWestlandsPortal}
+                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-900 hover:bg-emerald-100"
+                  >
+                    Visit wwd.ca.gov
+                  </button>
+                  <button
+                    type="button"
+                    onClick={connectWestlands}
+                    disabled={westlandsSyncing}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    {westlandsSyncing ? "Syncing…" : "Refresh balance"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm text-slate-700">
+                    Would you like Water Traders to access your Westlands Water District account so we can display your live water
+                    balance?
+                  </p>
+                  {westlandsStatus === "DECLINED" && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      You can change your preference at any time—select “Yes” below whenever you&apos;re ready.
+                    </p>
+                  )}
+                  {westlandsStatus === "ERROR" && westlandsIntegration?.errorMessage && (
+                    <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      {westlandsIntegration.errorMessage}
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWestlandsConsentChoice("YES");
+                        setWestlandsError(null);
+                      }}
+                      disabled={westlandsSyncing}
+                      className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                        westlandsConsentChoice === "YES"
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                          : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                      }`}
+                    >
+                      Yes, connect my account
+                    </button>
+                    <button
+                      type="button"
+                      onClick={declineWestlands}
+                      disabled={westlandsSyncing}
+                      className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                        westlandsConsentChoice === "NO"
+                          ? "border-slate-500 bg-slate-100 text-slate-700"
+                          : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                      }`}
+                    >
+                      No thanks
+                    </button>
+                  </div>
+                </div>
+
+                {westlandsConsentChoice === "YES" && (
+                  <div className="space-y-3 rounded-xl border border-slate-200 bg-white/80 p-4">
+                    <p className="text-sm text-slate-700">
+                      We&apos;ll redirect you to the official Westlands Water District website in a new tab so you can sign in. Once you
+                      finish signing in, return here and click “Sync balance” to pull your latest figures.
+                    </p>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600" htmlFor="westlands-account">
+                        Westlands water account number (optional)
+                      </label>
+                      <input
+                        id="westlands-account"
+                        value={westlandsAccountNumber}
+                        onChange={(e) => setWestlandsAccountNumber(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Enter your account number"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">
+                        Sharing your account number helps us confirm we&apos;re capturing the correct balance.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={openWestlandsPortal}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        Visit wwd.ca.gov
+                      </button>
+                      <button
+                        type="button"
+                        onClick={connectWestlands}
+                        disabled={westlandsSyncing}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#004434] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#00392f] disabled:opacity-60"
+                      >
+                        {westlandsSyncing ? "Syncing…" : "Sync balance"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-6">
         {/* Name */}
