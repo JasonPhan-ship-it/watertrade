@@ -292,6 +292,19 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
     const stagesFromListing = mapStageFromListing(row.status);
 
+        const escrowStatuses = new Set([
+      "ACCEPTED_PENDING_SELLER_SIGNATURE",
+      "ACCEPTED_PENDING_BUYER_SIGNATURE",
+    ]);
+    const escrowVolumeAf = trades.reduce((sum: number, trade: any) => {
+      const status = String(trade?.status || "").toUpperCase();
+      if (!escrowStatuses.has(status)) return sum;
+      const volume = Number(trade?.volumeAf ?? trade?.volumeAF ?? 0);
+      return Number.isFinite(volume) ? sum + volume : sum;
+    }, 0);
+    const inEscrowAf = Math.min(row.acreFeet ?? 0, Math.max(0, escrowVolumeAf));
+    const availableAf = Math.max((row.acreFeet ?? 0) - inEscrowAf, 0);
+
     const currentStage: DealStage | null = [...stagesFromTrades, stagesFromListing]
       .filter((s): s is DealStage => Boolean(s))
       .sort((a, b) => stageRank(b) - stageRank(a))[0] ?? null;
@@ -304,7 +317,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
         ? 0
         : Math.max(0, Math.min(100, (currentStageIndex / (STAGE_ORDER.length - 1)) * 100));
 
-    const showBuyerActions = !isOwner && row.kind === "SELL";
+    const showBuyerActions = !isOwner && row.kind === "SELL" && availableAf > 0;
 
     return (
       <div className="mx-auto max-w-6xl">
@@ -322,6 +335,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
                 <Meta label="$ / AF" value={`$${format2(pricePerAfDollars)}`} />
                 <Meta label="Transaction Type" value={row.kind === "BUY" ? "Buyer Looking" : "For Sale"} />
                 <Meta label="Created" value={formatDate(row.createdAt)} />
+                {inEscrowAf > 0 ? <Meta label="In Escrow" value={`${formatInt(inEscrowAf)} AF`} /> : null}
+                {inEscrowAf > 0 ? <Meta label="Available" value={`${formatInt(availableAf)} AF`} /> : null}
               </div>
             </div>
 
@@ -439,6 +454,15 @@ export default async function ListingDetailPage({ params }: PageProps) {
                       reservePrice={null}
                     />
 
+                    {inEscrowAf > 0 ? (
+                      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        <div className="font-semibold text-amber-700">{formatInt(availableAf)} AF available</div>
+                        <p className="mt-1 leading-relaxed">
+                          {formatInt(inEscrowAf)} AF is currently in escrow from accepted offers.
+                        </p>
+                      </div>
+                    ) : null}
+
                     <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
                       <div className="flex items-start gap-2">
                         <Info aria-hidden className="mt-0.5 h-7 w-7 text-emerald-600" />
@@ -481,6 +505,10 @@ function formatAcreFeetFigures(title: string) {
     const numeric = Number(match);
     return Number.isNaN(numeric) ? match : new Intl.NumberFormat("en-US").format(numeric);
   });
+}
+
+function formatInt(n: number) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
 }
 
 function StatusPill({ status }: { status: string }) {
