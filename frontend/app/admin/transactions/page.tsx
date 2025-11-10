@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import TradeProgressTracker from "@/components/trade/ProgressTracker";
+import { buildTradeProgressSteps, type TradeProgressStep } from "@/lib/trade-progress";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -20,6 +22,11 @@ type Row = {
   listing?: { title: string | null } | null;
   buyer?: Party | null;
   seller?: Party | null;
+  trade?: {
+    status: string | null;
+    sellerSignStatus: string | null;
+    buyerSignStatus: string | null;
+  } | null;
 };
 
 export type DisplayRow = Omit<Row, "buyer" | "seller"> & {
@@ -28,6 +35,8 @@ export type DisplayRow = Omit<Row, "buyer" | "seller"> & {
   seller: string;
   created: string;
   shortId: string;
+  progressSteps: TradeProgressStep[];
+  hasLinkedTrade: boolean;
 };
 
 export default async function AdminTransactionsPage({
@@ -97,6 +106,13 @@ export default async function AdminTransactionsPage({
         listing: { select: { title: true } },
         buyer: { select: { name: true, email: true } },
         seller: { select: { name: true, email: true } },
+        trade: {
+          select: {
+            status: true,
+            sellerSignStatus: true,
+            buyerSignStatus: true,
+          },
+        },
       },
     });
   } catch (e: any) {
@@ -126,6 +142,7 @@ export default async function AdminTransactionsPage({
       listing: null,
       buyer: null,
       seller: null,
+      trade: null,
     }));
   }
 
@@ -144,6 +161,15 @@ export default async function AdminTransactionsPage({
     const seller = formatParty(sellerInfo);
     const created = formatDate(t.createdAt);
     const shortId = t.id.length > 12 ? `${t.id.slice(0, 8)}…` : t.id;
+    const hasLinkedTrade = Boolean(t.trade);
+    const progressSteps = hasLinkedTrade
+      ? buildTradeProgressSteps({
+          tradeStatus: t.trade?.status,
+          sellerSignStatus: t.trade?.sellerSignStatus,
+          buyerSignStatus: t.trade?.buyerSignStatus,
+          txStatus: t.status,
+        })
+      : [];
 
     return {
       ...base,
@@ -152,6 +178,8 @@ export default async function AdminTransactionsPage({
       seller,
       created,
       shortId,
+      progressSteps,
+      hasLinkedTrade,
     };
   });
 
@@ -327,6 +355,15 @@ function TransactionCard({ row }: { row: DisplayRow }) {
           <Metric label="Total" value={usdCents(row.totalAmount)} emphasized />
         </div>
       </dl>
+
+      {row.hasLinkedTrade && row.progressSteps.length > 0 ? (
+        <div className="border-t border-slate-200 pt-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Progress</div>
+          <div className="mt-3">
+            <TradeProgressTracker steps={row.progressSteps} />
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }
