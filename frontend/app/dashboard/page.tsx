@@ -285,7 +285,10 @@ export default function DashboardPage() {
   const totalAf =
     scope === "trades"
       ? tradeRows.reduce((s, t) => s + (t.volumeAf ?? 0), 0)
-      : listingRows.reduce((s, l) => s + l.acreFeet, 0);
+      : listingRows.reduce(
+          (s, l) => s + (scope === "market" ? l.availableAf ?? l.acreFeet : l.acreFeet),
+          0
+        );
   const avgPriceRaw =
     scope === "trades"
       ? tradeRows.length > 0
@@ -566,8 +569,14 @@ export default function DashboardPage() {
                         <tr key={l.id} className="border-t border-slate-100">
                           <Td>{l.district}</Td>
                           <Td align="right">{formatInt(l.acreFeet)}</Td>
-                          <Td align="right">${formatInt(l.pricePerAf)}</Td>
-                          <Td>
+                          <Td align="right">
+                            {formatInt(l.acreFeet)}
+                            {l.inEscrowAf && l.inEscrowAf > 0 ? (
+                              <div className="mt-1 text-[11px] text-amber-700">
+                                {formatInt(l.availableAf ?? Math.max(l.acreFeet - l.inEscrowAf, 0))} AF available · {formatInt(l.inEscrowAf)} AF in escrow
+                              </div>
+                            ) : null}
+                          </Td>                          <Td>
                             <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
                               {l.waterType}
                             </span>
