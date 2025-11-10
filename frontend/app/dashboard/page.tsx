@@ -82,6 +82,8 @@ type Listing = {
   ownerName?: string | null;
   status?: string;
   kind?: "SELL" | "BUY";
+  availableAf?: number;
+  inEscrowAf?: number;
 };
 
 type ApiResponse = {
