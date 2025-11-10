@@ -111,14 +111,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (updated.transactionId) {
       try {
         const nextStatus = pickTxnPendingBuyerSig();
+        const updateData: any = {
+          buyerSignUrl: buyerSignLink,
+          sellerSignUrl: null,
+        };
         if (nextStatus) {
-          await prisma.transaction.update({
-            where: { id: updated.transactionId },
-            data: {
-              status: nextStatus,
-            },
-          });
+          updateData.status = nextStatus;
         }
+        await prisma.transaction.update({
+          where: { id: updated.transactionId },
+          data: updateData,
+        });
       } catch (err) {
         console.warn("[seller/signing-complete] transaction update failed", (err as any)?.message);
       }
