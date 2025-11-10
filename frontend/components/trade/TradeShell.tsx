@@ -11,6 +11,7 @@ import CounterButton from "@/components/trade/CounterButton";
 import AcceptButton from "@/components/trade/AcceptButton";
 import BuyNowConfirmButton from "@/components/trade/BuyNowConfirmButton";
 import TradeProgressTracker, { type TradeProgressStep } from "@/components/trade/ProgressTracker";
+import { buildTradeProgressSteps } from "@/lib/trade-progress";
 
 type Props = {
   tradeId: string;
