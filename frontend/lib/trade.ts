@@ -511,6 +511,18 @@ async function getBuyerNameEmail(trade: Trade): Promise<{ name: string; email: s
   return { name, email };
 }
 
+async function persistBuyerSignUrl(transactionId: string | null | undefined, signUrl: string | null) {
+  if (!transactionId) return;
+  try {
+    await prisma.transaction.update({
+      where: { id: transactionId },
+      data: { buyerSignUrl: signUrl ?? null },
+    });
+  } catch (err) {
+    console.warn("[trade] Failed to persist buyer sign URL on transaction", (err as any)?.message);
+  }
+}
+
 async function getSellerNameEmail(trade: Trade): Promise<{ name: string; email: string }> {
   const seller = trade.sellerUserId
     ? await prisma.user.findUnique({ where: { id: trade.sellerUserId }, select: { name: true, email: true, clerkId: true } })
@@ -543,13 +555,6 @@ export async function createBuyerSignatureLink(
   buyerToken?: string | null,
   opts?: { redirectTo?: string }
 ): Promise<string> {
-  const apiKey = process.env.DROPBOX_SIGN_API_KEY;
-  const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
-
-  // Fallback: not configured → use internal page
-  if (!apiKey || !clientId) {
-    return appUrl(`/sign/${tradeId}?role=buyer${buyerToken ? `&token=${buyerToken}` : ""}`);
-  }
 
   const trade = await prisma.trade.findUnique({
     where: { id: tradeId },
@@ -557,11 +562,26 @@ export async function createBuyerSignatureLink(
       listing: true,
       transaction: { select: { docusignEnvelopeId: true } },
     },
-  });  if (!trade) throw new Error("Trade not found");
+  });
+  if (!trade) throw new Error("Trade not found");
 
+  const resolvedBuyerToken = buyerToken ?? (trade as any)?.buyerToken ?? null;
+  const fallbackUrl = appUrl(
+    `/sign/${tradeId}?role=buyer${resolvedBuyerToken ? `&token=${resolvedBuyerToken}` : ""}`
+  );
+
+  const apiKey = process.env.DROPBOX_SIGN_API_KEY;
+  const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
+
+  // Fallback: not configured → use internal page
+  if (!apiKey || !clientId) {
+    await persistBuyerSignUrl(trade.transactionId, fallbackUrl);
+    return fallbackUrl;
+  }
+     
   const { name, email } = await getBuyerNameEmail(trade);
 
-     let sellerSignedPdf: string | null = null;
+  let sellerSignedPdf: string | null = null;
   const envelopeId = trade.transaction?.docusignEnvelopeId;
   if (envelopeId) {
     try {
@@ -599,7 +619,7 @@ export async function createBuyerSignatureLink(
   const redirectTarget = opts?.redirectTo
     ? opts.redirectTo
     : `/api/trades/${tradeId}/buyer/signing-complete${
-        buyerToken ? `?token=${encodeURIComponent(buyerToken)}` : ""
+        resolvedBuyerToken ? `?token=${encodeURIComponent(resolvedBuyerToken)}` : ""
       }`;
   form.set("signing_redirect_url", appUrl(redirectTarget));
 
@@ -614,8 +634,10 @@ export async function createBuyerSignatureLink(
 
   const createText = await createResp.text();
   let createBody: any = null;
-  try { createBody = createText ? JSON.parse(createText) : null; } catch {}
-
+  try {
+    createBody = createText ? JSON.parse(createText) : null;
+  } catch {}
+   
   if (!createResp.ok) {
     const msg =
       createBody?.error?.error_name ||
@@ -644,8 +666,10 @@ export async function createBuyerSignatureLink(
 
   const signText = await signResp.text();
   let signBody: any = null;
-  try { signBody = signText ? JSON.parse(signText) : null; } catch {}
-
+  try {
+    signBody = signText ? JSON.parse(signText) : null;
+  } catch {}
+   
   if (!signResp.ok) {
     const msg =
       signBody?.error?.error_name ||
@@ -663,6 +687,8 @@ export async function createBuyerSignatureLink(
   const urlWithClient = cid
     ? `${signUrl}${signUrl.includes("?") ? "&" : "?"}client_id=${encodeURIComponent(cid)}`
     : signUrl;
+
+  await persistBuyerSignUrl(trade.transactionId, urlWithClient);
 
   return urlWithClient;
 }
