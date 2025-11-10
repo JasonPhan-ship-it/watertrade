@@ -259,6 +259,21 @@ export async function createSellerSigningUrl(opts: {
   });
 }
 
+export async function fetchEnvelopeCombinedPdfBase64(envelopeId: string): Promise<string | null> {
+  if (!envelopeId) return null;
+
+  const { accountId, apiClient } = await getDsClient();
+  const envelopesApi = new (docusign as any).EnvelopesApi(apiClient);
+
+  try {
+    const file: any = await envelopesApi.getDocument(accountId, envelopeId, "combined", null);
+    const buffer: Buffer = Buffer.isBuffer(file) ? file : Buffer.from(file, "binary");
+    return buffer.toString("base64");
+  } catch (err: any) {
+    decorateAndThrow(err, "document.combined");
+  }
+}
+
 /**
  * Force refresh JWT (e.g., after a 401).
  */
