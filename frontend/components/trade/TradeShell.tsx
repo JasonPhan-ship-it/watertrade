@@ -106,99 +106,6 @@ function buildUrl(base: string, opts: { token?: string; role?: "buyer" | "seller
   return url.pathname + (url.search ? url.search : "");
 }
 
-type ProgressInput = {
-  tradeStatus?: string | null;
-  sellerSignStatus?: string | null;
-  buyerSignStatus?: string | null;
-  txStatus?: string | null;
-};
-
-function buildProgressSteps(input: ProgressInput): TradeProgressStep[] {
-  const tradeStatus = (input.tradeStatus ?? "").toUpperCase();
-  const sellerSignStatus = (input.sellerSignStatus ?? "NONE").toUpperCase();
-  const buyerSignStatus = (input.buyerSignStatus ?? "NONE").toUpperCase();
-  const txStatus = (input.txStatus ?? "").toUpperCase();
-
-  const acceptedComplete = tradeStatus.startsWith("ACCEPTED") || tradeStatus === "FULLY_EXECUTED";
-  const sellerSigned = sellerSignStatus === "SIGNED";
-  const sellerRequested = sellerSignStatus === "REQUESTED";
-  const buyerSigned = buyerSignStatus === "SIGNED";
-  const buyerRequested = buyerSignStatus === "REQUESTED";
-  const adminComplete = txStatus === "APPROVED" || txStatus === "FUNDS_RELEASED";
-  const adminActive = txStatus === "COMPLIANCE_REVIEW";
-  const districtComplete = txStatus === "FUNDS_RELEASED";
-  const districtActive = txStatus === "APPROVED";
-
-  const sellerDescription = sellerSigned
-    ? "Seller signature received."
-    : sellerRequested
-    ? "Waiting for the seller to complete DocuSign."
-    : acceptedComplete
-    ? "Seller can sign the agreement now."
-    : "Seller signature begins once the offer is accepted.";
-
-  const buyerDescription = buyerSigned
-    ? "Buyer signature received."
-    : buyerRequested
-    ? "Waiting for the buyer to complete DocuSign."
-    : sellerSigned
-    ? "Buyer will be invited to sign next."
-    : "Buyer signature begins after the seller signs.";
-
-  let adminDescription = "Water Traders reviews the agreement after both signatures.";
-  if (adminActive) adminDescription = "Water Traders compliance team is reviewing the agreement.";
-  else if (adminComplete) adminDescription = "Admin review complete.";
-
-  let districtDescription = "The water district confirms once admin approval is complete.";
-  if (districtActive) districtDescription = "Awaiting water district confirmation.";
-  if (districtComplete) districtDescription = "Water district confirmed and funds are being released.";
-
-  const raw = [
-    {
-      id: "accepted",
-      title: "Offer accepted",
-      description: "Seller accepted the buyer’s offer.",
-      complete: acceptedComplete,
-    },
-    {
-      id: "seller-signature",
-      title: "Seller signature",
-      description: sellerDescription,
-      complete: sellerSigned,
-    },
-    {
-      id: "buyer-signature",
-      title: "Buyer signature",
-      description: buyerDescription,
-      complete: buyerSigned,
-    },
-    {
-      id: "admin-review",
-      title: "Admin approval",
-      description: adminDescription,
-      complete: adminComplete || districtComplete,
-    },
-    {
-      id: "district",
-      title: "Water district confirmation",
-      description: districtDescription,
-      complete: districtComplete,
-    },
-  ];
-
-  let foundCurrent = false;
-  return raw.map((step) => {
-    if (step.complete) {
-      return { id: step.id, title: step.title, description: step.description, status: "complete" as const };
-    }
-    if (!foundCurrent) {
-      foundCurrent = true;
-      return { id: step.id, title: step.title, description: step.description, status: "current" as const };
-    }
-    return { id: step.id, title: step.title, description: step.description, status: "upcoming" as const };
-  });
-}
-
 export default async function TradeShell(props: Props) {
   try {
     const {
@@ -244,7 +151,7 @@ export default async function TradeShell(props: Props) {
     });
     const tradeIdLinked = linkedTrade?.id ?? null;
 
-    const progressSteps = buildProgressSteps({
+    const progressSteps = buildTradeProgressSteps({
       tradeStatus: linkedTrade?.status ?? tx.status,
       sellerSignStatus: linkedTrade?.sellerSignStatus,
       buyerSignStatus: linkedTrade?.buyerSignStatus,
