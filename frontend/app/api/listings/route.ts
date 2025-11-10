@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
+import { TradeStatus } from "@prisma/client";
 
 // UI sort keys (keep legacy "availabilityEnd" for old clients)
 type SortKey = "createdAt" | "pricePerAf" | "acreFeet" | "availabilityEnd" | "district";
@@ -110,28 +111,63 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const listings = rows.map((r) => ({
-      id: r.id,
-      district: r.district,
-      acreFeet: r.acreFeet,
-      pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars
-      // Field kept for backward compat even though DB has only "availability" (string)
-      availabilityEnd: null as string | null,
-      waterType: r.waterType,
-      createdAt: r.createdAt.toISOString(),
-      ownerUserId: r.sellerId,
-      status: r.status,
-      kind: r.kind,
-      isAuction: r.isAuction,
-      auctionEndsAt: r.auctionEndsAt ? r.auctionEndsAt.toISOString() : null,
-      reservePrice: r.reservePrice != null ? r.reservePrice / 100 : null,
-      availability: r.availability,
-      waterCode: r.waterCodeValue,
-      waterYear: r.waterCodeYear,
-      waterDescription: r.waterCodeDescription,
-      buyerWaterAccount: r.buyerWaterAccount,
-      sellerFarmId: r.sellerFarmId,
-    }));
+    let escrowByListing: Record<string, number> = {};
+    if (rows.length) {
+      const listingIds = rows.map((r) => r.id);
+      const acceptedStatuses = [
+        TradeStatus.ACCEPTED_PENDING_BUYER_SIGNATURE,
+        TradeStatus.ACCEPTED_PENDING_SELLER_SIGNATURE,
+      ].filter(Boolean) as string[];
+
+      if (acceptedStatuses.length) {
+        try {
+          const aggregates = await prisma.trade.groupBy({
+            by: ["listingId"],
+            where: {
+              listingId: { in: listingIds },
+              status: { in: acceptedStatuses },
+            },
+            _sum: { volumeAf: true },
+          });
+          escrowByListing = Object.fromEntries(
+            aggregates.map((row) => [row.listingId, row._sum.volumeAf ?? 0])
+          );
+        } catch (err) {
+          console.warn("[api/listings] escrow aggregation failed", err);
+        }
+      }
+    }
+
+    const listings = rows.map((r) => {
+      const escrowVolume = Math.max(0, escrowByListing[r.id] ?? 0);
+      const inEscrow = Math.min(r.acreFeet, escrowVolume);
+      const availableAf = Math.max(r.acreFeet - inEscrow, 0);
+
+      return {
+        id: r.id,
+        district: r.district,
+        acreFeet: r.acreFeet,
+        availableAf,
+        inEscrowAf: inEscrow,
+        pricePerAf: (r.pricePerAF ?? 0) / 100, // dollars
+        // Field kept for backward compat even though DB has only "availability" (string)
+        availabilityEnd: null as string | null,
+        waterType: r.waterType,
+        createdAt: r.createdAt.toISOString(),
+        ownerUserId: r.sellerId,
+        status: r.status,
+        kind: r.kind,
+        isAuction: r.isAuction,
+        auctionEndsAt: r.auctionEndsAt ? r.auctionEndsAt.toISOString() : null,
+        reservePrice: r.reservePrice != null ? r.reservePrice / 100 : null,
+        availability: r.availability,
+        waterCode: r.waterCodeValue,
+        waterYear: r.waterCodeYear,
+        waterDescription: r.waterCodeDescription,
+        buyerWaterAccount: r.buyerWaterAccount,
+        sellerFarmId: r.sellerFarmId,
+      };
+    });
 
     return noCache(
       NextResponse.json({ listings, total, limited: !q.premium, viewerRole }, { status: 200 })
