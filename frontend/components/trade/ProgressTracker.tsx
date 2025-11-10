@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import type { TradeProgressStep } from "@/lib/trade-progress";
+export type { TradeProgressStep } from "@/lib/trade-progress";
 
 function Indicator({ status }: { status: TradeProgressStep["status"] }) {
   if (status === "complete") {
