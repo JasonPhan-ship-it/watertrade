@@ -114,10 +114,10 @@ export async function GET(req: NextRequest) {
     let escrowByListing: Record<string, number> = {};
     if (rows.length) {
       const listingIds = rows.map((r) => r.id);
-      const acceptedStatuses = [
+      const acceptedStatuses: TradeStatus[] = [
         TradeStatus.ACCEPTED_PENDING_BUYER_SIGNATURE,
         TradeStatus.ACCEPTED_PENDING_SELLER_SIGNATURE,
-      ].filter(Boolean) as string[];
+      ];
 
       if (acceptedStatuses.length) {
         try {
