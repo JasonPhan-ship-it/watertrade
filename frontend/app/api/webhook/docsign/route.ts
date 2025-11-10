@@ -396,12 +396,17 @@ export async function POST(req: NextRequest) {
         if (updated.transactionId) {
           try {
             const nextTxnStatus = pickTxnPendingBuyerSig();
+            const updateData: any = {
+              buyerSignUrl: buyerSignLink,
+              sellerSignUrl: null,
+            };
             if (nextTxnStatus) {
-              await prisma.transaction.update({
-                where: { id: updated.transactionId },
-                data: { status: nextTxnStatus },
-              });
+              updateData.status = nextTxnStatus;
             }
+            await prisma.transaction.update({
+              where: { id: updated.transactionId },
+              data: updateData,
+            });
           } catch (err) {
             console.warn("[docsign webhook] transaction update failed", (err as any)?.message);
           }
