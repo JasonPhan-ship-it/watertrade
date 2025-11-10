@@ -82,6 +82,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       data: {
         status: pickFullyExecutedStatus(),
         buyerSignStatus: SignatureProgress.SIGNED,
+        buyerSignUrl: null,
         events: {
           create: {
             id: randomUUID(),
@@ -112,9 +113,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (updated.transactionId) {
       try {
         const nextStatus = pickTxnAfterBuyerSig();
+        const updateData: any = { buyerSignUrl: null };
         if (nextStatus) {
-          await prisma.transaction.update({ where: { id: updated.transactionId }, data: { status: nextStatus } });
+          updateData.status = nextStatus;
         }
+        await prisma.transaction.update({ where: { id: updated.transactionId }, data: updateData });
       } catch (err) {
         console.warn("[buyer/signing-complete] transaction update failed", (err as any)?.message);
       }
