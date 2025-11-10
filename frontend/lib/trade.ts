@@ -551,13 +551,28 @@ export async function createBuyerSignatureLink(
     return appUrl(`/sign/${tradeId}?role=buyer${buyerToken ? `&token=${buyerToken}` : ""}`);
   }
 
-  const trade = await prisma.trade.findUnique({ where: { id: tradeId }, include: { listing: true } });
-  if (!trade) throw new Error("Trade not found");
+  const trade = await prisma.trade.findUnique({
+    where: { id: tradeId },
+    include: {
+      listing: true,
+      transaction: { select: { docusignEnvelopeId: true } },
+    },
+  });  if (!trade) throw new Error("Trade not found");
 
   const { name, email } = await getBuyerNameEmail(trade);
 
+     let sellerSignedPdf: string | null = null;
+  const envelopeId = trade.transaction?.docusignEnvelopeId;
+  if (envelopeId) {
+    try {
+      sellerSignedPdf = await fetchEnvelopeCombinedPdfBase64(envelopeId);
+    } catch (err) {
+      console.warn("[trade] Failed to fetch DocuSign PDF for buyer signature", err);
+    }
+  }
+
   // 1) Create embedded signature request
-  const form = new URLSearchParams();
+  const form = new FormData();
   const testMode = (process.env.DROPBOX_SIGN_TEST_MODE ?? "1") === "1";
   form.set("client_id", clientId);
   form.set("test_mode", testMode ? "1" : "0");
@@ -567,11 +582,18 @@ export async function createBuyerSignatureLink(
   form.set("signers[0][email_address]", email);
   form.set("signers[0][name]", name);
   form.set("signers[0][order]", "0");
-  form.append(
-    "file_url[]",
-    process.env.NEXT_PUBLIC_SAMPLE_PDF_URL ||
-      "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
-  );
+  if (sellerSignedPdf) {
+    const pdfBuffer = Buffer.from(sellerSignedPdf, "base64");
+    const filename = `WaterTraders_Agreement_${tradeId}.pdf`;
+    const blob = new Blob([pdfBuffer], { type: "application/pdf" });
+    form.append("file[0]", blob, filename);
+  } else {
+    form.append(
+      "file_url[]",
+      process.env.NEXT_PUBLIC_SAMPLE_PDF_URL ||
+        "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+    );
+  }
   // Optional metadata
   form.set("metadata[tradeId]", tradeId);
   const redirectTarget = opts?.redirectTo
@@ -585,10 +607,9 @@ export async function createBuyerSignatureLink(
     method: "POST",
     headers: {
       Authorization: dbxAuthHeader(apiKey),
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
       Accept: "application/json",
     },
-    body: form.toString(),
+    body: form,
   });
 
   const createText = await createResp.text();
