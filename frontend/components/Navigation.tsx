@@ -202,8 +202,7 @@ export default function Navigation() {
   );
 
   const westlandsSection = (
-    <div className="w-full min-w-[220px] max-w-[280px] rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-right shadow-sm">
-      {westlandsLoading ? (
+    <div className="w-full min-w-[180px] max-w-[220px] rounded-xl border border-emerald-100 bg-emerald-50/60 px-2.5 py-1.5 text-right shadow-sm">      {westlandsLoading ? (
         <div className="flex items-center justify-end gap-2 text-xs font-medium text-emerald-700">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Syncing Westlands…
@@ -213,7 +212,7 @@ export default function Navigation() {
           <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
             Westlands balance
           </div>
-          <div className="text-lg font-semibold">{westlandsDisplay.amount} AF</div>
+          <div className="text-base font-semibold">{westlandsDisplay.amount} AF</div>
           {westlandsDisplay.updated && (
             <div className="text-[11px] text-emerald-700">Updated {westlandsDisplay.updated}</div>
           )}
