@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
@@ -9,6 +10,30 @@ import {
   WaterIntegrationStatus,
   WaterProvider,
 } from "@prisma/client";
+
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL?.trim());
+
+type SerializedIntegration = {
+  id: string;
+  status: WaterIntegrationStatus;
+  provider: WaterProvider;
+  consentedAt: string | null;
+  lastSyncedAt: string | null;
+  balanceAf: number | null;
+  balanceUpdatedAt: string | null;
+  errorMessage: string | null;
+};
+
+const globalForWestlands = globalThis as unknown as {
+  __westlandsIntegrationStore?: Map<string, SerializedIntegration>;
+};
+
+function getWestlandsStore() {
+  if (!globalForWestlands.__westlandsIntegrationStore) {
+    globalForWestlands.__westlandsIntegrationStore = new Map();
+  }
+  return globalForWestlands.__westlandsIntegrationStore;
+}
 
 async function getOrCreateLocalUser(clerkUserId: string) {
   let user = await prisma.user.findUnique({ where: { clerkId: clerkUserId } });
@@ -30,20 +55,46 @@ async function getOrCreateLocalUser(clerkUserId: string) {
   return user;
 }
 
-function serializeIntegration(integration: any) {
+function serializeIntegration(integration: any): SerializedIntegration | null {
   if (!integration) return null;
-  const balanceAf = integration.balanceAf
-    ? Number((integration.balanceAf as Prisma.Decimal).toFixed(2))
-    : null;
+
+  const balanceAfRaw = integration.balanceAf;
+  let balanceAf: number | null = null;
+  if (typeof balanceAfRaw === "number") {
+    balanceAf = Math.round(balanceAfRaw * 100) / 100;
+  } else if (balanceAfRaw instanceof Prisma.Decimal) {
+    balanceAf = Number(balanceAfRaw.toFixed(2));
+  } else if (typeof balanceAfRaw === "string") {
+    const parsed = Number(balanceAfRaw);
+    balanceAf = Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
+  } else if (balanceAfRaw && typeof balanceAfRaw === "object" && "toFixed" in balanceAfRaw) {
+    // Handles edge cases where Decimal comes from proxied objects
+    try {
+      balanceAf = Number((balanceAfRaw as Prisma.Decimal).toFixed(2));
+    } catch {
+      balanceAf = null;
+    }
+  }
+
+  const toIso = (value: unknown) => {
+    if (!value) return null;
+    if (typeof value === "string") return value;
+    if (value instanceof Date) return value.toISOString();
+    try {
+      return new Date(value as string).toISOString();
+    } catch {
+      return null;
+    }
+  };
 
   return {
     id: integration.id,
     status: integration.status as WaterIntegrationStatus,
     provider: integration.provider as WaterProvider,
-    consentedAt: integration.consentedAt?.toISOString() ?? null,
-    lastSyncedAt: integration.lastSyncedAt?.toISOString() ?? null,
+    consentedAt: toIso(integration.consentedAt),
+    lastSyncedAt: toIso(integration.lastSyncedAt),
     balanceAf,
-    balanceUpdatedAt: integration.balanceUpdatedAt?.toISOString() ?? null,
+    balanceUpdatedAt: toIso(integration.balanceUpdatedAt),
     errorMessage: integration.errorMessage ?? null,
   };
 }
@@ -69,6 +120,11 @@ export async function GET() {
     const { userId } = auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    if (!hasDatabaseUrl) {
+      const integration = getWestlandsStore().get(userId) ?? null;
+      return NextResponse.json({ integration });
+    }
+
     const localUser = await getOrCreateLocalUser(userId);
 
     const integration = await prisma.waterIntegration.findUnique({
@@ -92,11 +148,46 @@ export async function POST(req: Request) {
     const { userId } = auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const localUser = await getOrCreateLocalUser(userId);
     const body = await req.json().catch(() => ({}));
 
     const consent = Boolean(body?.consent);
     const accountNumber = typeof body?.accountNumber === "string" ? body.accountNumber : null;
+
+    if (!hasDatabaseUrl) {
+      const store = getWestlandsStore();
+      const nowIso = new Date().toISOString();
+
+      if (!consent) {
+        const integration: SerializedIntegration = {
+          id: store.get(userId)?.id ?? randomUUID(),
+          status: WaterIntegrationStatus.DECLINED,
+          provider: WaterProvider.WESTLANDS,
+          consentedAt: null,
+          balanceAf: null,
+          balanceUpdatedAt: null,
+          lastSyncedAt: nowIso,
+          errorMessage: null,
+        };
+        store.set(userId, integration);
+        return NextResponse.json({ integration });
+      }
+
+      const scrapeResult = await simulateWestlandsScrape(accountNumber);
+      const integration: SerializedIntegration = {
+        id: store.get(userId)?.id ?? randomUUID(),
+        status: WaterIntegrationStatus.CONNECTED,
+        provider: WaterProvider.WESTLANDS,
+        consentedAt: nowIso,
+        lastSyncedAt: nowIso,
+        balanceAf: scrapeResult.balanceAf,
+        balanceUpdatedAt: scrapeResult.fetchedAt.toISOString(),
+        errorMessage: null,
+      };
+      store.set(userId, integration);
+      return NextResponse.json({ integration });
+    }
+
+    const localUser = await getOrCreateLocalUser(userId);
 
     if (!consent) {
       const integration = await prisma.waterIntegration.upsert({
