@@ -1,7 +1,7 @@
 // app/analytics/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 /** ---------- Types ---------- */
 type AListing = {
@@ -48,74 +48,90 @@ export default function AnalyticsPage() {
   }, []);
 
   const rows = data?.listings ?? [];
-  const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
+  const safeRows = Array.isArray(rows) ? rows : [];
 
   /** ---------- Aggregations ---------- */
-  const { totalAF, avgPrice, medianPrice } = useMemo(() => {
-    if (!safeRows.length) return { totalAF: 0, avgPrice: 0, medianPrice: 0 };
-    const totalAF = safeRows.reduce((s, r) => s + r.acreFeet, 0);
-    const avgPrice = safeRows.reduce((s, r) => s + r.pricePerAf, 0) / safeRows.length;
-    const prices = safeRows.map((r) => r.pricePerAf).sort((a, b) => a - b);
+  const totalAF = safeRows.reduce((sum, row) => sum + row.acreFeet, 0);
+  const avgPrice = safeRows.length
+    ? safeRows.reduce((sum, row) => sum + row.pricePerAf, 0) / safeRows.length
+    : 0;
+  const medianPrice = (() => {
+    if (!safeRows.length) return 0;
+    const prices = safeRows.map((row) => row.pricePerAf).sort((a, b) => a - b);
     const mid = Math.floor(prices.length / 2);
-    const medianPrice =
-      prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
-    return { totalAF, avgPrice, medianPrice };
-  }, [safeRows]);
+    return prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
+  })();
 
-  const byDistrict = useMemo(() => {
+  const byDistrict = (() => {
     const map = new Map<string, { af: number; count: number; prices: number[] }>();
-    for (const r of safeRows) {
-      const v = map.get(r.district) || { af: 0, count: 0, prices: [] };
-      v.af += r.acreFeet;
-      v.count += 1;
-      v.prices.push(r.pricePerAf);
-      map.set(r.district, v);
+    for (const row of safeRows) {
+      const current = map.get(row.district) || { af: 0, count: 0, prices: [] };
+      current.af += row.acreFeet;
+      current.count += 1;
+      current.prices.push(row.pricePerAf);
+      map.set(row.district, current);
     }
-    return Array.from(map, ([district, v]) => ({
+    return Array.from(map, ([district, value]) => ({
       district,
-      af: v.af,
-      count: v.count,
-      avg: v.prices.reduce((s, p) => s + p, 0) / v.prices.length,
+      af: value.af,
+      count: value.count,
+      avg: value.prices.reduce((sum, price) => sum + price, 0) / value.prices.length,
     })).sort((a, b) => b.af - a.af);
-  }, [safeRows]);
+  })();
 
-  const byWaterType = useMemo(() => {
+  const byWaterType = (() => {
     const map = new Map<string, { af: number; count: number; prices: number[] }>();
-    for (const r of safeRows) {
-      const v = map.get(r.waterType) || { af: 0, count: 0, prices: [] };
-      v.af += r.acreFeet;
-      v.count += 1;
-      v.prices.push(r.pricePerAf);
-      map.set(r.waterType, v);
+    for (const row of safeRows) {
+      const current = map.get(row.waterType) || { af: 0, count: 0, prices: [] };
+      current.af += row.acreFeet;
+      current.count += 1;
+      current.prices.push(row.pricePerAf);
+      map.set(row.waterType, current);
     }
-    return Array.from(map, ([waterType, v]) => ({
-      waterType,
-      af: v.af,
-      count: v.count,
-      avg: v.prices.reduce((s, p) => s + p, 0) / v.prices.length,
+    return Array.from(map, ([waterType, value]) => ({
+      af: value.af,
+      count: value.count,
+      avg: value.prices.reduce((sum, price) => sum + price, 0) / value.prices.length,
     })).sort((a, b) => b.af - a.af);
-  }, [safeRows]);
+  })();
 
   // Monthly availability counts (based on availabilityStart month)
-  const monthly = useMemo(() => {
+  const monthly = (() => {
+    if (!safeRows.length) return [] as { label: string; key: string; count: number }[];
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const years = Array.from(
+      new Set(safeRows.map((row) => new Date(row.availabilityStart).getFullYear())),
+    ).sort();
     const months: { label: string; key: string; count: number }[] = [];
-    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const years = Array.from(new Set(safeRows.map((r) => new Date(r.availabilityStart).getFullYear())));
-    for (const y of years.sort()) {
-      for (let m = 0; m < 12; m++) {
-        months.push({ label: `${monthNames[m]} ${y}`, key: `${y}-${m}`, count: 0 });
+    for (const year of years) {
+      for (let month = 0; month < 12; month++) {
+        months.push({ label: `${monthNames[month]} ${year}`, key: `${year}-${month}`, count: 0 });
       }
     }
-    for (const r of safeRows) {
-      const d = new Date(r.availabilityStart);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      const bucket = months.find((b) => b.key === key);
+    for (const row of safeRows) {
+      const date = new Date(row.availabilityStart);
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      const bucket = months.find((entry) => entry.key === key);
       if (bucket) bucket.count += 1;
     }
-    const first = months.findIndex((b) => b.count > 0);
-    const last = months.length - 1 - [...months].reverse().findIndex((b) => b.count > 0);
-    return first === -1 ? [] : months.slice(first, last + 1);
-  }, [safeRows]);
+    const first = months.findIndex((entry) => entry.count > 0);
+    if (first === -1) return [];
+    const last = months.length - 1 - [...months].reverse().findIndex((entry) => entry.count > 0);
+    return months.slice(first, last + 1);
+  })();
 
   // For inline bar widths
   const maxAF = Math.max(1, ...byDistrict.map((d) => d.af));
