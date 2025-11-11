@@ -89,6 +89,7 @@ export default function AnalyticsPage() {
       map.set(row.waterType, current);
     }
     return Array.from(map, ([waterType, value]) => ({
+      waterType,
       af: value.af,
       count: value.count,
       avg: value.prices.reduce((sum, price) => sum + price, 0) / value.prices.length,
