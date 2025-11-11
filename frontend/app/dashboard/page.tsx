@@ -1,10 +1,11 @@
 // app/dashboard/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 /* ---------------- Onboarding Gate (client-only, stable hooks) ---------------- */
 function useOnboardedGate() {
@@ -121,6 +122,18 @@ type TradesApiResponse = {
   viewerRole?: "ADMIN" | "USER" | null;
 };
 
+type WestlandsBalance = {
+  amount: number;
+  updatedAt: string | null;
+};
+
+type WestlandsIntegrationResponse = {
+  status?: string | null;
+  balanceAf?: number | null;
+  balanceUpdatedAt?: string | null;
+  lastSyncedAt?: string | null;
+} | null;
+
 /* ---------------- Constants ---------------- */
 const DISTRICTS = [
   "All Districts",
@@ -143,6 +156,7 @@ const PAGE_SIZES = [5, 10, 20] as const;
 export default function DashboardPage() {
   const checking = useOnboardedGate();
   const { user } = useUser();
+  const { isSignedIn } = useAuth();
   const router = useRouter();
 
   // URL-controlled UI state
@@ -161,6 +175,62 @@ export default function DashboardPage() {
   const [data, setData] = useState<ApiResponse | TradesApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [westlandsBalance, setWestlandsBalance] = useState<WestlandsBalance | null>(null);
+  const [westlandsLoading, setWestlandsLoading] = useState<boolean>(false);
+
+  const refreshWestlandsBalance = useCallback(async () => {
+    if (!isSignedIn) {
+      setWestlandsBalance(null);
+      setWestlandsLoading(false);
+      return;
+    }
+
+    setWestlandsLoading(true);
+    try {
+      const res = await fetch("/api/integrations/westlands", {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to load Westlands balance");
+      }
+
+      const data = await res.json();
+      const integration = (data?.integration ?? null) as WestlandsIntegrationResponse;
+
+      if (integration?.status === "CONNECTED" && typeof integration?.balanceAf === "number") {
+        setWestlandsBalance({
+          amount: integration.balanceAf,
+          updatedAt: integration.balanceUpdatedAt ?? integration.lastSyncedAt ?? null,
+        });
+      } else {
+        setWestlandsBalance(null);
+      }
+    } catch (error) {
+      console.warn("Failed to load Westlands balance", error);
+      setWestlandsBalance(null);
+    } finally {
+      setWestlandsLoading(false);
+    }
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    refreshWestlandsBalance();
+  }, [refreshWestlandsBalance]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handler = () => {
+      refreshWestlandsBalance();
+    };
+
+    window.addEventListener("westlands-integration-updated", handler);
+    return () => {
+      window.removeEventListener("westlands-integration-updated", handler);
+    };
+  }, [refreshWestlandsBalance]);
 
   // Initialize from current URL on mount
   useEffect(() => {
@@ -303,6 +373,34 @@ export default function DashboardPage() {
     scope === "trades" ? tradeRows.filter((t) => tradeNeedsAction(t)).length : 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
+  const westlandsDisplay = useMemo(() => {
+    if (!westlandsBalance) {
+      return null;
+    }
+
+    const amount = westlandsBalance.amount.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    let updated: string | null = null;
+    if (westlandsBalance.updatedAt) {
+      try {
+        updated = new Date(westlandsBalance.updatedAt).toLocaleString(undefined, {
+          month: "2-digit",
+          day: "2-digit",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      } catch {
+        updated = westlandsBalance.updatedAt;
+      }
+    }
+
+    return { amount, updated };
+  }, [westlandsBalance]);
+  
   function onSort(col: SortBy) {
     if (col === sortBy) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
@@ -351,7 +449,7 @@ export default function DashboardPage() {
   
   return (
     <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+      <main className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
         {/* Tabs */}
         <div className="mb-4 flex items-center gap-2">
           <TabButton
@@ -394,7 +492,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Filters (header) */}
-        <section className="rounded-3xl bg-[#004434] p-4 text-white shadow-md">
+        <section className="rounded-3xl bg-[#004434] px-4 py-3 text-white shadow-md">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-2xl font-semibold tracking-tight">{pageTitle}</div>
@@ -442,10 +540,11 @@ export default function DashboardPage() {
         </section>
 
         {/* KPIs */}
-        <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {stats.map((stat) => (
             <Stat key={stat.label} label={stat.label} value={stat.value} />
           ))}
+          <WestlandsCard loading={westlandsLoading} display={westlandsDisplay} />
         </section>
 
         {/* Listings */}
@@ -797,9 +896,40 @@ function TabButton({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="text-slate-500 text-sm">{label}</div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+    <div className="flex h-full flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-sm text-slate-500">{label}</div>
+      <div className="mt-1.5 text-xl font-semibold tracking-tight text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function WestlandsCard({
+  loading,
+  display,
+}: {
+  loading: boolean;
+  display: { amount: string; updated: string | null } | null;
+}) {
+  return (
+    <div className="flex h-full flex-col justify-between rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-right shadow-sm">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Westlands balance</div>
+      {loading ? (
+        <div className="mt-2 flex items-center justify-end gap-2 text-xs font-medium text-emerald-700">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Syncing Westlands…
+        </div>
+      ) : display ? (
+        <div className="mt-1 space-y-1 text-emerald-900">
+          <div className="text-2xl font-semibold">{display.amount} AF</div>
+          {display.updated ? (
+            <div className="text-[11px] text-emerald-700">Updated {display.updated}</div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="mt-2 text-xs font-medium text-emerald-700">
+          Connect your Westlands account to see live balances.
+        </div>
+      )}
     </div>
   );
 }
