@@ -670,7 +670,9 @@ const stepSequence = React.useMemo(
               ← Back
             </button>
           </div>
-  {loadingWestlands ? (
+          
+
+          {loadingWestlands ? (
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" aria-hidden />
               Loading Westlands status…
@@ -694,6 +696,9 @@ const stepSequence = React.useMemo(
                   )}
                   {westlandsLastSyncedDisplay && (
                     <p className="text-xs text-emerald-800">Last synced {westlandsLastSyncedDisplay}</p>
+                  )}
+                  {westlandsIntegration?.errorMessage && (
+                    <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
                       {westlandsIntegration.errorMessage}
                     </div>
                   )}
@@ -715,7 +720,6 @@ const stepSequence = React.useMemo(
                     </button>
                   </div>
                 </div>
-
               ) : (
                 <div className="space-y-4">
                   <div>
@@ -756,7 +760,8 @@ const stepSequence = React.useMemo(
                           westlandsConsentChoice === "NO"
                             ? "border-slate-500 bg-slate-100 text-slate-700"
                             : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"
-                        }`}                      >
+                        }`}
+                      >                     >
                         No thanks
                       </button>
                     </div>
@@ -822,6 +827,7 @@ const stepSequence = React.useMemo(
             >
               Continue to profile
             </button>
+          </div>
         </section>
       )}
 
