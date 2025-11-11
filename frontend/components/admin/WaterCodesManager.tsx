@@ -51,18 +51,49 @@ export default function WaterCodesManager() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/water-codes?includeInactive=true", { cache: "no-store" });
+      const params = new URLSearchParams({ includeInactive: "true" });
+      if (selectedDistrict !== "ALL") {
+        params.set("district", selectedDistrict);
+      }
+
+      const res = await fetch(`/api/water-codes?${params.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       const flattened: WaterCodeRow[] = [];
-      const districtList: any[] = Array.isArray(data?.districts) ? data.districts : [];
-      for (const dist of districtList) {
-        const codes: any[] = Array.isArray(dist?.codes) ? dist.codes : [];
+      const discoveredDistricts = new Set<string>();
+
+      if (selectedDistrict === "ALL") {
+        const districtList: any[] = Array.isArray(data?.districts) ? data.districts : [];
+        for (const dist of districtList) {
+          const districtName = typeof dist?.name === "string" ? dist.name : "";
+          if (districtName) {
+            discoveredDistricts.add(districtName);
+          }
+          const codes: any[] = Array.isArray(dist?.codes) ? dist.codes : [];
+          for (const code of codes) {
+            flattened.push({
+              id: String(code.id ?? ""),
+              districtId: String(code.districtId ?? dist?.id ?? ""),
+              districtName: districtName || code.districtName || null,
+              code: String(code.code ?? ""),
+              year: String(code.year ?? ""),
+              description: code.description ?? null,
+              category: code.category ?? null,
+              isActive: Boolean(code.isActive ?? true),
+            });
+          }
+        }
+      } else {
+        const codes: any[] = Array.isArray(data?.codes) ? data.codes : [];
+        const districtName = typeof data?.district?.name === "string" ? data.district.name : selectedDistrict;
+        if (districtName) {
+          discoveredDistricts.add(districtName);
+        }
         for (const code of codes) {
           flattened.push({
             id: String(code.id ?? ""),
-            districtId: String(code.districtId ?? dist.id ?? ""),
-            districtName: typeof dist.name === "string" ? dist.name : code.districtName ?? null,
+            districtId: String(code.districtId ?? data?.district?.id ?? ""),
+            districtName,
             code: String(code.code ?? ""),
             year: String(code.year ?? ""),
             description: code.description ?? null,
@@ -80,12 +111,17 @@ export default function WaterCodesManager() {
         return a.code.localeCompare(b.code);
       });
       setRows(flattened);
+      setDistrictOptions((prev) => {
+        const merged = new Set(prev);
+        discoveredDistricts.forEach((name) => merged.add(name));
+        return Array.from(merged).sort((a, b) => a.localeCompare(b));
+      });
     } catch (err: any) {
       setError(err?.message || "Failed to load water codes");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterDistrict]);
 
   useEffect(() => {
     load();
@@ -286,12 +322,13 @@ export default function WaterCodesManager() {
             <p className="text-sm text-slate-500">{rows.length} codes configured</p>
           </div>
           <select
+            aria-label="Filter water codes by district"
             className="h-9 w-full rounded-lg border border-slate-200 px-3 text-sm sm:w-56"
             value={filterDistrict}
             onChange={(e) => setFilterDistrict(e.target.value)}
           >
             <option value="ALL">All districts</option>
-            {districts.map((district) => (
+            {districtOptions.map((district) => (
               <option key={district} value={district}>
                 {district}
               </option>
@@ -300,7 +337,7 @@ export default function WaterCodesManager() {
         </div>
         {loading ? (
           <div className="px-4 py-6 text-sm text-slate-500">Loading…</div>
-        ) : filteredRows.length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className="px-4 py-6 text-sm text-slate-500">No water codes found.</div>
         ) : (
           <div className="overflow-x-auto">
@@ -309,7 +346,7 @@ export default function WaterCodesManager() {
                 <tr>
                   <th className="px-4 py-2">District</th>
                   <th className="px-4 py-2">Code</th>
-                  <th className="px-4 py-2">Year</th>
+                  <th className="px-4 py-2 w-32">Year</th>
                   <th className="px-4 py-2">Category</th>
                   <th className="px-4 py-2">Description</th>
                   <th className="px-4 py-2">Status</th>
@@ -317,11 +354,11 @@ export default function WaterCodesManager() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => (
+                {rows.map((row) => (
                   <tr key={row.id} className="border-t border-slate-100">
                     <td className="px-4 py-2">{row.districtName || "—"}</td>
                     <td className="px-4 py-2 font-mono text-xs">{row.code}</td>
-                    <td className="px-4 py-2">{row.year}</td>
+                    <td className="px-4 py-2 w-32 whitespace-nowrap">{row.year}</td>
                     <td className="px-4 py-2">{row.category || "—"}</td>
                     <td className="px-4 py-2">{row.description || "—"}</td>
                     <td className="px-4 py-2">
