@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const EMPTY_FORM: FormState = {
   districtName: "",
@@ -36,29 +36,18 @@ export default function WaterCodesManager() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterDistrict, setFilterDistrict] = useState<string>("ALL");
+  const [districtOptions, setDistrictOptions] = useState<string[]>([]);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  const districts = useMemo(() => {
-    const set = new Set<string>();
-    rows.forEach((row) => {
-      if (row.districtName) set.add(row.districtName);
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [rows]);
-
-  const filteredRows = useMemo(() => {
-    if (filterDistrict === "ALL") return rows;
-    return rows.filter((row) => row.districtName === filterDistrict);
-  }, [rows, filterDistrict]);
 
   const resetForm = useCallback(() => {
     setForm(EMPTY_FORM);
     setEditingId(null);
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (overrideDistrict?: string) => {
+    const selectedDistrict = overrideDistrict ?? filterDistrict;
     setLoading(true);
     setError(null);
     try {
