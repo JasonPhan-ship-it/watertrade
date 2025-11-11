@@ -761,7 +761,7 @@ const stepSequence = React.useMemo(
                             ? "border-slate-500 bg-slate-100 text-slate-700"
                             : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"
                         }`}
-                      >                     >
+                      >
                         No thanks
                       </button>
                     </div>
