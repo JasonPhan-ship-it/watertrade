@@ -2,11 +2,23 @@
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { User, LogOut, Loader2 } from "lucide-react"; // ⬅️ removed Crown
+import { User, LogOut, Loader2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+
+type WestlandsBalance = {
+  amount: number;
+  updatedAt: string | null;
+};
+
+type WestlandsIntegrationResponse = {
+  status?: string | null;
+  balanceAf?: number | null;
+  balanceUpdatedAt?: string | null;
+  lastSyncedAt?: string | null;
+} | null;
 
 export default function Navigation() {
   const router = useRouter();
@@ -14,11 +26,13 @@ export default function Navigation() {
   const [isPremium, setIsPremium] = useState(false);
   const [premiumLoading, setPremiumLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
-  const [westlandsBalance, setWestlandsBalance] = useState<{ amount: number; updatedAt: string | null } | null>(null);
+  const [westlandsBalance, setWestlandsBalance] = useState<WestlandsBalance | null>(null);
   const [westlandsLoading, setWestlandsLoading] = useState(false);
 
   useEffect(() => {
-    if (!isSignedIn || !user) return;
+    if (!isSignedIn || !user) {
+      return;
+    }
 
     const checkPremiumStatus = async () => {
       setPremiumLoading(true);
@@ -26,11 +40,13 @@ export default function Navigation() {
         const clerkPremium = Boolean(user?.publicMetadata?.premium);
 
         let dbPremium = false;
+        
         try {
           const response = await fetch("/api/subscription/status", {
             credentials: "include",
             cache: "no-store",
           });
+          
           if (response.ok) {
             const data = await response.json();
             dbPremium = data.isPremium || false;
@@ -65,22 +81,15 @@ export default function Navigation() {
         cache: "no-store",
       });
 
-      if (!res.ok) throw new Error("Failed to load Westlands balance");
-
+      if (!res.ok) {
+        throw new Error("Failed to load Westlands balance");
+      }
+      
       const data = await res.json();
-      const integration = (data?.integration ?? null) as
-        | {
-            status?: string | null;
-            balanceAf?: number | null;
-            balanceUpdatedAt?: string | null;
-            lastSyncedAt?: string | null;
-          }
-        | null;
+      const integration = (data?.integration ?? null) as WestlandsIntegrationResponse;
 
-      if (
-        integration?.status === "CONNECTED" &&
-        typeof integration?.balanceAf === "number"
-      ) {
+      if (integration?.status === "CONNECTED" && typeof integration?.balanceAf === "number") {
+
         setWestlandsBalance({
           amount: integration.balanceAf,
           updatedAt: integration.balanceUpdatedAt ?? integration.lastSyncedAt ?? null,
@@ -99,8 +108,10 @@ export default function Navigation() {
   useEffect(() => {
     refreshWestlandsBalance();
 
-    if (typeof window === "undefined") return;
-
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    
     const handler = () => {
       refreshWestlandsBalance();
     };
@@ -112,7 +123,10 @@ export default function Navigation() {
   }, [refreshWestlandsBalance]);
 
   const westlandsDisplay = useMemo(() => {
-    if (!westlandsBalance) return null;
+    if (!westlandsBalance) {
+      return null;
+    }
+    
     const amount = westlandsBalance.amount.toLocaleString(undefined, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -144,16 +158,20 @@ export default function Navigation() {
         method: "POST",
         credentials: "include",
       });
-      if (!resp.ok) throw new Error("Failed to create portal session");
+      if (!resp.ok) {
+        throw new Error("Failed to create portal session");
+      }
+      
       const data = await resp.json();
       if (data?.url) {
         window.location.href = data.url;
-      } else {
-        throw new Error("No portal URL returned");
+        return;
+
       }
-    } catch (err) {
-      console.error(err);
-      // Fallback: send to a generic billing page if you have one
+      throw new Error("No portal URL returned");
+    } catch (error) {
+      console.error(error);
+      
       window.location.href = "/billing";
     } finally {
       setPortalLoading(false);
@@ -212,7 +230,6 @@ export default function Navigation() {
     <nav className="border-b bg-white shadow-sm">
       <div className="container mx-auto px-4">
         <div className="flex flex-wrap items-center justify-between gap-4 py-5 md:py-6">
-          {/* Logo */}
           <div className="flex min-w-0 items-center gap-3">
             <Link href="/" className="flex items-center gap-3" aria-label="Water Traders home">
               <Image
@@ -233,7 +250,6 @@ export default function Navigation() {
             </Link>
           </div>
 
-          {/* Authenticated actions */}
           <div className="flex flex-1 items-center justify-end gap-4 md:flex-none">
             {isSignedIn ? (
               <div className="flex w-full flex-col items-end gap-3 text-right sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-6">
@@ -243,19 +259,14 @@ export default function Navigation() {
                     href="/profile"
                     className="flex items-center text-sm font-medium text-gray-700 transition hover:text-gray-900"
                     >
-                      <User className="mr-1 h-4 w-4" />
-                      {user?.firstName || user?.username || "Profile"}
-                    </Link>
-                    {premiumBadge}
-                  </div>
-                  {westlandsSection}
+                  >
+                    <User className="mr-1 h-4 w-4" />
+                    {user?.firstName || user?.username || "Profile"}
+                  </Link>
+                  {premiumBadge}
                 </div>
-
                 <SignOutButton signOutCallback={() => router.push("/?logout=success")}>
-                  <Button variant="outline" className="px-3 py-2 text-sm">
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Sign Out
-                  </Button>
+                  <Button className="bg-[#004434] text-white hover:bg-[#00392f]">Login</Button>
                 </SignOutButton>
               </div>
             ) : (
