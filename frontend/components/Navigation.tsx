@@ -2,23 +2,11 @@
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { User, LogOut, Loader2 } from "lucide-react";
+import { User } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-
-type WestlandsBalance = {
-  amount: number;
-  updatedAt: string | null;
-};
-
-type WestlandsIntegrationResponse = {
-  status?: string | null;
-  balanceAf?: number | null;
-  balanceUpdatedAt?: string | null;
-  lastSyncedAt?: string | null;
-} | null;
 
 export default function Navigation() {
   const router = useRouter();
@@ -26,8 +14,6 @@ export default function Navigation() {
   const [isPremium, setIsPremium] = useState(false);
   const [premiumLoading, setPremiumLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
-  const [westlandsBalance, setWestlandsBalance] = useState<WestlandsBalance | null>(null);
-  const [westlandsLoading, setWestlandsLoading] = useState(false);
 
   useEffect(() => {
     if (!isSignedIn || !user) {
@@ -66,89 +52,6 @@ export default function Navigation() {
 
     checkPremiumStatus();
   }, [isSignedIn, user]);
-
-  const refreshWestlandsBalance = useCallback(async () => {
-    if (!isSignedIn) {
-      setWestlandsBalance(null);
-      setWestlandsLoading(false);
-      return;
-    }
-
-    setWestlandsLoading(true);
-    try {
-      const res = await fetch("/api/integrations/westlands", {
-        credentials: "include",
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to load Westlands balance");
-      }
-      
-      const data = await res.json();
-      const integration = (data?.integration ?? null) as WestlandsIntegrationResponse;
-
-      if (integration?.status === "CONNECTED" && typeof integration?.balanceAf === "number") {
-
-        setWestlandsBalance({
-          amount: integration.balanceAf,
-          updatedAt: integration.balanceUpdatedAt ?? integration.lastSyncedAt ?? null,
-        });
-      } else {
-        setWestlandsBalance(null);
-      }
-    } catch (error) {
-      console.warn("Failed to load Westlands balance", error);
-      setWestlandsBalance(null);
-    } finally {
-      setWestlandsLoading(false);
-    }
-  }, [isSignedIn]);
-
-  useEffect(() => {
-    refreshWestlandsBalance();
-
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-    
-    const handler = () => {
-      refreshWestlandsBalance();
-    };
-
-    window.addEventListener("westlands-integration-updated", handler);
-    return () => {
-      window.removeEventListener("westlands-integration-updated", handler);
-    };
-  }, [refreshWestlandsBalance]);
-
-  const westlandsDisplay = useMemo(() => {
-    if (!westlandsBalance) {
-      return null;
-    }
-    
-    const amount = westlandsBalance.amount.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-
-    let updated: string | null = null;
-    if (westlandsBalance.updatedAt) {
-      try {
-        updated = new Date(westlandsBalance.updatedAt).toLocaleString(undefined, {
-          month: "2-digit",
-          day: "2-digit",
-          year: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        });
-      } catch {
-        updated = westlandsBalance.updatedAt;
-      }
-    }
-
-    return { amount, updated };
-  }, [westlandsBalance]);
 
   const openBillingPortal = useCallback(async () => {
     try {
@@ -201,34 +104,10 @@ export default function Navigation() {
     </Link>
   );
 
-  const westlandsSection = (
-    <div className="w-full min-w-[180px] max-w-[220px] rounded-xl border border-emerald-100 bg-emerald-50/60 px-2.5 py-1.5 text-right shadow-sm">      {westlandsLoading ? (
-        <div className="flex items-center justify-end gap-2 text-xs font-medium text-emerald-700">
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          Syncing Westlands…
-        </div>
-      ) : westlandsDisplay ? (
-        <div className="space-y-1 text-emerald-900">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-            Westlands balance
-          </div>
-          <div className="text-base font-semibold">{westlandsDisplay.amount} AF</div>
-          {westlandsDisplay.updated && (
-            <div className="text-[11px] text-emerald-700">Updated {westlandsDisplay.updated}</div>
-          )}
-        </div>
-      ) : (
-        <div className="text-[11px] font-medium text-emerald-700">
-          Connect your Westlands account to see live balances.
-        </div>
-      )}
-    </div>
-  );
-
   return (
     <nav className="border-b bg-white shadow-sm">
       <div className="container mx-auto px-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 py-5 md:py-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 py-4 md:py-5">
           <div className="flex min-w-0 items-center gap-3">
             <Link href="/" className="flex items-center gap-3" aria-label="Water Traders home">
               <Image
@@ -252,7 +131,6 @@ export default function Navigation() {
           <div className="flex flex-1 items-center justify-end gap-4 md:flex-none">
             {isSignedIn ? (
               <div className="flex w-full flex-col items-end gap-3 text-right sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-6">
-                {westlandsSection}
                 <div className="flex flex-wrap items-center justify-end gap-2 sm:justify-start">
                   <Link
                     href="/profile"
