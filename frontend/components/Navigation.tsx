@@ -2,7 +2,7 @@
 
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { User, LogOut } from "lucide-react"; // ⬅️ removed Crown
+import { User, LogOut, Loader2 } from "lucide-react"; // ⬅️ removed Crown
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, useCallback, useMemo } from "react";
@@ -121,7 +121,13 @@ export default function Navigation() {
     let updated: string | null = null;
     if (westlandsBalance.updatedAt) {
       try {
-        updated = new Date(westlandsBalance.updatedAt).toLocaleString();
+        updated = new Date(westlandsBalance.updatedAt).toLocaleString(undefined, {
+          month: "2-digit",
+          day: "2-digit",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
       } catch {
         updated = westlandsBalance.updatedAt;
       }
@@ -154,12 +160,60 @@ export default function Navigation() {
     }
   }, []);
 
+  const premiumBadge = premiumLoading ? (
+    <div className="h-7 w-20 rounded-full bg-slate-200/80 animate-pulse" />
+  ) : isPremium ? (
+    <button
+      onClick={openBillingPortal}
+      disabled={portalLoading}
+      title="Manage billing"
+      aria-label="Manage billing"
+      className="inline-flex items-center rounded-full bg-gradient-to-r from-[#0E6A59] to-[#004434] px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:brightness-110 active:brightness-95 disabled:opacity-70"
+    >
+      Premium
+      {portalLoading && <span className="ml-2 animate-pulse">…</span>}
+    </button>
+  ) : (
+    <Link
+      href="/pricing"
+      className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-200"
+      title="Upgrade to Premium"
+    >
+      Upgrade
+    </Link>
+  );
+
+  const westlandsSection = (
+    <div className="w-full min-w-[220px] max-w-[280px] rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-right shadow-sm">
+      {westlandsLoading ? (
+        <div className="flex items-center justify-end gap-2 text-xs font-medium text-emerald-700">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Syncing Westlands…
+        </div>
+      ) : westlandsDisplay ? (
+        <div className="space-y-1 text-emerald-900">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+            Westlands balance
+          </div>
+          <div className="text-lg font-semibold">{westlandsDisplay.amount} AF</div>
+          {westlandsDisplay.updated && (
+            <div className="text-[11px] text-emerald-700">Updated {westlandsDisplay.updated}</div>
+          )}
+        </div>
+      ) : (
+        <div className="text-[11px] font-medium text-emerald-700">
+          Connect your Westlands account to see live balances.
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <nav className="bg-white shadow-sm border-b pb-4 md:pb-6">
+    <nav className="border-b bg-white shadow-sm">
       <div className="container mx-auto px-4">
-        <div className="flex items-center h-20 md:h-24">
-          {/* Left: Logo */}
-          <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-4 py-5 md:py-6">
+          {/* Logo */}
+          <div className="flex min-w-0 items-center gap-3">
             <Link href="/" className="flex items-center gap-3" aria-label="Water Traders home">
               <Image
                 src="/brand.svg"
@@ -167,96 +221,39 @@ export default function Navigation() {
                 width={120}
                 height={120}
                 priority
-                className="h-10 w-auto md:h-12 shrink-0"
+                className="h-10 w-auto shrink-0 md:h-12"
               />
               <Image
                 src="/wordmark.png"
                 alt="Water Traders"
                 width={1080}
                 height={480}
-                className="w-64 sm:w-72 md:w-96 h-auto -ml-20"
+                className="-ml-20 h-auto w-64 sm:w-72 md:w-96"
               />
             </Link>
           </div>
 
-          {/* Center: Westlands balance */}
-          <div className="hidden flex-1 justify-center md:flex">
-            {westlandsLoading ? (
-              <div className="rounded-full bg-slate-100 px-4 py-1 text-xs text-slate-500">
-                Syncing Westlands…
-              </div>
-            ) : westlandsDisplay ? (
-              <div className="text-center text-xs text-slate-600">
-                <div className="font-semibold text-slate-900">
-                  Westlands balance: {westlandsDisplay.amount}
-                </div>
-                {westlandsDisplay.updated && (
-                  <div className="mt-0.5 text-[11px] text-slate-500">
-                    Updated {westlandsDisplay.updated}
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </div>
-
-          {/* Right side: Auth */}
-          <div className="flex items-center gap-3 flex-1 justify-end">
+          {/* Authenticated actions */}
+          <div className="flex flex-1 items-center justify-end gap-4 md:flex-none">
             {isSignedIn ? (
-              <div className="flex items-center gap-3">
-                {/* Mobile Westlands indicator */}
-                {westlandsLoading ? (
-                  <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-500 md:hidden">
-                    Syncing Westlands…
+              <div className="flex w-full flex-col items-end gap-3 text-right sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+                <div className="flex flex-col items-end gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Link
+                      href="/profile"
+                      className="flex items-center text-sm font-medium text-gray-700 transition hover:text-gray-900"
+                    >
+                      <User className="mr-1 h-4 w-4" />
+                      {user?.firstName || user?.username || "Profile"}
+                    </Link>
+                    {premiumBadge}
                   </div>
-                ) : westlandsDisplay ? (
-                  <div className="text-right text-[11px] text-slate-600 md:hidden">
-                    <div className="font-semibold text-slate-900">Balance: {westlandsDisplay.amount}</div>
-                    {westlandsDisplay.updated && (
-                      <div className="text-[10px] text-slate-500">Updated {westlandsDisplay.updated}</div>
-                    )}
-                  </div>
-                ) : null}
-                
-                {/* Profile link */}
-                <Link
-                  href="/profile"
-                  className="flex items-center text-sm text-gray-700 hover:text-gray-900"
-                >
-                  <User className="w-4 h-4 mr-1" />
-                  {user?.firstName || user?.username || "Profile"}
-                </Link>
+                  {westlandsSection}
+                </div>
 
-                {/* Premium badge / upgrade */}
-                {premiumLoading ? (
-                  <div className="animate-pulse bg-gray-200 rounded-full px-2.5 py-1 w-16 h-6" />
-                ) : isPremium ? (
-                  <button
-                    onClick={openBillingPortal}
-                    disabled={portalLoading}
-                    title="Manage billing"
-                    aria-label="Manage billing"
-                    className="inline-flex items-center rounded-full bg-gradient-to-r from-[#0E6A59] to-[#004434] px-3 py-1 text-[11px] font-semibold text-white shadow-sm hover:brightness-110 active:brightness-95 transition disabled:opacity-70"
-                  >
-                    {/* icon removed per request */}
-                    Premium
-                    {portalLoading && (
-                      <span className="ml-2 animate-pulse">…</span>
-                    )}
-                  </button>
-                ) : (
-                  <Link
-                    href="/pricing"
-                    className="inline-flex items-center rounded-full bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 transition-colors"
-                    title="Upgrade to Premium"
-                  >
-                    Upgrade
-                  </Link>
-                )}
-
-                {/* Sign out */}
                 <SignOutButton signOutCallback={() => router.push("/?logout=success")}>
                   <Button variant="outline" className="px-3 py-2 text-sm">
-                    <LogOut className="w-4 h-4 mr-2" />
+                    <LogOut className="mr-2 h-4 w-4" />
                     Sign Out
                   </Button>
                 </SignOutButton>
@@ -264,7 +261,7 @@ export default function Navigation() {
             ) : (
               <div className="flex items-center gap-3">
                 <SignInButton mode="modal" afterSignInUrl="/api/auth/after-sign-in?next=/dashboard">
-                  <Button className="bg-[#004434] hover:bg-[#00392f] text-white">
+                  <Button className="bg-[#004434] text-white hover:bg-[#00392f]">
                     Login
                   </Button>
                 </SignInButton>
