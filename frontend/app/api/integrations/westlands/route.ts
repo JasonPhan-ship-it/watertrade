@@ -28,6 +28,24 @@ const globalForWestlands = globalThis as unknown as {
   __westlandsIntegrationStore?: Map<string, SerializedIntegration>;
 };
 
+let loggedAuthWarning = false;
+
+function getAuthUserId(): string | null {
+  try {
+    const { userId } = auth();
+    return userId ?? null;
+  } catch (error) {
+    if (!loggedAuthWarning) {
+      loggedAuthWarning = true;
+      console.warn(
+        "[westlands] Clerk auth unavailable – treating request as unauthenticated",
+        error
+      );
+    }
+    return null;
+  }
+}
+
 function getWestlandsStore() {
   if (!globalForWestlands.__westlandsIntegrationStore) {
     globalForWestlands.__westlandsIntegrationStore = new Map();
@@ -117,7 +135,7 @@ async function simulateWestlandsScrape(accountNumber?: string | null): Promise<S
 
 export async function GET() {
   try {
-    const { userId } = auth();
+    const userId = getAuthUserId();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     if (!hasDatabaseUrl) {
@@ -145,7 +163,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const { userId } = auth();
+    const userId = getAuthUserId();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
