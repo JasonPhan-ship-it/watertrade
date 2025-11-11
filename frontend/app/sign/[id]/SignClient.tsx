@@ -116,6 +116,18 @@ export default function SignClient({ signUrl, isTestMode }: Props) {
   // - DocuSign: render a tiny message while the browser navigates
   // - HelloSign: render the script loader (embed opens in-place)
   // - Unknown: just attempt a top-level navigation as a fallback
+  // Fallback: unknown provider → try direct nav (acts like DocuSign branch)
+  useEffect(() => {
+    if (provider === "docusign" || provider === "hellosign") return;
+    if (!signUrl || openedRef.current) return;
+    openedRef.current = true;
+    try {
+      window.location.assign(signUrl);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[SignClient] Fallback navigation failed", e);
+    }
+  }, [provider, signUrl]);
   if (provider === "docusign") {
     return (
       <div className="text-sm text-slate-600">
@@ -134,18 +146,6 @@ export default function SignClient({ signUrl, isTestMode }: Props) {
       />
     );
   }
-
-  // Fallback: unknown provider → try direct nav (acts like DocuSign branch)
-  useEffect(() => {
-    if (!signUrl || openedRef.current) return;
-    openedRef.current = true;
-    try {
-      window.location.assign(signUrl);
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error("[SignClient] Fallback navigation failed", e);
-    }
-  }, [signUrl]);
 
   return <div className="text-sm text-slate-600">Opening signer…</div>;
 }
