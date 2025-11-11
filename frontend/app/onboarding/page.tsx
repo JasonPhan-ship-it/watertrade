@@ -436,6 +436,23 @@ export default function OnboardingPage() {
     }
   }
 
+    const stepSequence = React.useMemo(
+    () => {
+      const steps: { key: StepKey; label: string }[] = [
+        { key: "district", label: "Water district" },
+      ];
+
+      if (isInWestlands !== false) {
+        steps.push({ key: "westlands", label: "Connect Westlands" });
+      }
+
+      steps.push({ key: "profile", label: "Profile" });
+
+      return steps;
+    },
+    [isInWestlands],
+  );
+
   // Loading screen with debug info and escape hatches
   if (loadingProfile) {
     return (
@@ -493,23 +510,6 @@ export default function OnboardingPage() {
       </div>
     );
   }
-
-const stepSequence = React.useMemo(
-    () => {
-      const steps: { key: StepKey; label: string }[] = [
-        { key: "district", label: "Water district" },
-      ];
-
-      if (isInWestlands !== false) {
-        steps.push({ key: "westlands", label: "Connect Westlands" });
-      }
-
-      steps.push({ key: "profile", label: "Profile" });
-
-      return steps;
-    },
-    [isInWestlands],
-  );
 
   const activeStepIndex = stepSequence.findIndex((s) => s.key === step);
 
