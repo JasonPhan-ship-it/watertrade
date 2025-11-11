@@ -199,8 +199,9 @@ async function simulateWestlandsScrape(accountNumber?: string | null): Promise<S
 }
 
 export async function GET() {
+  let userId: string | null = null;
   try {
-    const userId = getAuthUserId();
+    userId = getAuthUserId();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     if (!hasDatabaseUrl) {
@@ -232,6 +233,16 @@ export async function GET() {
     }
   } catch (error: any) {
     console.error("[GET /api/integrations/westlands]", error);
+
+
+    if (userId) {
+      console.warn(
+        "[GET /api/integrations/westlands] Unexpected error, falling back to in-memory store",
+        error
+      );
+      return respondWithMemoryIntegration(userId);
+    }
+    
     return NextResponse.json({ error: "Failed to load integration status" }, { status: 500 });
   }
 }
