@@ -255,10 +255,9 @@ export default function Navigation() {
               <div className="flex w-full flex-col items-end gap-3 text-right sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-6">
                 {westlandsSection}
                 <div className="flex flex-wrap items-center justify-end gap-2 sm:justify-start">
-                    <Link
+                  <Link
                     href="/profile"
                     className="flex items-center text-sm font-medium text-gray-700 transition hover:text-gray-900"
-                    >
                   >
                     <User className="mr-1 h-4 w-4" />
                     {user?.firstName || user?.username || "Profile"}
@@ -266,7 +265,7 @@ export default function Navigation() {
                   {premiumBadge}
                 </div>
                 <SignOutButton signOutCallback={() => router.push("/?logout=success")}>
-                  <Button className="bg-[#004434] text-white hover:bg-[#00392f]">Login</Button>
+                  <Button className="bg-[#004434] text-white hover:bg-[#00392f]">Logout</Button>
                 </SignOutButton>
               </div>
             ) : (
