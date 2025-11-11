@@ -82,6 +82,7 @@ model WaterIntegration {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, provider])
+}
 
 /* ========================= Listings & Bids ========================= */
 
