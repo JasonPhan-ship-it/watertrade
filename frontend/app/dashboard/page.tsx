@@ -324,7 +324,7 @@ export default function DashboardPage() {
         : "Your Trades";
   const subtitle =
     scope === "market"
-      ? "Westlands · San Luis · Panoche · Arvin Edison"
+      ? ""
       : scope === "mine"
         ? `Signed in as ${user?.primaryEmailAddress?.emailAddress ?? user?.username ?? "you"}`
         : "Track offers and purchases you’re part of.";
@@ -351,7 +351,7 @@ export default function DashboardPage() {
   
   return (
     <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
         {/* Tabs */}
         <div className="mb-4 flex items-center gap-2">
           <TabButton
@@ -394,16 +394,16 @@ export default function DashboardPage() {
         </div>
 
         {/* Filters (header) */}
-        <section className="rounded-3xl bg-[#004434] p-6 text-white shadow-md">
+        <section className="rounded-3xl bg-[#004434] p-4 text-white shadow-md">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-2xl font-semibold tracking-tight">{pageTitle}</div>
-              <div className="mt-1 text-sm text-white/80">{subtitle}</div>
+              {subtitle ? <div className="mt-1 text-sm text-white/80">{subtitle}</div> : null}
             </div>
           </div>
 
           {scope === "trades" ? (
-            <div className="mt-5 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm text-white/80 sm:px-6">
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               Your offers, counters, and purchases show here. Select a trade below to open the full transaction workspace.
             </div>
           ) : (
