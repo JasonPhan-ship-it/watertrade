@@ -164,6 +164,18 @@ STRIPE_SECRET_KEY="sk_..."        # Premium subscriptions
 STRIPE_WEBHOOK_SECRET="whsec_..."
 ```
 
+## 🧰 Troubleshooting
+
+### Clerk sign up returns HTTP 422
+
+The sign-up screen is implemented with Clerk’s hosted `<SignUp />` widget in `app/sign-up/[[...sign-up]]/page.tsx`, wrapped by the global `<ClerkProvider>` in `app/layout.tsx`. If you see `deep-chimp-76.clerk.accounts.dev/v1/client/sign_ups ... 422`, Clerk is rejecting the sign-up before the form renders. This usually happens when the publishable key does not match the application or the current origin is not listed in your Clerk dashboard. Double-check that:
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` matches the application you are testing against.
+- The application’s Allowed Origins include the domain you are running locally (e.g. `http://localhost:3000`).
+- Development Sessions are valid; revoke expired dev sessions from the Clerk dashboard if the `_clerk_session` or `__dev_session` cookies are stale.
+
+Without a valid publishable key/origin pairing, Clerk cannot create the anonymous client needed for sign-up, so the widget throws `Minified React error #310` from inside the provider context. Once the keys and origins line up, the 422 disappears and the Clerk widget handles validation inside the page.
+
 ### Production Deployment
 
 1. **Frontend (Vercel)**
