@@ -53,6 +53,71 @@ function getWestlandsStore() {
   return globalForWestlands.__westlandsIntegrationStore;
 }
 
+function shouldFallbackToMemory(error: unknown): boolean {
+  if (!error) return false;
+
+  if (
+    error instanceof Prisma.PrismaClientInitializationError ||
+    error instanceof Prisma.PrismaClientRustPanicError ||
+    error instanceof Prisma.PrismaClientUnknownRequestError
+  ) {
+    return true;
+  }
+
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return ["P1001", "P1003", "P1010", "P1011", "P1017", "P2021", "P2022"].includes(error.code);
+  }
+
+  const code = typeof (error as any)?.code === "string" ? (error as any).code : null;
+  if (code && ["ECONNREFUSED", "ENOTFOUND", "ETIMEOUT"].includes(code)) {
+    return true;
+  }
+
+  return false;
+}
+
+function respondWithMemoryIntegration(userId: string) {
+  const integration = getWestlandsStore().get(userId) ?? null;
+  return NextResponse.json({ integration });
+}
+
+async function upsertMemoryIntegration(
+  userId: string,
+  options: { consent: boolean; accountNumber: string | null }
+) {
+  const store = getWestlandsStore();
+  const nowIso = new Date().toISOString();
+
+  if (!options.consent) {
+    const integration: SerializedIntegration = {
+      id: store.get(userId)?.id ?? randomUUID(),
+      status: WaterIntegrationStatus.DECLINED,
+      provider: WaterProvider.WESTLANDS,
+      consentedAt: null,
+      balanceAf: null,
+      balanceUpdatedAt: null,
+      lastSyncedAt: nowIso,
+      errorMessage: null,
+    };
+    store.set(userId, integration);
+    return NextResponse.json({ integration });
+  }
+
+  const scrapeResult = await simulateWestlandsScrape(options.accountNumber);
+  const integration: SerializedIntegration = {
+    id: store.get(userId)?.id ?? randomUUID(),
+    status: WaterIntegrationStatus.CONNECTED,
+    provider: WaterProvider.WESTLANDS,
+    consentedAt: nowIso,
+    lastSyncedAt: nowIso,
+    balanceAf: scrapeResult.balanceAf,
+    balanceUpdatedAt: scrapeResult.fetchedAt.toISOString(),
+    errorMessage: null,
+  };
+  store.set(userId, integration);
+  return NextResponse.json({ integration });
+}
+
 async function getOrCreateLocalUser(clerkUserId: string) {
   let user = await prisma.user.findUnique({ where: { clerkId: clerkUserId } });
   if (user) return user;
@@ -139,22 +204,32 @@ export async function GET() {
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     if (!hasDatabaseUrl) {
-      const integration = getWestlandsStore().get(userId) ?? null;
-      return NextResponse.json({ integration });
+      return respondWithMemoryIntegration(userId);
     }
 
-    const localUser = await getOrCreateLocalUser(userId);
-
-    const integration = await prisma.waterIntegration.findUnique({
-      where: {
-        userId_provider: {
-          userId: localUser.id,
-          provider: WaterProvider.WESTLANDS,
+    try {
+      const localUser = await getOrCreateLocalUser(userId);
+      
+      const integration = await prisma.waterIntegration.findUnique({
+        where: {
+          userId_provider: {
+            userId: localUser.id,
+            provider: WaterProvider.WESTLANDS,
+          },
         },
-      },
-    });
+      });
 
-    return NextResponse.json({ integration: serializeIntegration(integration) });
+      return NextResponse.json({ integration: serializeIntegration(integration) });
+    } catch (error) {
+      if (shouldFallbackToMemory(error)) {
+        console.warn(
+          "[GET /api/integrations/westlands] Prisma unavailable, using in-memory store",
+          error
+        );
+        return respondWithMemoryIntegration(userId);
+      }
+      throw error;
+    }
   } catch (error: any) {
     console.error("[GET /api/integrations/westlands]", error);
     return NextResponse.json({ error: "Failed to load integration status" }, { status: 500 });
@@ -172,42 +247,45 @@ export async function POST(req: Request) {
     const accountNumber = typeof body?.accountNumber === "string" ? body.accountNumber : null;
 
     if (!hasDatabaseUrl) {
-      const store = getWestlandsStore();
-      const nowIso = new Date().toISOString();
+      return upsertMemoryIntegration(userId, { consent, accountNumber });
+    }
+
+    try {
+      const localUser = await getOrCreateLocalUser(userId);
 
       if (!consent) {
-        const integration: SerializedIntegration = {
-          id: store.get(userId)?.id ?? randomUUID(),
-          status: WaterIntegrationStatus.DECLINED,
-          provider: WaterProvider.WESTLANDS,
-          consentedAt: null,
-          balanceAf: null,
-          balanceUpdatedAt: null,
-          lastSyncedAt: nowIso,
-          errorMessage: null,
-        };
-        store.set(userId, integration);
-        return NextResponse.json({ integration });
+        const integration = await prisma.waterIntegration.upsert({
+          where: {
+            userId_provider: {
+              userId: localUser.id,
+              provider: WaterProvider.WESTLANDS,
+            },
+          },
+          create: {
+            userId: localUser.id,
+            provider: WaterProvider.WESTLANDS,
+            status: WaterIntegrationStatus.DECLINED,
+            consentedAt: null,
+            balanceAf: null,
+            balanceUpdatedAt: null,
+            lastSyncedAt: new Date(),
+            errorMessage: null,
+          },
+          update: {
+            status: WaterIntegrationStatus.DECLINED,
+            consentedAt: null,
+            balanceAf: null,
+            balanceUpdatedAt: null,
+            lastSyncedAt: new Date(),
+            errorMessage: null,
+          },
+        });
+
+        return NextResponse.json({ integration: serializeIntegration(integration) });
       }
 
       const scrapeResult = await simulateWestlandsScrape(accountNumber);
-      const integration: SerializedIntegration = {
-        id: store.get(userId)?.id ?? randomUUID(),
-        status: WaterIntegrationStatus.CONNECTED,
-        provider: WaterProvider.WESTLANDS,
-        consentedAt: nowIso,
-        lastSyncedAt: nowIso,
-        balanceAf: scrapeResult.balanceAf,
-        balanceUpdatedAt: scrapeResult.fetchedAt.toISOString(),
-        errorMessage: null,
-      };
-      store.set(userId, integration);
-      return NextResponse.json({ integration });
-    }
 
-    const localUser = await getOrCreateLocalUser(userId);
-
-    if (!consent) {
       const integration = await prisma.waterIntegration.upsert({
         where: {
           userId_provider: {
@@ -218,58 +296,37 @@ export async function POST(req: Request) {
         create: {
           userId: localUser.id,
           provider: WaterProvider.WESTLANDS,
-          status: WaterIntegrationStatus.DECLINED,
-          consentedAt: null,
-          balanceAf: null,
-          balanceUpdatedAt: null,
+          status: WaterIntegrationStatus.CONNECTED,
+          consentedAt: new Date(),
           lastSyncedAt: new Date(),
+          balanceAf: new Prisma.Decimal(scrapeResult.balanceAf),
+          balanceUpdatedAt: scrapeResult.fetchedAt,
           errorMessage: null,
         },
         update: {
-          status: WaterIntegrationStatus.DECLINED,
-          consentedAt: null,
-          balanceAf: null,
-          balanceUpdatedAt: null,
+          status: WaterIntegrationStatus.CONNECTED,
+          consentedAt: {
+            set: new Date(),
+          },
           lastSyncedAt: new Date(),
+          balanceAf: new Prisma.Decimal(scrapeResult.balanceAf),
+          balanceUpdatedAt: scrapeResult.fetchedAt,
           errorMessage: null,
         },
       });
 
       return NextResponse.json({ integration: serializeIntegration(integration) });
+    } catch (error) {
+      if (shouldFallbackToMemory(error)) {
+        console.warn(
+          "[POST /api/integrations/westlands] Prisma unavailable, using in-memory store",
+          error
+        );
+        return upsertMemoryIntegration(userId, { consent, accountNumber });
+      }
+      throw error;
     }
 
-    const scrapeResult = await simulateWestlandsScrape(accountNumber);
-
-    const integration = await prisma.waterIntegration.upsert({
-      where: {
-        userId_provider: {
-          userId: localUser.id,
-          provider: WaterProvider.WESTLANDS,
-        },
-      },
-      create: {
-        userId: localUser.id,
-        provider: WaterProvider.WESTLANDS,
-        status: WaterIntegrationStatus.CONNECTED,
-        consentedAt: new Date(),
-        lastSyncedAt: new Date(),
-        balanceAf: new Prisma.Decimal(scrapeResult.balanceAf),
-        balanceUpdatedAt: scrapeResult.fetchedAt,
-        errorMessage: null,
-      },
-      update: {
-        status: WaterIntegrationStatus.CONNECTED,
-        consentedAt: {
-          set: new Date(),
-        },
-        lastSyncedAt: new Date(),
-        balanceAf: new Prisma.Decimal(scrapeResult.balanceAf),
-        balanceUpdatedAt: scrapeResult.fetchedAt,
-        errorMessage: null,
-      },
-    });
-
-    return NextResponse.json({ integration: serializeIntegration(integration) });
   } catch (error: any) {
     console.error("[POST /api/integrations/westlands]", error);
 
