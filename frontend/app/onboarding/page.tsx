@@ -436,7 +436,7 @@ export default function OnboardingPage() {
     }
   }
 
-    const stepSequence = React.useMemo(
+  const stepSequence = React.useMemo(
     () => {
       const steps: { key: StepKey; label: string }[] = [
         { key: "district", label: "Water district" },
@@ -452,6 +452,32 @@ export default function OnboardingPage() {
     },
     [isInWestlands],
   );
+
+  const westlandsBalanceDisplay = React.useMemo(() => {
+    if (typeof westlandsIntegration?.balanceAf !== "number") return null;
+    return `${westlandsIntegration.balanceAf.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} AF`;
+  }, [westlandsIntegration?.balanceAf]);
+
+  const westlandsUpdatedDisplay = React.useMemo(() => {
+    if (!westlandsIntegration?.balanceUpdatedAt) return null;
+    try {
+      return new Date(westlandsIntegration.balanceUpdatedAt).toLocaleString();
+    } catch {
+      return westlandsIntegration.balanceUpdatedAt;
+    }
+  }, [westlandsIntegration?.balanceUpdatedAt]);
+
+  const westlandsLastSyncedDisplay = React.useMemo(() => {
+    if (!westlandsIntegration?.lastSyncedAt) return null;
+    try {
+      return new Date(westlandsIntegration.lastSyncedAt).toLocaleString();
+    } catch {
+      return westlandsIntegration.lastSyncedAt;
+    }
+  }, [westlandsIntegration?.lastSyncedAt]);
 
   // Loading screen with debug info and escape hatches
   if (loadingProfile) {
@@ -554,33 +580,7 @@ export default function OnboardingPage() {
 
   const suggestedFarmDistricts = Array.from(new Set(["", ...PRESET_DISTRICTS, ...customDistricts]));
 
-  const westlandsBalanceDisplay = React.useMemo(() => {
-    if (typeof westlandsIntegration?.balanceAf !== "number") return null;
-    return `${westlandsIntegration.balanceAf.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })} AF`;
-  }, [westlandsIntegration?.balanceAf]);
-
-  const westlandsUpdatedDisplay = React.useMemo(() => {
-    if (!westlandsIntegration?.balanceUpdatedAt) return null;
-    try {
-      return new Date(westlandsIntegration.balanceUpdatedAt).toLocaleString();
-    } catch {
-      return westlandsIntegration.balanceUpdatedAt;
-    }
-  }, [westlandsIntegration?.balanceUpdatedAt]);
-
   const westlandsStatus = westlandsIntegration?.status ?? "PENDING";
-
-  const westlandsLastSyncedDisplay = React.useMemo(() => {
-    if (!westlandsIntegration?.lastSyncedAt) return null;
-    try {
-      return new Date(westlandsIntegration.lastSyncedAt).toLocaleString();
-    } catch {
-      return westlandsIntegration.lastSyncedAt;
-    }
-  }, [westlandsIntegration?.lastSyncedAt]);
 
   const canContinueFromWestlands = westlandsStatus === "CONNECTED" || westlandsConsentChoice !== null;
   
