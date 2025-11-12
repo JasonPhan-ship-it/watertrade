@@ -346,12 +346,19 @@ function buildDocuSignSellerHtml(args: {
           ${detailTableRows}
         </tbody>
       </table>
-      <p style="margin-top:24px;font-size:13px;color:#1e293b;">Please sign here: /sn1/</p>
+      <div style="margin-top:24px;font-size:13px;color:#1e293b;">
+        <p style="margin:0 0 8px;">Seller signature: /sn_seller/</p>
+        <p style="margin:0;">Buyer signature: /sn_buyer/</p>
+      </div>
     </body>
   </html>`;
 }
 
-async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | null) {
+function defaultClientUserId(tradeId: string, role: "seller" | "buyer") {
+  return `${tradeId}:${role}`;
+}
+
+async function createDocuSignEnvelope(trade: any) {
   const { name, email } = await getSellerNameEmail(trade as Trade);
   const { apiClient, accountId } = await getDsClient();
   const envelopesApi = new docusign.EnvelopesApi(apiClient);
@@ -410,27 +417,50 @@ async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | n
   document.fileExtension = "html";
   document.documentId = "1";
 
-  const signHere = new docusign.SignHere();
-  signHere.documentId = "1";
-  signHere.recipientId = "1";
-  signHere.anchorString = "/sn1/";
-  signHere.anchorUnits = "pixels";
-  signHere.anchorXOffset = "0";
-  signHere.anchorYOffset = "0";
+  const sellerClientUserId = defaultClientUserId(trade.id, "seller");
+  const buyerClientUserId = defaultClientUserId(trade.id, "buyer");
 
-  const tabs = new docusign.Tabs();
-  tabs.signHereTabs = [signHere];
+  const sellerSignHere = new docusign.SignHere();
+  sellerSignHere.documentId = "1";
+  sellerSignHere.recipientId = "1";
+  sellerSignHere.anchorString = "/sn_seller/";
+  sellerSignHere.anchorUnits = "pixels";
+  sellerSignHere.anchorXOffset = "0";
+  sellerSignHere.anchorYOffset = "0";
 
-  const signer = new docusign.Signer();
-  signer.email = email;
-  signer.name = name;
-  signer.recipientId = "1";
-  signer.clientUserId = trade.id;
-  signer.routingOrder = "1";
-  signer.tabs = tabs;
+  const buyerSignHere = new docusign.SignHere();
+  buyerSignHere.documentId = "1";
+  buyerSignHere.recipientId = "2";
+  buyerSignHere.anchorString = "/sn_buyer/";
+  buyerSignHere.anchorUnits = "pixels";
+  buyerSignHere.anchorXOffset = "0";
+  buyerSignHere.anchorYOffset = "0";
+
+  const sellerTabs = new docusign.Tabs();
+  sellerTabs.signHereTabs = [sellerSignHere];
+
+  const buyerTabs = new docusign.Tabs();
+  buyerTabs.signHereTabs = [buyerSignHere];
+
+  const signerSeller = new docusign.Signer();
+  signerSeller.email = email;
+  signerSeller.name = name;
+  signerSeller.recipientId = "1";
+  signerSeller.clientUserId = sellerClientUserId;
+  signerSeller.routingOrder = "1";
+  signerSeller.tabs = sellerTabs;
+
+  const buyerContact = await getBuyerNameEmail(trade as Trade);
+  const signerBuyer = new docusign.Signer();
+  signerBuyer.email = buyerContact.email;
+  signerBuyer.name = buyerContact.name;
+  signerBuyer.recipientId = "2";
+  signerBuyer.clientUserId = buyerClientUserId;
+  signerBuyer.routingOrder = "1";
+  signerBuyer.tabs = buyerTabs;
 
   const recipients = new docusign.Recipients();
-  recipients.signers = [signer];
+  recipients.signers = [signerSeller, signerBuyer];
 
   const env = new docusign.EnvelopeDefinition();
   env.emailSubject = `Sign water transfer for ${listing?.title || trade?.district || "Water trade"}`;
@@ -448,23 +478,18 @@ async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | n
   const created = await envelopesApi.createEnvelope(accountId, { envelopeDefinition: env });
   const envelopeId = String((created as any)?.envelopeId || (created as any)?.envelopeID || "");
 
-  const returnPath = `/api/trades/${trade.id}/seller/signing-complete${
-    sellerToken ? `?token=${encodeURIComponent(sellerToken)}` : ""
-  }`;
-  const signUrl = await createRecipientViewUrl({
-    envelopeId,
-    recipient: { clientUserId: trade.id, email, name },
-    returnUrl: appUrl(returnPath),
-  });
+  const transactionId = trade.transactionId || trade.transaction?.id;
 
-  if (trade.transactionId) {
+  if (transactionId) {
     await prisma.transaction
       .update({
-        where: { id: trade.transactionId },
+        where: { id: transactionId },
         data: {
           docusignEnvelopeId: envelopeId,
-          sellerClientUserId: trade.id,
-          sellerSignUrl: signUrl,
+          sellerClientUserId,
+          buyerClientUserId,
+          sellerSignUrl: null,
+          buyerSignUrl: null,
           buyerWaterAccount: buyerAccount || transaction?.buyerWaterAccount || listing?.buyerWaterAccount || null,
           sellerFarmId: listing?.sellerFarmId ?? transaction?.sellerFarmId ?? null,
         },
@@ -472,8 +497,57 @@ async function createSellerDocuSignEnvelope(trade: any, sellerToken?: string | n
       .catch(() => null);
   }
 
-  return signUrl;
+  return { envelopeId, sellerClientUserId, buyerClientUserId };
 }
+
+async function ensureDocuSignEnvelope(trade: any) {
+  const tx: any = trade?.transaction || {};
+  const envelopeId =
+    tx.docusignEnvelopeId ||
+    tx.docusign_envelope_id ||
+    tx.envelopeId ||
+    (trade as any)?.docusignEnvelopeId ||
+    (trade as any)?.docusign_envelope_id ||
+    (trade as any)?.envelopeId ||
+    null;
+
+  let sellerClientUserId =
+    tx.sellerClientUserId ||
+    tx.seller_client_user_id ||
+    (trade as any)?.sellerClientUserId ||
+    (trade as any)?.seller_client_user_id ||
+    null;
+
+  let buyerClientUserId =
+    tx.buyerClientUserId ||
+    tx.buyer_client_user_id ||
+    (trade as any)?.buyerClientUserId ||
+    (trade as any)?.buyer_client_user_id ||
+    null;
+
+  const transactionId = trade?.transaction?.id || trade?.transactionId || null;
+
+  if (envelopeId && sellerClientUserId && buyerClientUserId) {
+    return { envelopeId, sellerClientUserId, buyerClientUserId };
+  }
+
+  if (envelopeId) {
+    sellerClientUserId = sellerClientUserId || defaultClientUserId(trade.id, "seller");
+    buyerClientUserId = buyerClientUserId || defaultClientUserId(trade.id, "buyer");
+
+    if (transactionId) {
+      await prisma.transaction
+        .update({
+          where: { id: transactionId },
+          data: { sellerClientUserId, buyerClientUserId },
+        })
+        .catch(() => null);
+    }
+
+    return { envelopeId, sellerClientUserId, buyerClientUserId };
+  }
+
+  return createDocuSignEnvelope(trade);}
 
 /* =========================================
    Dropbox Sign helpers (REST, no SDK)
@@ -560,7 +634,14 @@ export async function createBuyerSignatureLink(
     where: { id: tradeId },
     include: {
       listing: true,
-      transaction: { select: { docusignEnvelopeId: true } },
+      transaction: {
+        select: {
+          id: true,
+          docusignEnvelopeId: true,
+          sellerClientUserId: true,
+          buyerClientUserId: true,
+        },
+      },
     },
   });
   if (!trade) throw new Error("Trade not found");
@@ -569,6 +650,34 @@ export async function createBuyerSignatureLink(
   const fallbackUrl = appUrl(
     `/sign/${tradeId}?role=buyer${resolvedBuyerToken ? `&token=${resolvedBuyerToken}` : ""}`
   );
+
+  const redirectTarget = opts?.redirectTo
+    ? opts.redirectTo
+    : `/api/trades/${tradeId}/buyer/signing-complete${
+        resolvedBuyerToken ? `?token=${encodeURIComponent(resolvedBuyerToken)}` : ""
+      }`;
+
+  const docuSignConfigured = Boolean(
+    process.env.DOCUSIGN_INTEGRATION_KEY && process.env.DOCUSIGN_USER_ID && process.env.DOCUSIGN_PRIVATE_KEY
+  );
+
+  if (docuSignConfigured) {
+    try {
+      const { envelopeId, buyerClientUserId } = await ensureDocuSignEnvelope(trade);
+      const { name, email } = await getBuyerNameEmail(trade);
+      const signUrl = await createRecipientViewUrl({
+        envelopeId,
+        recipient: { clientUserId: buyerClientUserId, email, name },
+        returnUrl: appUrl(redirectTarget),
+      });
+
+      const transactionId = trade.transaction?.id || trade.transactionId || null;
+      await persistBuyerSignUrl(transactionId, signUrl);
+      return signUrl;
+    } catch (err) {
+      console.error("[trade] DocuSign buyer signing failed; falling back to Dropbox Sign", err);
+    }
+  }
 
   const apiKey = process.env.DROPBOX_SIGN_API_KEY;
   const clientId = process.env.DROPBOX_SIGN_CLIENT_ID;
@@ -616,11 +725,6 @@ export async function createBuyerSignatureLink(
   }
   // Optional metadata
   form.set("metadata[tradeId]", tradeId);
-  const redirectTarget = opts?.redirectTo
-    ? opts.redirectTo
-    : `/api/trades/${tradeId}/buyer/signing-complete${
-        resolvedBuyerToken ? `?token=${encodeURIComponent(resolvedBuyerToken)}` : ""
-      }`;
   form.set("signing_redirect_url", appUrl(redirectTarget));
 
   const createResp = await fetch(`${DBX_BASE}/signature_request/create_embedded`, {
@@ -704,6 +808,8 @@ export async function createSellerSignatureLink(tradeId: string, sellerToken?: s
           buyerWaterAccount: true,
           sellerFarmId: true,
           docusignEnvelopeId: true,
+          sellerClientUserId: true,
+          buyerClientUserId: true,
           buyerNameSnapshot: true,
           sellerNameSnapshot: true,
           createdAt: true,
@@ -739,10 +845,27 @@ export async function createSellerSignatureLink(tradeId: string, sellerToken?: s
 
   if (docuSignConfigured) {
     try {
-      const docuSignLink = await createSellerDocuSignEnvelope(trade, resolvedSellerToken);
-      if (docuSignLink) return docuSignLink;
+      const { envelopeId, sellerClientUserId } = await ensureDocuSignEnvelope(trade);
+      const { name, email } = await getSellerNameEmail(trade as Trade);
+      const returnPath = `/api/trades/${trade.id}/seller/signing-complete${
+        resolvedSellerToken ? `?token=${encodeURIComponent(resolvedSellerToken)}` : ""
+      }`;
+      const signUrl = await createRecipientViewUrl({
+        envelopeId,
+        recipient: { clientUserId: sellerClientUserId, email, name },
+        returnUrl: appUrl(returnPath),
+      });
+
+      const transactionId = trade.transaction?.id || trade.transactionId || null;
+      if (transactionId) {
+        await prisma.transaction
+          .update({ where: { id: transactionId }, data: { sellerSignUrl: signUrl } })
+          .catch(() => null);
+      }
+
+      if (signUrl) return signUrl;
     } catch (err) {
-      console.error("[trade] DocuSign seller envelope failed; falling back to Dropbox Sign", err);
+      console.error("[trade] DocuSign seller signing failed; falling back to Dropbox Sign", err);
     }
   }
 
