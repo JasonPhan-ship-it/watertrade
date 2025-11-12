@@ -50,16 +50,22 @@ export default function BillingPage() {
         return;
       }
       if (!r.ok) {
-        let url = "";
-        try {
-          const j = await r.json();
-          url = j?.url || "";
-        } catch {}
-        if (url) {
-          window.location.href = url;
+        const bodyText = await r.text().catch(() => "");
+        let parsed: any = null;
+        if (bodyText) {
+          try {
+            parsed = JSON.parse(bodyText);
+          } catch {}
+        }
+
+        const portalUrl = parsed?.url;
+        if (portalUrl) {
+          window.location.href = portalUrl;
           return;
         }
-        throw new Error((await r.text()) || "Could not open billing portal.");
+
+        const message = parsed?.error || bodyText || "Could not open billing portal.";
+        throw new Error(message);
       }
       const { url } = await r.json();
       if (!url) throw new Error("No portal URL returned.");
