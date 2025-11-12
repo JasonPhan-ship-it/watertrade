@@ -454,6 +454,7 @@ export default function DashboardPage() {
 
   const listingRows = isListingsResponse(data) ? data.listings : [];
   const tradeRows = isTradesResponse(data) ? data.trades : [];
+  const showHeaderCreateButton = scope !== "trades" && !nocreate && listingRows.length > 0;
   const totalCount = data?.total ?? 0;
   const totalAf =
     scope === "trades"
@@ -621,7 +622,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3">
             <div className="font-medium">{tableTitle}</div>
             <div className="flex items-center gap-3">
-              {scope !== "trades" && !nocreate && (
+              {showHeaderCreateButton && (
                 <Link
                   href="/create-listing"
                   className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
