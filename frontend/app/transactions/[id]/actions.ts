@@ -1,6 +1,7 @@
 // app/transactions/[id]/actions.ts
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
+import type { Prisma } from "@prisma/client";
 import {
   archiveListingIfTransactionClosed,
   preferredClosedTransactionStatus,
@@ -51,7 +52,7 @@ export async function purchaseAction(
     "[transactions/[id]/actions]"
   );
 
-  const data: Prisma.TransactionUpdateInput = {};
+  const data: Prisma.TransactionUpdateInput & Record<string, unknown> = {};
 
   if (buyerId) {
     data.buyer = { connect: { id: buyerId } };
