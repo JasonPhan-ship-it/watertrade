@@ -12,6 +12,8 @@ import AcceptButton from "@/components/trade/AcceptButton";
 import BuyNowConfirmButton from "@/components/trade/BuyNowConfirmButton";
 import TradeProgressTracker, { type TradeProgressStep } from "@/components/trade/ProgressTracker";
 import { buildTradeProgressSteps } from "@/lib/trade-progress";
+import { getSiteSetting } from "@/lib/site-settings";
+import { DEFAULT_WATER_TRADER_FEE_RATE } from "@/lib/site-settings/defaults";
 
 type Props = {
   tradeId: string;
@@ -184,10 +186,21 @@ export default async function TradeShell(props: Props) {
     const waterType = tx.listing?.waterType ?? "—";
     const qty = tx.acreFeet ?? 0;
     const priceAf = tx.pricePerAF ?? 0; // cents
-    const total = (tx.totalAmount ?? qty * priceAf) || 0;
+    const subtotalCents = (tx.totalAmount ?? qty * priceAf) || 0;
     const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
     const status = tx.status ?? "—";
     const isBuyNow = tx.type === "BUY_NOW";
+
+    const waterTraderFeeSetting = await getSiteSetting("waterTraderFee");
+    const rawFeeRate = Number(waterTraderFeeSetting?.rate);
+    const normalizedFeeRate =
+      Number.isFinite(rawFeeRate) && rawFeeRate >= 0 ? rawFeeRate : DEFAULT_WATER_TRADER_FEE_RATE;
+    const feeAmountCents = Math.round(subtotalCents * normalizedFeeRate);
+    const finalTotalCents = subtotalCents + feeAmountCents;
+    const feePercentLabel = (normalizedFeeRate * 100).toLocaleString(undefined, {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: normalizedFeeRate > 0 && normalizedFeeRate < 0.01 ? 2 : 0,
+    });
 
     const sellerSignStatus = `${linkedTrade?.sellerSignStatus ?? "NONE"}`;
     const buyerSignStatus = `${linkedTrade?.buyerSignStatus ?? "NONE"}`;
@@ -335,8 +348,18 @@ export default async function TradeShell(props: Props) {
                   <td className="px-4 py-2">{moneyFromCents(priceAf)}</td>
                 </tr>
                 <tr>
+                  <td className="bg-slate-50 px-4 py-2 text-slate-600">Subtotal</td>
+                  <td className="px-4 py-2">{moneyFromCents(subtotalCents)}</td>
+                </tr>
+                <tr>
+                  <td className="bg-slate-50 px-4 py-2 text-slate-600">
+                    Water Traders fee ({feePercentLabel}%)
+                  </td>
+                  <td className="px-4 py-2">{moneyFromCents(feeAmountCents)}</td>
+                </tr>
+                <tr>
                   <td className="bg-slate-50 px-4 py-2 font-medium text-slate-700">Total</td>
-                  <td className="px-4 py-2 font-medium">{moneyFromCents(total)}</td>
+                  <td className="px-4 py-2 font-medium">{moneyFromCents(finalTotalCents)}</td>
                 </tr>
               </tbody>
             </table>
