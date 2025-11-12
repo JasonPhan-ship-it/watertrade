@@ -46,7 +46,7 @@ export async function POST(_req: Request, { params }: Params) {
 
     // Build links used by CTAs
     const viewLink = appUrl(`/transactions/${updated.id}`);
-    const signLink = appUrl(`/transactions/${updated.id}#sign`);
+    const signLink = appUrl(`/api/signing/seller?tx=${updated.id}`);
 
     // Shared "offer" payload for the email renderer
     const offer = {
