@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
     const trade = await ensureTradeFromAnyIdOrCreate(txId);
     if (!trade) {
       return NextResponse.json({ error: "Transaction or trade not found" }, { status: 404 });
+    }
 
     const sellerToken = (trade as any)?.sellerToken ?? null;
     const signUrl = await createSellerSignatureLink(trade.id, sellerToken);
