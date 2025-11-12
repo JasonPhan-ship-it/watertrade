@@ -13,6 +13,8 @@ import {
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL?.trim());
 
+type WestlandsBalanceBreakdown = Record<string, number>;
+
 type SerializedIntegration = {
   id: string;
   status: WaterIntegrationStatus;
@@ -21,6 +23,7 @@ type SerializedIntegration = {
   lastSyncedAt: string | null;
   balanceAf: number | null;
   balanceUpdatedAt: string | null;
+  balanceBreakdown: WestlandsBalanceBreakdown | null;
   errorMessage: string | null;
 };
 
@@ -51,6 +54,66 @@ function getWestlandsStore() {
     globalForWestlands.__westlandsIntegrationStore = new Map();
   }
   return globalForWestlands.__westlandsIntegrationStore;
+}
+
+const WESTLANDS_BREAKDOWN_KEYS = [
+  "cvpAllocation",
+  "supplementalWater",
+  "pumpingCredits",
+] as const;
+
+function deterministicWeight(seed: string): number {
+  if (!seed) seed = "westlands";
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = Math.imul(31, hash) + seed.charCodeAt(i);
+  }
+  const normalized = (Math.sin(hash) + 1) / 2;
+  return normalized + 0.1;
+}
+
+function deriveWestlandsBalanceBreakdown(
+  totalAf: number,
+  seed?: string | null
+): WestlandsBalanceBreakdown {
+  if (!Number.isFinite(totalAf) || totalAf <= 0) {
+    return {
+      cvpAllocation: 0,
+      supplementalWater: 0,
+      pumpingCredits: 0,
+    };
+  }
+
+  const safeSeed = seed ?? "westlands";
+  const totalHundredths = Math.max(0, Math.round(totalAf * 100));
+  let remainder = totalHundredths;
+
+  const categories = WESTLANDS_BREAKDOWN_KEYS.map((key, index) => ({
+    key,
+    weight: deterministicWeight(`${safeSeed}:${key}:${index}`),
+  }));
+
+  const totalWeight = categories.reduce((sum, cat) => sum + cat.weight, 0) || 1;
+  const breakdown: WestlandsBalanceBreakdown = {
+    cvpAllocation: 0,
+    supplementalWater: 0,
+    pumpingCredits: 0,
+  };
+
+  categories.forEach((category, index) => {
+    let share =
+      index === categories.length - 1
+        ? remainder
+        : Math.round((totalHundredths * category.weight) / totalWeight);
+
+    if (share < 0) share = 0;
+    if (share > remainder) share = remainder;
+
+    remainder -= share;
+    breakdown[category.key] = share / 100;
+  });
+
+  return breakdown;
 }
 
 function shouldFallbackToMemory(error: unknown): boolean {
@@ -96,6 +159,7 @@ async function upsertMemoryIntegration(
       consentedAt: null,
       balanceAf: null,
       balanceUpdatedAt: null,
+      balanceBreakdown: null,
       lastSyncedAt: nowIso,
       errorMessage: null,
     };
@@ -104,14 +168,19 @@ async function upsertMemoryIntegration(
   }
 
   const scrapeResult = await simulateWestlandsScrape(options.accountNumber);
+  const integrationId = store.get(userId)?.id ?? randomUUID();
   const integration: SerializedIntegration = {
-    id: store.get(userId)?.id ?? randomUUID(),
+    id: integrationId,
     status: WaterIntegrationStatus.CONNECTED,
     provider: WaterProvider.WESTLANDS,
     consentedAt: nowIso,
     lastSyncedAt: nowIso,
     balanceAf: scrapeResult.balanceAf,
     balanceUpdatedAt: scrapeResult.fetchedAt.toISOString(),
+    balanceBreakdown: deriveWestlandsBalanceBreakdown(
+      scrapeResult.balanceAf,
+      integrationId
+    ),
     errorMessage: null,
   };
   store.set(userId, integration);
@@ -170,6 +239,11 @@ function serializeIntegration(integration: any): SerializedIntegration | null {
     }
   };
 
+  const balanceBreakdown =
+    typeof balanceAf === "number"
+      ? deriveWestlandsBalanceBreakdown(balanceAf, integration.id)
+      : null;
+
   return {
     id: integration.id,
     status: integration.status as WaterIntegrationStatus,
@@ -178,6 +252,7 @@ function serializeIntegration(integration: any): SerializedIntegration | null {
     lastSyncedAt: toIso(integration.lastSyncedAt),
     balanceAf,
     balanceUpdatedAt: toIso(integration.balanceUpdatedAt),
+    balanceBreakdown,
     errorMessage: integration.errorMessage ?? null,
   };
 }
