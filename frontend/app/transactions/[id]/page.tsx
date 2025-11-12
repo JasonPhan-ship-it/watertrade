@@ -173,7 +173,7 @@ export default async function Page({ params, searchParams }: PageProps) {
           }
 
           const baseData: Record<string, unknown> = {
-            ...(buyerId ? { buyerId } : {}),
+            ...(buyerId ? { buyer: { connect: { id: buyerId } } } : {}),
             status: mapped as any,
           };
 
