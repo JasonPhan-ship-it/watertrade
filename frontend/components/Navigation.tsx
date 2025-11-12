@@ -107,7 +107,7 @@ export default function Navigation() {
   return (
     <nav className="border-b bg-white shadow-sm">
       <div className="container mx-auto px-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 py-4 md:py-5">
+        <div className="flex flex-wrap items-center justify-between gap-4 py-2 md:py-5">
           <div className="flex min-w-0 items-center gap-3">
             <Link href="/" className="flex items-center gap-3" aria-label="Water Traders home">
               <Image
