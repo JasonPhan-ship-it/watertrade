@@ -1,7 +1,7 @@
 // app/dashboard/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useId } from "react";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -125,6 +125,13 @@ type TradesApiResponse = {
 type WestlandsBalance = {
   amount: number;
   updatedAt: string | null;
+  breakdown: Record<string, number> | null;
+};
+
+type WestlandsCardDisplay = {
+  amount: string;
+  updated: string | null;
+  breakdown: { key: string; label: string; amount: string }[] | null;
 };
 
 type WestlandsIntegrationResponse = {
@@ -132,6 +139,7 @@ type WestlandsIntegrationResponse = {
   balanceAf?: number | null;
   balanceUpdatedAt?: string | null;
   lastSyncedAt?: string | null;
+  balanceBreakdown?: Record<string, number> | null;
 } | null;
 
 /* ---------------- Constants ---------------- */
@@ -151,6 +159,30 @@ const WATER_TYPES = [
 ] as const;
 
 const PAGE_SIZES = [5, 10, 20] as const;
+
+const WESTLANDS_BREAKDOWN_LABELS: Record<string, string> = {
+  cvpAllocation: "CVP Allocation",
+  supplementalWater: "Supplemental Water",
+  pumpingCredits: "Pumping Credits",
+};
+
+const WESTLANDS_BREAKDOWN_ORDER = [
+  "cvpAllocation",
+  "supplementalWater",
+  "pumpingCredits",
+];
+
+function formatWestlandsBreakdownKey(key: string): string {
+  if (WESTLANDS_BREAKDOWN_LABELS[key]) {
+    return WESTLANDS_BREAKDOWN_LABELS[key];
+  }
+
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim()
+    .replace(/^\w/, (char) => char.toUpperCase());
+}
 
 /* ---------------- Page ---------------- */
 export default function DashboardPage() {
@@ -203,6 +235,7 @@ export default function DashboardPage() {
         setWestlandsBalance({
           amount: integration.balanceAf,
           updatedAt: integration.balanceUpdatedAt ?? integration.lastSyncedAt ?? null,
+          breakdown: integration.balanceBreakdown ?? null,
         });
       } else {
         setWestlandsBalance(null);
@@ -336,7 +369,7 @@ export default function DashboardPage() {
     return () => controller.abort();
   }, [listingQuery, tradesQuery, checking, scope]);
 
-  const westlandsDisplay = useMemo(() => {
+  const westlandsDisplay = useMemo<WestlandsCardDisplay | null>(() => {
     if (!westlandsBalance) {
       return null;
     }
@@ -361,7 +394,47 @@ export default function DashboardPage() {
       }
     }
 
-    return { amount, updated };
+    let breakdown: WestlandsCardDisplay["breakdown"] = null;
+    if (westlandsBalance.breakdown) {
+      const entries: NonNullable<WestlandsCardDisplay["breakdown"]> = [];
+      const seen = new Set<string>();
+
+      const formatAmount = (value: number) =>
+        value.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      WESTLANDS_BREAKDOWN_ORDER.forEach((key) => {
+        const raw = westlandsBalance.breakdown?.[key];
+        if (typeof raw === "number") {
+          entries.push({
+            key,
+            label: formatWestlandsBreakdownKey(key),
+            amount: formatAmount(raw),
+          });
+          seen.add(key);
+        }
+      });
+
+      Object.keys(westlandsBalance.breakdown)
+        .filter((key) => !seen.has(key))
+        .sort((a, b) => a.localeCompare(b))
+        .forEach((key) => {
+          const raw = westlandsBalance.breakdown?.[key];
+          if (typeof raw === "number") {
+            entries.push({
+              key,
+              label: formatWestlandsBreakdownKey(key),
+              amount: formatAmount(raw),
+            });
+          }
+        });
+
+      breakdown = entries.length > 0 ? entries : null;
+    }
+
+    return { amount, updated, breakdown };
   }, [westlandsBalance]);
 
   if (checking) {
@@ -908,21 +981,51 @@ function WestlandsCard({
   display,
 }: {
   loading: boolean;
-  display: { amount: string; updated: string | null } | null;
+  display: WestlandsCardDisplay | null;
 }) {
+  const breakdownId = useId();
+  const showBreakdown = Boolean(display?.breakdown?.length);
   return (
-    <div className="flex h-full flex-col justify-between rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-right shadow-sm">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Westlands balance</div>
+    <div className="group relative flex h-full flex-col justify-between rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-right shadow-sm">      <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Westlands balance</div>
       {loading ? (
         <div className="mt-2 flex items-center justify-end gap-2 text-xs font-medium text-emerald-700">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Syncing Westlands…
         </div>
       ) : display ? (
-        <div className="mt-1 space-y-1 text-emerald-900">
-          <div className="text-2xl font-semibold">{display.amount} AF</div>
+        <div className="relative mt-1 space-y-1 text-emerald-900">
+          <div
+            className={`text-2xl font-semibold ${
+              showBreakdown
+                ? "cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-emerald-50"
+                : ""
+            }`}
+            tabIndex={showBreakdown ? 0 : -1}
+            aria-describedby={showBreakdown ? breakdownId : undefined}
+          >
+            {display.amount} AF
+          </div>
           {display.updated ? (
             <div className="text-[11px] text-emerald-700">Updated {display.updated}</div>
+          ) : null}
+          {showBreakdown ? (
+            <div
+              id={breakdownId}
+              role="tooltip"
+              className="pointer-events-none absolute right-0 top-full z-10 mt-2 w-64 rounded-lg border border-emerald-200 bg-white/95 p-3 text-left text-sm text-emerald-900 opacity-0 shadow-lg backdrop-blur transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                Balance breakdown
+              </div>
+              <dl className="mt-2 space-y-1">
+                {display.breakdown?.map((item) => (
+                  <div key={item.key} className="flex items-center justify-between gap-2">
+                    <dt className="text-sm text-emerald-700">{item.label}</dt>
+                    <dd className="font-medium text-emerald-900">{item.amount} AF</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           ) : null}
         </div>
       ) : (
