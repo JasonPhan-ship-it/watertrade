@@ -6,6 +6,7 @@ export const revalidate = 0;
 import { purchaseAction } from "./actions";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { Prisma as PrismaTypes } from "@prisma/client";
 import { auth } from "@clerk/nextjs/server";
 import NextDynamic from "next/dynamic";
 
@@ -172,18 +173,18 @@ export default async function Page({ params, searchParams }: PageProps) {
             logError(authErr, "resolve buyer in fallback failed");
           }
 
-          const baseData: Record<string, unknown> = {
+          const baseData: PrismaTypes.TransactionUpdateInput = {
             ...(buyerId ? { buyer: { connect: { id: buyerId } } } : {}),
-            status: mapped as any,
+            status: mapped ? { set: mapped as any } : undefined,
           };
 
-          const dataWithPurchasedAt: Record<string, unknown> = {
+          const dataWithPurchasedAt: PrismaTypes.TransactionUpdateInput = {
             ...baseData,
             purchasedAt: new Date(),
           };
 
-          const runUpdate = async (data: Record<string, unknown>) =>
-            prisma.transaction.update({ where: { id }, data: data as any });
+          const runUpdate = async (data: PrismaTypes.TransactionUpdateInput) =>
+            prisma.transaction.update({ where: { id }, data });
 
           try {
             await runUpdate(dataWithPurchasedAt);
