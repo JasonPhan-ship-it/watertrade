@@ -51,9 +51,11 @@ export async function purchaseAction(
     "[transactions/[id]/actions]"
   );
 
-  const data: Record<string, unknown> = {
-    ...(buyerId ? { buyerId } : {}),
-  };
+  const data: Record<string, unknown> = {};
+
+  if (buyerId) {
+    data.buyer = { connect: { id: buyerId } };
+  }
 
   let pendingStatus: string | undefined;
 
