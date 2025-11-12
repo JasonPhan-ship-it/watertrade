@@ -373,8 +373,8 @@ export default async function TradeShell(props: Props) {
         <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-trade-actions>
           {isBuyNow ? (
             <div className="flex flex-wrap items-center gap-3" id="inline-buy-now">
-              {!hideInlineBuyNowFinal &&
-                (showSellerSignCta ? (
+              {!hideInlineBuyNowFinal && (
+                showSellerSignCta ? (
                   <div className="inline-flex flex-col items-start">
                     <a
                       href={sellerSignUrl}
@@ -388,6 +388,8 @@ export default async function TradeShell(props: Props) {
                   </div>
                 ) : (
                   <BuyNowConfirmButton transactionId={tx.id} />
+                )
+              )}
             </div>
           ) : (
             <>
@@ -398,7 +400,7 @@ export default async function TradeShell(props: Props) {
               )}
 
               {viewerRole === "seller" ? (
-               sellerHasAccepted ? (
+                sellerHasAccepted ? (
                   <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
                     You accepted this offer. Use the DocuSign link above to finish signing.
                   </div>
