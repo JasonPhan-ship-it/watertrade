@@ -885,7 +885,7 @@ export default function CreateListingPage() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span>Watertrader fee ({feePercentLabel})</span>
+                        <span>Water Trader fee ({feePercentLabel})</span>
                         <span className="font-medium text-slate-900">
                           {feePerAfDisplay!} <span className="text-xs text-slate-500">/ AF</span>
                         </span>
@@ -898,7 +898,7 @@ export default function CreateListingPage() {
                           {marketplacePriceDisplay!} <span className="text-xs text-slate-500">/ AF</span>
                         </div>
                         <p className="mt-1 text-[11px] text-slate-500">
-                          Buyers see this price on Watertrader.
+                          Prospective buyers see this price on the Marketplace.
                         </p>
                       </div>
                     </div>
@@ -938,7 +938,7 @@ export default function CreateListingPage() {
                           <span>Includes fee</span>
                         </div>
                         <div className="mt-2 flex items-center justify-between text-sm text-emerald-800">
-                          <span>Watertrader fee ({feePercentLabel})</span>
+                          <span>Water Trader fee ({feePercentLabel})</span>
                           <span className="font-medium text-emerald-900">
                             {auctionFeeDisplay!} <span className="text-[10px] text-emerald-700">/ AF</span>
                           </span>
@@ -950,7 +950,7 @@ export default function CreateListingPage() {
                           </span>
                         </div>
                         <p className="mt-1 text-[11px] text-emerald-700/80">
-                          Buyers see this preview price on Watertrader.
+                          Prospective buyers see this preview price on the Marketplace.
                         </p>
                       </div>
                     ) : null}
