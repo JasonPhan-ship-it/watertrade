@@ -123,9 +123,9 @@ export async function POST(req: NextRequest) {
         data: {
           type: TransactionType.BUY_NOW,
           status: TransactionStatus.INITIATED,
-          listingId: listingRow.id,
-          buyerId: buyer.id,
-          sellerId: listingRow.sellerId,
+          listing: { connect: { id: listingRow.id } },
+          buyer: { connect: { id: buyer.id } },
+          seller: { connect: { id: listingRow.sellerId } },
           listingTitleSnapshot: listingRow.title ?? null,
           pricePerAF,
           acreFeet,
