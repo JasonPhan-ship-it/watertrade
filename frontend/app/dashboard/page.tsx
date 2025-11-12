@@ -573,11 +573,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {scope === "trades" ? (
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              Your offers, counters, and purchases show here. Select a trade below to open the full transaction workspace.
-            </div>
-          ) : (
+          {scope === "trades" ? null : (
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <select
                 value={district}
