@@ -4,6 +4,7 @@
 import * as React from "react";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
+import { DEFAULT_WATER_TRADER_FEE_RATE } from "@/lib/site-settings/defaults";
 import {
   Card,
   CardContent,
@@ -60,6 +61,14 @@ function formatAcreFeet(value: number | "" | null | undefined) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(num);
 }
 
+function formatUsd(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return `$${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 async function extractErrorMessage(res: Response) {
   const text = await res.text();
   if (!text) return "Failed to create listing.";
@@ -101,6 +110,7 @@ export default function CreateListingPage() {
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
   const [isAuction, setIsAuction] = React.useState(false);
+  const [feeRate, setFeeRate] = React.useState<number>(DEFAULT_WATER_TRADER_FEE_RATE);
 
   // Form state
   const [volumeAF, setVolumeAF] = React.useState<number | "">("");
@@ -151,6 +161,30 @@ export default function CreateListingPage() {
 
   // Countdown preview for auctions
   const [countdown, setCountdown] = React.useState<string>("");
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadFee() {
+      try {
+        const res = await fetch("/api/site-settings/water-trader-fee", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json().catch(() => null)) as { value?: { rate?: number } } | null;
+        const rate = json?.value?.rate;
+        if (cancelled) return;
+        if (typeof rate === "number" && Number.isFinite(rate) && rate >= 0) {
+          setFeeRate(rate);
+        }
+      } catch {
+        // Silently ignore and keep default fee
+      }
+    }
+
+    loadFee();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     let active = true;
@@ -413,6 +447,41 @@ export default function CreateListingPage() {
     waterCodeYear && `Year: ${waterCodeYear}`,
   ].filter(Boolean) as string[];
 
+  const normalizedFeeRate =
+    typeof feeRate === "number" && Number.isFinite(feeRate) && feeRate >= 0
+      ? feeRate
+      : DEFAULT_WATER_TRADER_FEE_RATE;
+  const sellerPricePerAf =
+    typeof pricePerAF === "number" && Number.isFinite(pricePerAF) ? pricePerAF : null;
+  const feePerAf = sellerPricePerAf != null ? sellerPricePerAf * normalizedFeeRate : null;
+  const marketplacePricePerAf =
+    sellerPricePerAf != null && feePerAf != null ? sellerPricePerAf + feePerAf : null;
+  const feePercentLabel = `${(normalizedFeeRate * 100).toLocaleString("en-US", {
+    minimumFractionDigits: normalizedFeeRate > 0 && normalizedFeeRate < 0.01 ? 2 : 0,
+    maximumFractionDigits: 2,
+  })}%`;
+  const startingBidValue =
+    typeof startingBid === "number" && Number.isFinite(startingBid) ? startingBid : null;
+  const reservePriceValue =
+    typeof reservePrice === "number" && Number.isFinite(reservePrice) ? reservePrice : null;
+  const auctionBasePrice = reservePriceValue ?? startingBidValue;
+  const auctionFeePerAf =
+    auctionBasePrice != null ? auctionBasePrice * normalizedFeeRate : null;
+  const auctionMarketplacePrice =
+    auctionBasePrice != null && auctionFeePerAf != null ? auctionBasePrice + auctionFeePerAf : null;
+  const sellerPriceDisplay =
+    sellerPricePerAf != null ? formatUsd(sellerPricePerAf) : null;
+  const feePerAfDisplay = feePerAf != null ? formatUsd(feePerAf) : null;
+  const marketplacePriceDisplay =
+    marketplacePricePerAf != null ? formatUsd(marketplacePricePerAf) : null;
+  const auctionFeeDisplay = auctionFeePerAf != null ? formatUsd(auctionFeePerAf) : null;
+  const auctionMarketplacePriceDisplay =
+    auctionMarketplacePrice != null ? formatUsd(auctionMarketplacePrice) : null;
+  const hasFixedPricePreview = Boolean(
+    sellerPriceDisplay && feePerAfDisplay && marketplacePriceDisplay,
+  );
+  const hasAuctionPreview = Boolean(auctionMarketplacePriceDisplay && auctionFeeDisplay);
+  
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
       <BackButton fallbackHref="/dashboard" className="mb-6">
@@ -807,9 +876,35 @@ export default function CreateListingPage() {
               {!isAuction ? (
                 <div className="rounded-lg border border-slate-200 p-3">
                   <div className="text-xs text-slate-500">Fixed Price</div>
-                  <div className="mt-1 text-lg font-semibold text-slate-900">
-                    {pricePerAF ? `$${Number(pricePerAF).toFixed(2)} / AF` : "—"}
-                  </div>
+                  {hasFixedPricePreview ? (
+                    <div className="mt-2 space-y-3 text-sm text-slate-600">
+                      <div className="flex items-center justify-between">
+                        <span>Seller price</span>
+                        <span className="font-medium text-slate-900">
+                          {sellerPriceDisplay!} <span className="text-xs text-slate-500">/ AF</span>
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Watertrader fee ({feePercentLabel})</span>
+                        <span className="font-medium text-slate-900">
+                          {feePerAfDisplay!} <span className="text-xs text-slate-500">/ AF</span>
+                        </span>
+                      </div>
+                      <div className="rounded-md bg-slate-50 p-2">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                          Marketplace price
+                        </div>
+                        <div className="mt-1 text-base font-semibold text-slate-900">
+                          {marketplacePriceDisplay!} <span className="text-xs text-slate-500">/ AF</span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Buyers see this price on Watertrader.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-lg font-semibold text-slate-900">—</div>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
@@ -836,6 +931,29 @@ export default function CreateListingPage() {
                         {countdown ? `⏳ ${countdown}` : ""}
                       </div>
                     </div>
+                    {hasAuctionPreview ? (
+                      <div className="col-span-2 rounded-md border border-emerald-200 bg-white/70 p-3 text-xs text-emerald-900">
+                        <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-700">
+                          <span>Marketplace preview</span>
+                          <span>Includes fee</span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-sm text-emerald-800">
+                          <span>Watertrader fee ({feePercentLabel})</span>
+                          <span className="font-medium text-emerald-900">
+                            {auctionFeeDisplay!} <span className="text-[10px] text-emerald-700">/ AF</span>
+                          </span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-base font-semibold text-emerald-900">
+                          <span>Marketplace price</span>
+                          <span>
+                            {auctionMarketplacePriceDisplay!} <span className="text-[11px] text-emerald-700">/ AF</span>
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-emerald-700/80">
+                          Buyers see this preview price on Watertrader.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}
