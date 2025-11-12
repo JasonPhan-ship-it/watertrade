@@ -51,7 +51,7 @@ export async function purchaseAction(
     "[transactions/[id]/actions]"
   );
 
-  const data: Record<string, unknown> = {};
+  const data: Prisma.TransactionUpdateInput = {};
 
   if (buyerId) {
     data.buyer = { connect: { id: buyerId } };
@@ -69,10 +69,10 @@ export async function purchaseAction(
 
   data.purchasedAt = new Date();
 
-  const runUpdate = (updateData: Record<string, unknown>) =>
+  const runUpdate = (updateData: Prisma.TransactionUpdateInput) =>
     prisma.transaction.update({
       where: { id: transactionId },
-      data: updateData as any,
+      data: updateData,
       select: { listingId: true, status: true },
     });
 
