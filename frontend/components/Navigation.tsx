@@ -116,7 +116,7 @@ export default function Navigation() {
                 width={120}
                 height={120}
                 priority
-                className="h-10 w-auto shrink-0 md:h-12"
+                className="h-6 w-auto shrink-0 md:h-8"
               />
               <Image
                 src="/wordmark.png"
