@@ -110,8 +110,7 @@ export default async function ConfirmationPage({ params }: PageProps) {
             <p className="text-sm uppercase tracking-wide text-emerald-700">Purchase complete</p>
             <h1 className="mt-1 text-3xl font-semibold text-slate-900">Congratulations! You just secured this water trade.</h1>
             <p className="mt-3 text-base text-slate-600">
-              A confirmation email is on its way and the seller has been notified. You can keep reviewing the agreement below or return to your dashboard.
-            </p>
+              A confirmation email is on its way and the seller has been notified. Review the agreement below or start signing right away to keep things moving.            </p>
           </div>
         </div>
 
@@ -153,10 +152,10 @@ export default async function ConfirmationPage({ params }: PageProps) {
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
           <Link
-            href={`/transactions/${id}?action=review`}
+            href={`/api/signing/buyer?tx=${id}`}
             className="inline-flex w-full items-center justify-center rounded-xl bg-[#004434] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003a2f] sm:w-auto"
           >
-            View transaction details
+            Sign water transfer agreement
           </Link>
           <Link
             href="/dashboard"
