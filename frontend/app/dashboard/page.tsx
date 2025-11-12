@@ -495,9 +495,9 @@ export default function DashboardPage() {
         : "Your Trades";
   const subtitle =
     scope === "market"
-      ? ""
+      ? "Browse active offers, bids, and market insights."
       : scope === "mine"
-        ? `Signed in as ${user?.primaryEmailAddress?.emailAddress ?? user?.username ?? "you"}`
+        ? "View your listings"
         : "Track offers and purchases you’re part of.";
 
   const viewerRole = data?.viewerRole ?? null;
