@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { sendPurchaseEmails } from "@/lib/email";
 import {
   archiveListingIfTransactionClosed,
@@ -58,6 +59,7 @@ export async function POST(
     }
 
     const data: Record<string, unknown> = {};
+    const data: Prisma.TransactionUpdateInput = {};
 
     const buyerId = tx.buyerId ?? viewer.id;
     if (buyerId) {
@@ -72,11 +74,12 @@ export async function POST(
     }
 
     data.purchasedAt = new Date();
+    const runUpdate = (updateData: Prisma.TransactionUpdateInput) =>
 
     const runUpdate = (updateData: Record<string, unknown>) =>
       prisma.transaction.update({
         where: { id: txId },
-        data: updateData as any,
+        data: updateData,
         include: {
           listing: true,
           buyer: { select: { id: true, email: true, name: true } },
