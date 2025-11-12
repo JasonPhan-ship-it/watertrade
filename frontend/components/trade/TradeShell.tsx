@@ -239,6 +239,9 @@ export default async function TradeShell(props: Props) {
     const isReview = action?.toLowerCase?.() === "review";
     const hideInlineBuyNowFinal = hideInlineBuyNow || isReview;
 
+    const showSellerSignCta =
+      viewerRole === "seller" && sellerSignRequested && Boolean(sellerSignUrl);
+    
     const actionLower = action?.toLowerCase?.() ?? "";
     const showAwaitingSellerSignatureBanner =
       actionLower === "awaiting-seller-signature" ||
@@ -370,7 +373,21 @@ export default async function TradeShell(props: Props) {
         <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-trade-actions>
           {isBuyNow ? (
             <div className="flex flex-wrap items-center gap-3" id="inline-buy-now">
-              {!hideInlineBuyNowFinal && <BuyNowConfirmButton transactionId={tx.id} />}
+              {!hideInlineBuyNowFinal &&
+                (showSellerSignCta ? (
+                  <div className="inline-flex flex-col items-start">
+                    <a
+                      href={sellerSignUrl}
+                      className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-semibold text-white hover:bg-[#00392f]"
+                    >
+                      Review &amp; Sign
+                    </a>
+                    <div className="mt-2 text-xs text-slate-600">
+                      You’ll be taken to DocuSign to complete your paperwork.
+                    </div>
+                  </div>
+                ) : (
+                  <BuyNowConfirmButton transactionId={tx.id} />
             </div>
           ) : (
             <>
