@@ -3,6 +3,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import BackButton from "@/components/BackButton";
 import {
   Card,
   CardContent,
@@ -414,6 +415,9 @@ export default function CreateListingPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
+      <BackButton fallbackHref="/dashboard" className="mb-6">
+        Back to Dashboard
+      </BackButton>
       <div className="grid gap-6 md:grid-cols-[1.1fr_0.9fr]">
         {/* Left: Form */}
         <Card className="md:col-span-1">
