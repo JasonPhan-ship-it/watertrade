@@ -336,6 +336,34 @@ export default function DashboardPage() {
     return () => controller.abort();
   }, [listingQuery, tradesQuery, checking, scope]);
 
+  const westlandsDisplay = useMemo(() => {
+    if (!westlandsBalance) {
+      return null;
+    }
+
+    const amount = westlandsBalance.amount.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    let updated: string | null = null;
+    if (westlandsBalance.updatedAt) {
+      try {
+        updated = new Date(westlandsBalance.updatedAt).toLocaleString(undefined, {
+          month: "2-digit",
+          day: "2-digit",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      } catch {
+        updated = westlandsBalance.updatedAt;
+      }
+    }
+
+    return { amount, updated };
+  }, [westlandsBalance]);
+
   if (checking) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -372,34 +400,6 @@ export default function DashboardPage() {
   const tradeAwaiting =
     scope === "trades" ? tradeRows.filter((t) => tradeNeedsAction(t)).length : 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-
-  const westlandsDisplay = useMemo(() => {
-    if (!westlandsBalance) {
-      return null;
-    }
-
-    const amount = westlandsBalance.amount.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-
-    let updated: string | null = null;
-    if (westlandsBalance.updatedAt) {
-      try {
-        updated = new Date(westlandsBalance.updatedAt).toLocaleString(undefined, {
-          month: "2-digit",
-          day: "2-digit",
-          year: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        });
-      } catch {
-        updated = westlandsBalance.updatedAt;
-      }
-    }
-
-    return { amount, updated };
-  }, [westlandsBalance]);
   
   function onSort(col: SortBy) {
     if (col === sortBy) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
