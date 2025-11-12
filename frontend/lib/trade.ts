@@ -93,8 +93,21 @@ export async function getViewerForTrade(
     if (matchesAny(trade.buyerUserId, localId, clerkId)) {
       return { role: "buyer", via: "auth", userId: localId ?? undefined };
     }
-    // Authenticated but not tied to this trade
-    return { role: "forbidden", via: "none", reason: "Signed in, but not the buyer or seller on this trade." };
+    // Authenticated but not tied to this trade. Allow magic token override before denying.
+    if (token) {
+      if (trade.sellerToken && token === trade.sellerToken) {
+        return { role: "seller", via: "token" };
+      }
+      if (trade.buyerToken && token === trade.buyerToken) {
+        return { role: "buyer", via: "token" };
+      }
+      return {
+        role: "forbidden",
+        via: "none",
+        reason: "Signed in as a different user and provided an invalid token for this trade.",
+      };
+    }
+     return { role: "forbidden", via: "none", reason: "Signed in, but not the buyer or seller on this trade." };
   }
 
   // 2) Optional magic token
