@@ -58,8 +58,7 @@ export async function POST(
       );
     }
 
-    const data: Record<string, unknown> = {};
-    const data: Prisma.TransactionUpdateInput = {};
+    const data: Prisma.TransactionUpdateInput & Record<string, unknown> = {};
 
     const buyerId = tx.buyerId ?? viewer.id;
     if (buyerId) {
@@ -75,8 +74,6 @@ export async function POST(
 
     data.purchasedAt = new Date();
     const runUpdate = (updateData: Prisma.TransactionUpdateInput) =>
-
-    const runUpdate = (updateData: Record<string, unknown>) =>
       prisma.transaction.update({
         where: { id: txId },
         data: updateData,
