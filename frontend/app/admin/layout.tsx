@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { Analytics } from "@vercel/analytics/react"; // ✅ correct import
@@ -71,7 +72,18 @@ export default async function AdminRootLayout({ children }: { children: ReactNod
               <NavLink href="/admin/settings">Settings</NavLink>
             </nav>
           </aside>
-          <section>{children}</section>
+          <section className="space-y-6">
+            <div>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:ring-offset-2"
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden />
+                <span>Back to Dashboard</span>
+              </Link>
+            </div>
+            {children}
+          </section>
         </div>
       </div>
 
