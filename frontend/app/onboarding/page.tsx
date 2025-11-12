@@ -30,6 +30,7 @@ type WestlandsIntegration = {
   lastSyncedAt: string | null;
   balanceAf: number | null;
   balanceUpdatedAt: string | null;
+  balanceBreakdown: Record<string, number> | null;
   errorMessage: string | null;
 };
 
