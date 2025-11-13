@@ -208,7 +208,9 @@ export default async function TradeShell(props: Props) {
     const buyerSignUrl = linkedTrade?.buyerSignUrl ?? "";
     const tradeStatusRaw = `${linkedTrade?.status ?? ""}`.toUpperCase();
     const sellerSignStatusUpper = sellerSignStatus.toUpperCase();
+    const buyerSignStatusUpper = buyerSignStatus.toUpperCase();
     const sellerSignRequested = sellerSignStatusUpper === "REQUESTED";
+    const buyerSignRequested = buyerSignStatusUpper === "REQUESTED";
     const sellerHasAccepted =
       tradeStatusRaw.startsWith("ACCEPTED") ||
       tradeStatusRaw === "FULLY_EXECUTED" ||
@@ -241,11 +243,17 @@ export default async function TradeShell(props: Props) {
 
     const showSellerSignCta =
       viewerRole === "seller" && sellerSignRequested && Boolean(sellerSignUrl);
+
+    const showBuyerSignCta =
+      viewerRole === "buyer" && buyerSignRequested && Boolean(buyerSignUrl);
     
     const actionLower = action?.toLowerCase?.() ?? "";
     const showAwaitingSellerSignatureBanner =
       actionLower === "awaiting-seller-signature" ||
       (!actionLower && viewerRole === "seller" && sellerSignRequested);
+    const showAwaitingBuyerSignatureBanner =
+      actionLower === "awaiting-buyer-signature" ||
+      (!actionLower && viewerRole === "buyer" && buyerSignRequested);
     let banner: React.ReactNode = null;
     if (showAwaitingSellerSignatureBanner) {
       const sellerDocuSignLabel =
@@ -253,7 +261,7 @@ export default async function TradeShell(props: Props) {
       banner = (
         <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           <div className="font-semibold">Awaiting seller signature</div>
-          <p className="mt-1 text-sm">Sign the agreement so the buyer can review next.</p>
+          <p className="mt-1 text-sm">The buyer has already signed. Complete DocuSign to move the trade forward.</p>
           {viewerRole === "seller" && sellerSignUrl ? (
             <div className="mt-3">
               <a
@@ -270,10 +278,10 @@ export default async function TradeShell(props: Props) {
       banner = (
         <div className="mt-6 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-900">
           <div className="font-semibold">Seller signature captured</div>
-          <p className="mt-1 text-sm">We invited the buyer to sign and will notify you when it’s complete.</p>
+          <p className="mt-1 text-sm">Compliance review is underway. We’ll notify everyone once the district responds.</p>
         </div>
       );
-    } else if (actionLower === "awaiting-buyer-signature") {
+    } else if (showAwaitingBuyerSignatureBanner) {
       banner = (
         <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           <div className="font-semibold">Awaiting buyer signature</div>
@@ -293,8 +301,8 @@ export default async function TradeShell(props: Props) {
     } else if (actionLower === "buyer-signature-complete") {
       banner = (
         <div className="mt-6 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-900">
-          <div className="font-semibold">All signatures captured</div>
-          <p className="mt-1 text-sm">Our team is coordinating admin approval and district confirmation.</p>
+          <div className="font-semibold">Buyer signature captured</div>
+          <p className="mt-1 text-sm">We notified the seller to sign. We’ll update you once they finish.</p>
         </div>
       );
     } else if (actionLower === "signing-error") {
@@ -374,10 +382,10 @@ export default async function TradeShell(props: Props) {
           {isBuyNow ? (
             <div className="flex flex-wrap items-center gap-3" id="inline-buy-now">
               {!hideInlineBuyNowFinal && (
-                showSellerSignCta ? (
+                showSellerSignCta || showBuyerSignCta ? (
                   <div className="inline-flex flex-col items-start">
                     <a
-                      href={sellerSignUrl}
+                      href={showSellerSignCta ? sellerSignUrl : buyerSignUrl}
                       className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-semibold text-white hover:bg-[#00392f]"
                     >
                       Review &amp; Sign
