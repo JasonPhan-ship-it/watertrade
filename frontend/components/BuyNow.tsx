@@ -50,6 +50,11 @@ export default function BuyNow({
       const data = await res.json().catch(() => ({} as any));
       if (!res.ok) throw new Error(data?.error || `Failed to start Buy Now (${res.status})`);
 
+      if (typeof data?.signUrl === "string" && data.signUrl) {
+        window.location.href = data.signUrl;
+        return;
+      }
+
       router.push(`/transactions/${data.id}?action=review`);
     } catch (e: any) {
       setErr(e?.message || "Failed to start Buy Now");
