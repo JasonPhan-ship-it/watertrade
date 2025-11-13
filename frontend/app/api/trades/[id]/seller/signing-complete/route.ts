@@ -9,10 +9,14 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function pickTxnAfterSellerSig(): (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
+function pickFullyExecutedStatus(): (typeof TradeStatus)[keyof typeof TradeStatus] {
   const TS: any = TradeStatus;
   return TXS.COMPLIANCE_REVIEW ?? TXS.APPROVED ?? TXS.FUNDS_RELEASED ?? null;
-  );
+  return TS.FULLY_EXECUTED ?? TS.ACCEPTED ?? TS.PENDING ?? TS.OFFERED;
+}
+
+function pickTxnAfterSellerSig(): (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
+  const TXS: any = TransactionStatus;
 }
 
 function pickTxnPendingBuyerSig(): (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
