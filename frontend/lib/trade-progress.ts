@@ -52,21 +52,21 @@ export function buildTradeProgressSteps(input: TradeProgressInput): TradeProgres
   const districtComplete = txStatus === "FUNDS_RELEASED";
   const districtActive = txStatus === "APPROVED";
 
-  const sellerDescription = sellerSigned
-    ? "Seller signature received."
-    : sellerRequested
-    ? "Waiting for the seller to complete DocuSign."
-    : acceptedComplete
-    ? "Seller can sign the agreement now."
-    : "Seller signature begins once the offer is accepted.";
-
   const buyerDescription = buyerSigned
     ? "Buyer signature received."
     : buyerRequested
     ? "Waiting for the buyer to complete DocuSign."
-    : sellerSigned
-    ? "Buyer will be invited to sign next."
-    : "Buyer signature begins after the seller signs.";
+    : acceptedComplete
+    ? "Buyer can sign the agreement now."
+    : "Buyer signature begins once the offer is accepted.";
+
+  const sellerDescription = sellerSigned
+    ? "Seller signature received."
+    : sellerRequested
+    ? "Waiting for the seller to complete DocuSign."
+    : buyerSigned
+    ? "Seller will be invited to sign next."
+    : "Seller signs after the buyer completes their signature.";
 
   let adminDescription = "Water Traders reviews the agreement after both signatures.";
   if (adminActive) adminDescription = "Water Traders compliance team is reviewing the agreement.";
@@ -86,8 +86,8 @@ export function buildTradeProgressSteps(input: TradeProgressInput): TradeProgres
       acceptedComplete,
       state
     ),
-    toStep("seller-signature", "Seller signature", sellerDescription, sellerSigned, state),
     toStep("buyer-signature", "Buyer signature", buyerDescription, buyerSigned, state),
+    toStep("seller-signature", "Seller signature", sellerDescription, sellerSigned, state),
     toStep("admin-review", "Admin approval", adminDescription, adminComplete || districtComplete, state),
     toStep("district", "Water district confirmation", districtDescription, districtComplete, state),
   ];
