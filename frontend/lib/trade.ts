@@ -460,7 +460,7 @@ async function createDocuSignEnvelope(trade: any) {
   signerSeller.name = name;
   signerSeller.recipientId = "1";
   signerSeller.clientUserId = sellerClientUserId;
-  signerSeller.routingOrder = "1";
+  signerSeller.routingOrder = "2";
   signerSeller.tabs = sellerTabs;
 
   const buyerContact = await getBuyerNameEmail(trade as Trade);
