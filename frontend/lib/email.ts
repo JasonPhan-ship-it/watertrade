@@ -12,8 +12,11 @@
  *  - renderDocsKickoffEmail
  *  - renderSellerDocsReadyPurchasedEmail   <-- For Buy Now SELLER
  *  - renderSellerNeedsSignatureEmail
+ *  - renderBuyerSignatureRequestEmail
  *  - renderBuyerSignedAckEmail
  *  - renderFullyExecutedEmail
+ *  - renderDistrictApprovalEmail
+ *  - renderBuyerPaymentRequestEmail
  *  - renderBuyerPurchasedEmail             <-- NEW For Buy Now BUYER
  *  - sendPurchaseEmails                    <-- NEW One-call helper
  */
@@ -121,6 +124,19 @@ function coerceSellerSignLink(signLink: string): string {
 
   if (txId) {
     return appUrl(`/api/sign-url?id=${txId}&role=seller&redirect=1`);
+  }
+  return signLink;
+}
+
+function coerceBuyerSignLink(signLink: string): string {
+  const txId =
+    extractTxIdFromUrl(signLink) ||
+    signLink.split("tx=").pop()?.split("&")[0] ||
+    signLink.split("id=").pop()?.split("&")[0] ||
+    "";
+
+  if (txId) {
+    return appUrl(`/api/sign-url?id=${txId}&role=buyer&redirect=1`);
   }
   return signLink;
 }
@@ -635,6 +651,40 @@ export function renderSellerNeedsSignatureEmail(params: {
   return { html, preheader: "Your signature is requested." };
 }
 
+export function renderBuyerSignatureRequestEmail(params: {
+  buyerName?: string | null;
+  sellerName?: string | null;
+  offer: OfferSummary;
+  signLink: string;
+  viewLink?: string;
+}) {
+  const { buyerName, sellerName, offer, signLink, viewLink } = params;
+  const safeSignLink = coerceBuyerSignLink(signLink);
+
+  const html = renderEmailLayout({
+    title: "Review & sign to lock in your purchase",
+    subtitle: buyerName ? `Hi ${buyerName}, please sign to continue.` : "Please sign to continue.",
+    intro: sellerName
+      ? `${sellerName} will be notified after you sign. We’ll email you at each step.`
+      : "We’ll notify the seller after you sign. We’ll email you at each step.",
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: [
+      { label: "Review & Sign", href: safeSignLink, primary: true },
+      ...(viewLink ? [{ label: "View Details", href: viewLink }] : []),
+    ],
+    logoUrl: DEFAULT_LOGO,
+  });
+
+  return { html, preheader: "Please sign to continue your purchase." };
+}
+
 /** BUYER → immediate acknowledgement after signing (your webhook may attach the PDF) */
 export function renderBuyerSignedAckEmail(params: {
   buyerName?: string | null;
@@ -699,6 +749,67 @@ export function renderFullyExecutedEmail(params: {
     logoUrl: DEFAULT_LOGO,
   });
   return { html, preheader: "Fully executed agreement attached." };
+}
+
+export function renderDistrictApprovalEmail(params: {
+  districtName?: string | null;
+  offer: OfferSummary;
+  viewLink?: string;
+}) {
+  const { districtName, offer, viewLink } = params;
+  const html = renderEmailLayout({
+    title: "Water transfer ready for district review",
+    subtitle: districtName
+      ? `${districtName}, please review the attached agreement.`
+      : "Please review the attached agreement.",
+    intro:
+      "Buyer and seller have signed the agreement. Please review the attached documents and confirm the transfer in your system.",
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: viewLink ? [{ label: "View in Water Traders", href: viewLink, primary: true }] : [],
+    footerNote: "The fully executed agreement is attached to this email.",
+    logoUrl: DEFAULT_LOGO,
+  });
+
+  return { html, preheader: "District review requested." };
+}
+
+export function renderBuyerPaymentRequestEmail(params: {
+  buyerName?: string | null;
+  sellerName?: string | null;
+  offer: OfferSummary;
+  paymentLink: string;
+  viewLink?: string;
+}) {
+  const { buyerName, sellerName, offer, paymentLink, viewLink } = params;
+  const html = renderEmailLayout({
+    title: "Action needed: transfer funds",
+    subtitle: buyerName ? `Hi ${buyerName}, the district has approved.` : "The district has approved.",
+    intro: sellerName
+      ? `${sellerName} has been notified. Please transfer the funds via Stripe Connect to complete the trade.`
+      : "Please transfer the funds via Stripe Connect to complete the trade.",
+    keyValues: [
+      { label: "Listing", value: offer.listingTitle },
+      { label: "District", value: offer.district },
+      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
+      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
+      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+      ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
+    ],
+    ctas: [
+      { label: "Transfer via Stripe Connect", href: paymentLink, primary: true },
+      ...(viewLink ? [{ label: "View Trade", href: viewLink }] : []),
+    ],
+    logoUrl: DEFAULT_LOGO,
+  });
+
+  return { html, preheader: "Transfer funds to finish the trade." };
 }
 
 /* ---------------- BUY NOW: Buyer receipt (NEW) ---------------- */
