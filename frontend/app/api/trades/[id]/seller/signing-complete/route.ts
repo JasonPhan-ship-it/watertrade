@@ -3,21 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { SignatureProgress, TradeStatus, TransactionStatus } from "@prisma/client";
 import { clerkClient } from "@clerk/nextjs/server";
 
-import { appUrl, renderBuyerAcceptedEmail, sendEmail } from "@/lib/email";
+import { appUrl, sendEmail } from "@/lib/email";
 import { prisma } from "@/lib/prisma";
-import { createBuyerSignatureLink } from "@/lib/trade";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function pickAcceptedPendingBuyerStatus(): (typeof TradeStatus)[keyof typeof TradeStatus] {
+function pickTxnAfterSellerSig(): (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
   const TS: any = TradeStatus;
-  return (
-    TS.ACCEPTED_PENDING_BUYER_SIGNATURE ??
-    TS.ACCEPTED_PENDING_SIGNATURE ??
-    TS.ACCEPTED ??
-    TS.PENDING ??
-    TS.OFFERED
+  return TXS.COMPLIANCE_REVIEW ?? TXS.APPROVED ?? TXS.FUNDS_RELEASED ?? null;
   );
 }
 
@@ -83,15 +77,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const buyerSignLink = await createBuyerSignatureLink(trade.id, trade.buyerToken);
-
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
-        status: pickAcceptedPendingBuyerStatus(),
+        status: pickFullyExecutedStatus(),
         sellerSignStatus: SignatureProgress.SIGNED,
-        buyerSignStatus: SignatureProgress.REQUESTED,
-        buyerSignUrl: buyerSignLink,
+        buyerSignStatus: SignatureProgress.SIGNED,
+        buyerSignUrl: null,
+        sellerSignUrl: null,
         events: {
           create: {
             id: randomUUID(),
@@ -122,9 +115,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     if (updated.transactionId) {
       try {
-        const nextStatus = pickTxnPendingBuyerSig();
+        const nextStatus = pickTxnAfterSellerSig();
         const updateData: any = {
-          buyerSignUrl: buyerSignLink,
+          buyerSignUrl: null,
           sellerSignUrl: null,
         };
         if (nextStatus) {
@@ -153,18 +146,21 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       windowLabel: trade.windowLabel ?? undefined,
     };
 
+    const tradeLinkSeller = appUrl(
+      `/t/${updated.id}?role=seller${updated.sellerToken ? `&token=${updated.sellerToken}` : ""}&action=seller-signature-complete`
+    );
+    const tradeLinkBuyer = appUrl(
+      `/t/${updated.id}?role=buyer${updated.buyerToken ? `&token=${updated.buyerToken}` : ""}&action=seller-signature-complete`
+    );
+
     if (buyerEmail) {
-      const { html, preheader } = renderBuyerAcceptedEmail({
-        buyerName: buyerName || "Buyer",
-        sellerName: sellerName || "Seller",
-        offer: offerSummary,
-        signLink: buyerSignLink,
-        viewLink: appUrl(
-          `/t/${updated.id}?role=buyer${updated.buyerToken ? `&token=${updated.buyerToken}` : ""}&action=awaiting-buyer-signature`
-        ),
-      });
+      const html = `
+        <p>Hi ${buyerName || "Buyer"},</p>
+        <p>The seller has signed. Our compliance team will review the agreement next.</p>
+        <p>You can monitor progress here: <a href="${tradeLinkBuyer}">${tradeLinkBuyer}</a></p>
+      `;
       try {
-        await sendEmail({ to: buyerEmail, subject: "Seller signed — your turn to sign", html, preheader });
+        await sendEmail({ to: buyerEmail, subject: "Seller signed — pending admin review", html });
       } catch (err) {
         console.warn("[seller/signing-complete] sendEmail buyer failed", (err as any)?.message);
       }
@@ -173,15 +169,35 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (sellerEmail) {
       const html = `
         <p>Hi ${sellerName || "Seller"},</p>
-        <p>Thanks for signing the agreement. We’ve alerted the buyer to sign next.</p>
-        <p>You can monitor progress <a href="${appUrl(`/t/${updated.id}?role=seller${
-          updated.sellerToken ? `&token=${updated.sellerToken}` : ""
-        }`)}">on Water Traders</a>.</p>
+        <p>We’ve captured your signature and notified the buyer. Our compliance team will review the agreement next.</p>
+        <p>Track progress here: <a href="${tradeLinkSeller}">${tradeLinkSeller}</a></p>
       `;
       try {
-        await sendEmail({ to: sellerEmail, subject: "Signature captured — awaiting buyer", html });
+        await sendEmail({ to: sellerEmail, subject: "Signature captured — pending admin review", html });
       } catch (err) {
         console.warn("[seller/signing-complete] sendEmail seller failed", (err as any)?.message);
+      }
+    }
+
+    const adminRecipients = (process.env.ADMIN_NOTIFICATIONS_EMAIL || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (adminRecipients.length) {
+      const html = `
+        <p>Trade ${updated.id} is fully signed and ready for compliance review.</p>
+        <ul>
+          <li>District: ${offerSummary.district}</li>
+          <li>Water type: ${offerSummary.waterType ?? "—"}</li>
+          <li>Volume (AF): ${offerSummary.volumeAf}</li>
+          <li>Price/AF: $${(offerSummary.pricePerAf / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</li>
+        </ul>
+        <p><a href="${tradeLinkSeller}">View trade in Water Traders</a></p>
+      `;
+      try {
+        await sendEmail({ to: adminRecipients, subject: `Trade ${updated.id} ready for compliance review`, html });
+      } catch (err) {
+        console.warn("[seller/signing-complete] admin email failed", (err as any)?.message);
       }
     }
 
