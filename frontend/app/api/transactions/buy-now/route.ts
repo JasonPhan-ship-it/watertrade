@@ -6,9 +6,12 @@ import {
   ListingStatus,
   TransactionType,
   TransactionStatus,
+  TradeStatus,
+  SignatureProgress,
   Prisma,
 } from "@prisma/client";
-import { appUrl, sendEmail, renderSellerDocsReadyPurchasedEmail } from "@/lib/email";
+import { appUrl, sendEmail, renderBuyerSignatureRequestEmail } from "@/lib/email";
+import { createBuyerSignatureLink, ensureTradeFromAnyIdOrCreate } from "@/lib/trade";
 
 export const runtime = "nodejs";
 
@@ -160,46 +163,91 @@ export async function POST(req: NextRequest) {
       select: { name: true, email: true },
     });
 
-    // 8) Fire seller email with DocuSign redirect CTA (best-effort; do not block API)
-    if (seller?.email) {
-      try {
-        const signLink = appUrl(`/api/signing/seller?tx=${tx.id}`); // ✅ goes to DocuSign
-        const viewLink = appUrl(`/transactions/${tx.id}`);
+    // 8) Ensure a trade exists so we can manage signing state
+    const trade = await ensureTradeFromAnyIdOrCreate(tx.id);
+    if (!trade) {
+      throw new HttpError(500, "Unable to initialize trade for transaction");
+    }
 
-        const { html, preheader } = renderSellerDocsReadyPurchasedEmail({
-          sellerName: seller.name ?? undefined,
-          buyerName: buyer.name || buyer.email || undefined,
+    const buyerSignLink = await createBuyerSignatureLink(trade.id, (trade as any).buyerToken);
+
+    await prisma.trade
+      .update({
+        where: { id: trade.id },
+        data: {
+          status: TradeStatus.ACCEPTED_PENDING_BUYER_SIGNATURE,
+          buyerSignStatus: SignatureProgress.REQUESTED,
+          sellerSignStatus: SignatureProgress.NONE,
+          buyerSignUrl: buyerSignLink,
+          sellerSignUrl: null,
+          events: {
+            create: {
+              actor: "buyer",
+              kind: "BUY_NOW_INITIATED",
+              payload: {
+                previousStatus: (trade as any).status,
+                buyerSignStatus: (trade as any).buyerSignStatus,
+                sellerSignStatus: (trade as any).sellerSignStatus,
+              },
+            },
+          },
+        },
+      })
+      .catch((err) => {
+        console.warn("[buy-now] failed to update trade state", err);
+      });
+
+    await prisma.transaction
+      .update({
+        where: { id: tx.id },
+        data: {
+          status: TransactionStatus.PENDING_BUYER_SIGNATURE,
+          buyerSignUrl: buyerSignLink,
+          sellerSignUrl: null,
+        },
+      })
+      .catch((err) => {
+        console.warn("[buy-now] failed to update transaction state", err);
+      });
+
+    // 9) Email buyer with DocuSign link (best-effort)
+    if (buyer.email) {
+      try {
+        const buyerViewLink = appUrl(
+          `/t/${trade.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=awaiting-buyer-signature`
+        );
+        const { html, preheader } = renderBuyerSignatureRequestEmail({
+          buyerName: buyer.name ?? undefined,
+          sellerName: seller?.name ?? undefined,
           offer: {
             listingTitle: listing.title || "Water sale",
-            district: (listing as any).districtName || "",           // if you have it
-            waterType: (listing as any).waterType || undefined,      // if you have it
+            district: (listing as any).districtName || "",
+            waterType: (listing as any).waterType || undefined,
             volumeAf: acreFeet,
-            pricePerAf: pricePerAF,                                   // cents
-            windowLabel: (listing as any).windowLabel || undefined,   // if you have it
+            pricePerAf: pricePerAF,
+            windowLabel: (listing as any).windowLabel || undefined,
           },
-          signLink,   // 👈 IMPORTANT: DocuSign redirector endpoint
-          viewLink,   // secondary
+          signLink: appUrl(`/api/signing/buyer?tx=${tx.id}`),
+          viewLink: buyerViewLink,
         });
 
         await sendEmail({
-          to: seller.email,
-          subject: "Buyer purchased at your set price — documents ready to sign",
+          to: buyer.email,
+          subject: "Please sign to confirm your purchase",
           html,
           preheader,
         });
       } catch (err) {
-        console.error("[buy-now] seller email failed (non-fatal):", err);
+        console.error("[buy-now] buyer email failed (non-fatal):", err);
       }
-    } else {
-      console.warn("[buy-now] seller has no email; skipped seller notification for tx", tx.id);
     }
 
-    // 9) Respond as before
+    // 10) Respond with transaction + signing link
     const res = NextResponse.json(
-      { id: tx.id, acreFeet, pricePerAF, totalAmount },
+      { id: tx.id, acreFeet, pricePerAF, totalAmount, signUrl: buyerSignLink },
       { status: 201 }
     );
-    res.headers.set("Location", `/transactions/${tx.id}?action=review`);
+    res.headers.set("Location", `/t/${trade.id}?role=buyer&action=awaiting-buyer-signature`);
     return res;
   } catch (e: any) {
     if (e instanceof HttpError) {
