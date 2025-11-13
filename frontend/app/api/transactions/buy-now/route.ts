@@ -132,7 +132,9 @@ export async function POST(req: NextRequest) {
           totalAmount,
           buyerWaterAccount:
             buyerWaterAccount || listingRow.buyerWaterAccount || null,
-          sellerFarmId: listingRow.sellerFarmId ?? null,
+          sellerFarm: listingRow.sellerFarmId
+            ? { connect: { id: listingRow.sellerFarmId } }
+            : undefined,
         },
         select: {
           id: true,
