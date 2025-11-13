@@ -173,12 +173,14 @@ export default async function Page({ params, searchParams }: PageProps) {
             logError(authErr, "resolve buyer in fallback failed");
           }
 
-          const baseData: PrismaTypes.TransactionUpdateInput = {
+          const baseData: PrismaTypes.TransactionUpdateInput &
+            Record<string, unknown> = {
             ...(buyerId ? { buyer: { connect: { id: buyerId } } } : {}),
             status: mapped ? { set: mapped as any } : undefined,
           };
 
-          const dataWithPurchasedAt: PrismaTypes.TransactionUpdateInput = {
+          const dataWithPurchasedAt: PrismaTypes.TransactionUpdateInput &
+            Record<string, unknown> = {
             ...baseData,
             purchasedAt: new Date(),
           };
