@@ -874,20 +874,12 @@ export default function DashboardPage() {
                                   View Details
                                 </Link>
                               ) : (
-                                <div className="inline-flex gap-2">
-                                  <Link
-                                    href={`/listings/${l.id}`}
-                                    className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                                  >
-                                    View
-                                  </Link>
-                                  <Link
-                                    href={`/listings/${l.id}/edit`}
-                                    className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                                  >
-                                    Edit
-                                  </Link>
-                                </div>
+                                <Link
+                                  href={`/listings/${l.id}/edit`}
+                                  className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                >
+                                  Edit
+                                </Link>
                               )}
                             </Td>
                           </tr>
