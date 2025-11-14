@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { DEFAULT_WATER_TRADER_FEE_RATE } from "@/lib/site-settings/defaults";
 
 /* ---------------- Onboarding Gate (client-only, stable hooks) ---------------- */
 function useOnboardedGate() {
@@ -209,6 +210,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [westlandsBalance, setWestlandsBalance] = useState<WestlandsBalance | null>(null);
   const [westlandsLoading, setWestlandsLoading] = useState<boolean>(false);
+  const [feeRate, setFeeRate] = useState<number>(DEFAULT_WATER_TRADER_FEE_RATE);
 
     useEffect(() => {
     if (!isSignedIn) {
@@ -484,6 +486,34 @@ export default function DashboardPage() {
     return { amount, updated, breakdown };
   }, [westlandsBalance]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFee() {
+      try {
+        const res = await fetch("/api/site-settings/water-trader-fee", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const json = (await res.json().catch(() => null)) as { value?: { rate?: number } } | null;
+        const rate = json?.value?.rate;
+        if (
+          !cancelled &&
+          typeof rate === "number" &&
+          Number.isFinite(rate) &&
+          rate >= 0
+        ) {
+          setFeeRate(rate);
+        }
+      } catch {
+        // Ignore fetch errors and keep default fee rate
+      }
+    }
+
+    loadFee();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  
   if (checking) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -501,6 +531,10 @@ export default function DashboardPage() {
 
   const listingRows = isListingsResponse(data) ? data.listings : [];
   const tradeRows = isTradesResponse(data) ? data.trades : [];
+  const normalizedFeeRate =
+    typeof feeRate === "number" && Number.isFinite(feeRate) && feeRate >= 0
+      ? feeRate
+      : DEFAULT_WATER_TRADER_FEE_RATE;
   const showHeaderCreateButton = scope !== "trades" && !nocreate && listingRows.length > 0;
   const totalCount = data?.total ?? 0;
   const totalAf =
@@ -510,13 +544,16 @@ export default function DashboardPage() {
           (s, l) => s + (scope === "market" ? l.availableAf ?? l.acreFeet : l.acreFeet),
           0
         );
-  const avgPriceRaw =
+  const avgPriceWithFee =
     scope === "trades"
       ? tradeRows.length > 0
         ? tradeRows.reduce((s, t) => s + (t.pricePerAf ?? 0), 0) / tradeRows.length
         : 0
       : listingRows.length > 0
-        ? listingRows.reduce((s, l) => s + l.pricePerAf, 0) / listingRows.length
+        ? listingRows.reduce(
+            (s, l) => s + l.pricePerAf * (1 + normalizedFeeRate),
+            0,
+          ) / listingRows.length
         : 0;
   const tradeAwaiting =
     scope === "trades" ? tradeRows.filter((t) => tradeNeedsAction(t)).length : 0;
@@ -561,12 +598,21 @@ export default function DashboardPage() {
       : [
           { label: scope === "market" ? "Active Listings" : "Your Listings", value: String(totalCount) },
           { label: "Total Acre-Feet", value: formatInt(totalAf) },
-          { label: "Avg $/AF", value: avgPriceRaw ? formatCurrency(avgPriceRaw) : "$0.00" },
+          { label: avgPriceLabel, value: avgPriceWithFee ? formatCurrency(avgPriceWithFee) : "$0.00" },
         ];
   const tableTitle =
     scope === "market" ? "Listings" : scope === "mine" ? "Your Listings" : "Your Trades";
   const totalLabel =
     scope === "market" ? "listings" : scope === "mine" ? "your listings" : "trades";
+  const priceColumnLabel =
+    normalizedFeeRate > 0 ? "$ / AF (incl. fee)" : "$ / AF";
+  const avgPriceLabel =
+    scope === "trades" ? "Avg $/AF" : normalizedFeeRate > 0 ? "Avg $/AF (incl. fee)" : "Avg $/AF";
+  const feePercentLabel = (normalizedFeeRate * 100).toLocaleString("en-US", {
+    minimumFractionDigits: normalizedFeeRate > 0 && normalizedFeeRate < 0.01 ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
+  const showFeeDetails = normalizedFeeRate > 0;
   
   return (
     <div className="min-h-screen bg-slate-50">
@@ -766,7 +812,7 @@ export default function DashboardPage() {
                           onClick={() => onSort("acreFeet")}
                         />
                         <Th
-                          label="$ / AF"
+                          label={priceColumnLabel}
                           align="right"
                           active={sortBy === "pricePerAf"}
                           dir={sortDir}
@@ -783,49 +829,65 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {listingRows.map((l) => (
-                        <tr key={l.id} className="border-t border-slate-100">
-                          <Td>{l.district}</Td>
-                          <Td align="right">{formatInt(l.acreFeet)}</Td>
-                          <Td align="right">
-                            {formatInt(l.acreFeet)}
-                            {l.inEscrowAf && l.inEscrowAf > 0 ? (
-                              <div className="mt-1 text-[11px] text-amber-700">
-                                {formatInt(l.availableAf ?? Math.max(l.acreFeet - l.inEscrowAf, 0))} AF available · {formatInt(l.inEscrowAf)} AF in escrow
-                              </div>
-                            ) : null}
-                          </Td>                          <Td>
-                            <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
-                              {l.waterType}
-                            </span>
-                          </Td>
-                          <Td align="center">
-                            {scope === "market" ? (
-                              <Link
-                                href={`/listings/${l.id}`}
-                                className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                View Details
-                              </Link>
-                            ) : (
-                              <div className="inline-flex gap-2">
+                      {listingRows.map((l) => {
+                        const availableAf =
+                          l.availableAf ?? Math.max(l.acreFeet - (l.inEscrowAf ?? 0), 0);
+                        const basePrice = l.pricePerAf ?? 0;
+                        const feePerAfValue = basePrice * normalizedFeeRate;
+                        const priceWithFee = basePrice + feePerAfValue;
+
+                        return (
+                          <tr key={l.id} className="border-t border-slate-100">
+                            <Td>{l.district}</Td>
+                            <Td align="right">
+                              <div className="font-semibold text-slate-900">{formatInt(l.acreFeet)}</div>
+                              {l.inEscrowAf && l.inEscrowAf > 0 ? (
+                                <div className="mt-1 text-[11px] text-amber-700">
+                                  {formatInt(availableAf)} AF available · {formatInt(l.inEscrowAf)} AF in escrow
+                                </div>
+                              ) : null}
+                            </Td>
+                            <Td align="right">
+                              <div className="font-semibold text-slate-900">{formatCurrency(priceWithFee)}</div>
+                              {showFeeDetails ? (
+                                <div className="mt-1 text-[11px] text-slate-500">
+                                  Includes {formatCurrency(feePerAfValue)} Water Trader fee ({feePercentLabel}%)
+                                </div>
+                              ) : null}
+                            </Td>
+                            <Td>
+                              <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
+                                {l.waterType}
+                              </span>
+                            </Td>
+                            <Td align="center">
+                              {scope === "market" ? (
                                 <Link
                                   href={`/listings/${l.id}`}
                                   className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                                 >
-                                  View
+                                  View Details
                                 </Link>
-                                <Link
-                                  href={`/listings/${l.id}/edit`}
-                                  className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                                >
-                                  Edit
-                                </Link>
-                              </div>
-                            )}
-                          </Td>
-                        </tr>
-                      ))}
+                              ) : (
+                                <div className="inline-flex gap-2">
+                                  <Link
+                                    href={`/listings/${l.id}`}
+                                    className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                  >
+                                    View
+                                  </Link>
+                                  <Link
+                                    href={`/listings/${l.id}/edit`}
+                                    className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                  >
+                                    Edit
+                                  </Link>
+                                </div>
+                              )}
+                            </Td>
+                          </tr>
+                        );
+                      })}
                       {listingRows.length === 0 && (
                         <tr>
                           <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
