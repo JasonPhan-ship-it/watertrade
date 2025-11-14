@@ -58,8 +58,6 @@ type HandleOptions = {
 
 async function handle(req: NextRequest, params: { id: string }, opts: HandleOptions = {}) {
   const respondWithJson = opts.respondWithJson ?? false;
-
-async function handle(req: NextRequest, params: { id: string }) {
   const id = (params.id || "").trim();
   if (!id) {
     return NextResponse.json({ error: "Missing trade id" }, { status: 400 });
