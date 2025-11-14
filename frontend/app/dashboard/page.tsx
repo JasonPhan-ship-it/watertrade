@@ -203,12 +203,59 @@ export default function DashboardPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
-  const [premium] = useState<boolean>(false);
+  const [premium, setPremium] = useState<boolean>(Boolean(user?.publicMetadata?.premium));
   const [data, setData] = useState<ApiResponse | TradesApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [westlandsBalance, setWestlandsBalance] = useState<WestlandsBalance | null>(null);
   const [westlandsLoading, setWestlandsLoading] = useState<boolean>(false);
+
+    useEffect(() => {
+    if (!isSignedIn) {
+      setPremium(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshPremium = async () => {
+      try {
+        const response = await fetch("/api/subscription/status", {
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to load subscription status (${response.status})`);
+        }
+
+        const payload = await response.json();
+        if (!cancelled) {
+          setPremium(Boolean(payload?.isPremium ?? payload?.plan === "premium"));
+        }
+      } catch (error) {
+        console.warn("Unable to refresh premium status", error);
+        if (!cancelled) {
+          setPremium(Boolean(user?.publicMetadata?.premium));
+        }
+      }
+    };
+
+    refreshPremium();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshPremium();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isSignedIn, user?.publicMetadata?.premium]);
 
   const refreshWestlandsBalance = useCallback(async () => {
     if (!isSignedIn) {
