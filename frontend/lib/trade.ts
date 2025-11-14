@@ -275,6 +275,7 @@ function buildDocuSignSellerHtml(args: {
   listing: any;
   buyerAccount: string;
   sellerFarmLabel: string;
+  sellerFarmAccountNumber: string;
   sellerName: string;
   sellerEntity: string;
   buyerName: string;
@@ -287,6 +288,7 @@ function buildDocuSignSellerHtml(args: {
     listing,
     buyerAccount,
     sellerFarmLabel,
+    sellerFarmAccountNumber,
     sellerName,
     sellerEntity,
     buyerName,
@@ -305,8 +307,10 @@ function buildDocuSignSellerHtml(args: {
 
   const partyRows = [
     { label: "Seller name", value: sellerName },
+    { label: "Seller farm account #", value: sellerFarmAccountNumber },
     { label: "Seller entity", value: sellerEntity },
     { label: "Buyer name", value: buyerName },
+    { label: "Buyer water account #", value: buyerAccount },
     { label: "Buyer entity", value: buyerEntity },
   ];
 
@@ -322,7 +326,6 @@ function buildDocuSignSellerHtml(args: {
     { label: "Price / AF", value: pricePerAfDollars ? formatUsd(pricePerAfDollars) : "" },
     { label: "Estimated value", value: totalValue ? formatUsd(totalValue) : "" },
     { label: "Seller farm", value: sellerFarmLabel },
-    { label: "Buyer water account #", value: buyerAccount },
   ];
 
   function buildTableRows(rows: { label: string; value: string }[]) {
@@ -380,6 +383,13 @@ async function createDocuSignEnvelope(trade: any) {
   const transaction = trade?.transaction || {};
   const sellerFarm = listing?.sellerFarm || null;
   const docuSignDefaults = await getSiteSetting("docuSignDefaults");
+  const sellerFarmAccountNumberRaw =
+    (sellerFarm?.accountNumber as string | number | undefined) ??
+    (docuSignDefaults?.sellerFarmAccountNumber as string | number | undefined) ??
+    "";
+  const sellerFarmAccountNumber = String(
+    sellerFarmAccountNumberRaw == null ? "" : sellerFarmAccountNumberRaw,
+  ).trim();
   const sellerFarmLabel = sellerFarm
     ? [sellerFarm.name, sellerFarm.accountNumber ? `#${sellerFarm.accountNumber}` : null].filter(Boolean).join(" ")
     : "";
@@ -416,6 +426,7 @@ async function createDocuSignEnvelope(trade: any) {
     listing,
     buyerAccount,
     sellerFarmLabel,
+    sellerFarmAccountNumber,
     sellerName,
     sellerEntity,
     buyerName,
@@ -460,7 +471,7 @@ async function createDocuSignEnvelope(trade: any) {
   signerSeller.name = name;
   signerSeller.recipientId = "1";
   signerSeller.clientUserId = sellerClientUserId;
-  signerSeller.routingOrder = "2";
+  signerSeller.routingOrder = "1";
   signerSeller.tabs = sellerTabs;
 
   const buyerContact = await getBuyerNameEmail(trade as Trade);
