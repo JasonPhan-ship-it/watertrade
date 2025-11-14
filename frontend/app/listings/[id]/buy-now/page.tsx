@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getSiteSetting } from "@/lib/site-settings";
+import { DEFAULT_WATER_TRADER_FEE_RATE } from "@/lib/site-settings/defaults";
 
 import BuyNowConfirmClient from "./ConfirmClient";
 
@@ -43,9 +45,26 @@ export default async function BuyNowConfirmationPage({ params, searchParams }: P
     notFound();
   }
 
+  const waterTraderFee = await getSiteSetting("waterTraderFee");
+
+  const normalizedFeeRate =
+    typeof waterTraderFee?.rate === "number" &&
+    Number.isFinite(waterTraderFee.rate) &&
+    waterTraderFee.rate >= 0
+      ? waterTraderFee.rate
+      : DEFAULT_WATER_TRADER_FEE_RATE;
+
   const pricePerAfDollars = Number(listing.pricePerAF ?? 0) / 100;
   const acreFeet = Math.max(1, Math.floor(Number(listing.acreFeet) || 1));
   const total = pricePerAfDollars * acreFeet;
+  const feePerAf = pricePerAfDollars * normalizedFeeRate;
+  const feeTotal = feePerAf * acreFeet;
+  const marketplacePricePerAf = pricePerAfDollars + feePerAf;
+  const marketplaceTotal = total + feeTotal;
+  const feePercentLabel = (normalizedFeeRate * 100).toLocaleString("en-US", {
+    minimumFractionDigits: normalizedFeeRate > 0 && normalizedFeeRate < 0.01 ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
 
   const listingHref = `/listings/${listing.id}`;
 
@@ -88,12 +107,30 @@ export default async function BuyNowConfirmationPage({ params, searchParams }: P
             <dd className="mt-2 text-base font-semibold text-slate-900">{formatAcreFeet(acreFeet)} AF</dd>
           </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Price per AF</dt>
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Listing price per AF</dt>
             <dd className="mt-2 text-base font-semibold text-slate-900">{formatCurrency(pricePerAfDollars)}</dd>
           </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <dt className="text-xs uppercase tracking-wide text-slate-500">
+              Water Trader fee ({feePercentLabel}%)
+            </dt>
+            <dd className="mt-2 text-base font-semibold text-slate-900">{formatCurrency(feePerAf)}</dd>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Marketplace price per AF</dt>
+            <dd className="mt-2 text-base font-semibold text-slate-900">{formatCurrency(marketplacePricePerAf)}</dd>
+          </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 sm:col-span-2">
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Total contract value</dt>
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Subtotal (before fee)</dt>
             <dd className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(total)}</dd>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 sm:col-span-2">
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Water Trader fee total</dt>
+            <dd className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(feeTotal)}</dd>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 sm:col-span-2">
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Total due (incl. fee)</dt>
+            <dd className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(marketplaceTotal)}</dd>
           </div>
           {buyerWaterAccount ? (
             <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 sm:col-span-2">
