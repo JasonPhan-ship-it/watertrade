@@ -13,7 +13,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const { userId, role } = await req.json();
   if (!userId || !role) return NextResponse.json({ error: "Missing userId or role" }, { status: 400 });
   if (!["USER", "ADMIN"].includes(role)) return NextResponse.json({ error: "Invalid role" }, { status: 400 });
