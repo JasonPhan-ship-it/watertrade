@@ -587,6 +587,13 @@ export default function DashboardPage() {
 
   const viewerRole = data?.viewerRole ?? null;
   const isAdmin = viewerRole === "ADMIN";
+
+  const avgPriceLabel =
+    scope === "trades"
+      ? "Avg $/AF"
+      : normalizedFeeRate > 0
+        ? "Avg $/AF (incl. fee)"
+        : "Avg $/AF";
   
   const stats =
     scope === "trades"
@@ -606,8 +613,6 @@ export default function DashboardPage() {
     scope === "market" ? "listings" : scope === "mine" ? "your listings" : "trades";
   const priceColumnLabel =
     normalizedFeeRate > 0 ? "$ / AF (incl. fee)" : "$ / AF";
-  const avgPriceLabel =
-    scope === "trades" ? "Avg $/AF" : normalizedFeeRate > 0 ? "Avg $/AF (incl. fee)" : "Avg $/AF";
   const feePercentLabel = (normalizedFeeRate * 100).toLocaleString("en-US", {
     minimumFractionDigits: normalizedFeeRate > 0 && normalizedFeeRate < 0.01 ? 2 : 0,
     maximumFractionDigits: 2,
