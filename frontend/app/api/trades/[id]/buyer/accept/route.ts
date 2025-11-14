@@ -4,18 +4,18 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { Party, TradeStatus, TransactionStatus } from "@prisma/client";
-import { getViewer, findTradeByAnyId } from "@/lib/trade";
+import { Party, SignatureProgress, TradeStatus, TransactionStatus } from "@prisma/client";
+import { getViewer, findTradeByAnyId, createBuyerSignatureLink } from "@/lib/trade";
 import { clerkClient } from "@clerk/nextjs/server";
 import { sendEmail, appUrl } from "@/lib/email";
-// If you already have this, import it. If not, add the helper (see TODO below).
-import { createSellerSignatureLink } from "@/lib/trade";
 
-/** Choose a valid Trade status for accepted/pending seller signature */
+/** Choose a valid Trade status for accepted/pending buyer signature */
 function pickAcceptedPendingTradeStatus():
   (typeof TradeStatus)[keyof typeof TradeStatus] {
   const TS: any = TradeStatus;
   return (
+    TS.ACCEPTED_PENDING_BUYER_SIGNATURE ??
+    TS.ACCEPTED_PENDING_SIGNATURE ??
     TS.ACCEPTED_PENDING_SELLER_SIGNATURE ??
     TS.ACCEPTED ??
     TS.PENDING ??
@@ -23,12 +23,12 @@ function pickAcceptedPendingTradeStatus():
   );
 }
 
-/** Choose a reasonable "pending seller signature" Transaction status */
-function pickTxnPendingSellerSig():
+/** Choose a reasonable "pending buyer signature" Transaction status */
+function pickTxnPendingBuyerSig():
   (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
   const TXS: any = TransactionStatus;
   return (
-    TXS.PENDING_SELLER_SIGNATURE ??
+    TXS.PENDING_BUYER_SIGNATURE ??
     TXS.PENDING_SIGNATURE ??
     TXS.PENDING ??
     TXS.ACCEPTED ??
@@ -69,6 +69,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         status: TRADE_ACCEPTED,
         lastActor: Party.BUYER,
         version: { increment: 1 },
+        buyerSignStatus: SignatureProgress.REQUESTED,
+        sellerSignStatus: SignatureProgress.NONE,
+        buyerSignUrl: null,
+        sellerSignUrl: null,
         events: {
           create: {
             actor: "buyer",
@@ -91,6 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         buyerUserId: true,
         sellerUserId: true,
         sellerToken: true,
+        buyerToken: true,
         windowLabel: true,
       },
     });
@@ -98,7 +103,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Sync Transaction status (best-effort)
     if (updated.transactionId) {
       try {
-        const pending = pickTxnPendingSellerSig();
+        const pending = pickTxnPendingBuyerSig();
         if (pending) {
           await prisma.transaction.update({
             where: { id: updated.transactionId },
@@ -110,19 +115,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Create SELLER signing link
-    let signLink: string | null = null;
+    // Create buyer signing link
+    let signLink = "";
     try {
-      // TODO: If you do not have createSellerSignatureLink yet, add a helper in lib/trade
-      // that mirrors createBuyerSignatureLink but uses the sellerToken and marks seller as signer[0].
-      signLink = await createSellerSignatureLink(updated.id, updated.sellerToken as any);
+      signLink = await createBuyerSignatureLink(updated.id, updated.buyerToken as any);
+      await prisma.trade.update({
+        where: { id: updated.id },
+        data: { buyerSignUrl: signLink, sellerSignUrl: null },
+      });
     } catch (e: any) {
       return NextResponse.json(
         {
-          error: "Failed to create seller sign URL",
+          error: "Failed to create buyer sign URL",
           details: e?.message || "Unknown error",
-          hint: "Check DROPBOX_SIGN_API_KEY / DROPBOX_SIGN_CLIENT_ID and sample file URL.",
+          hint: "Check DocuSign credentials or Dropbox Sign fallback configuration.",
         },
+        { status: 502 }
+      );
+    }
+
+    if (!signLink) {
+      return NextResponse.json(
+        { error: "Buyer sign URL missing", errorCode: "SIGN_URL_MISSING" },
         { status: 502 }
       );
     }
@@ -135,13 +149,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }),
       prisma.user.findUnique({
         where: { id: updated.sellerUserId || "" },
-        select: { email: true, name: true, clerkId: true },
+        select: { name: true, clerkId: true, email: true },
       }),
     ]);
 
     let buyerName = buyerLocal?.name || "Buyer";
+    let buyerEmail = buyerLocal?.email || "";
     let sellerName = sellerLocal?.name || "Seller";
     let sellerEmail = sellerLocal?.email || "";
+
+    if ((!buyerEmail || !buyerName) && buyerLocal?.clerkId) {
+      try {
+        const buyerClerk = await clerkClient.users.getUser(buyerLocal.clerkId);
+        buyerName = buyerName || buyerClerk.firstName || buyerClerk.username || buyerName;
+        buyerEmail =
+          buyerEmail ||
+          buyerClerk.emailAddresses?.find((e) => e.id === buyerClerk.primaryEmailAddressId)?.emailAddress ||
+          buyerClerk.emailAddresses?.[0]?.emailAddress ||
+          "";
+      } catch { /* non-fatal */ }
+    }
 
     if (!sellerEmail && sellerLocal?.clerkId) {
       try {
@@ -154,6 +181,37 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       } catch { /* non-fatal */ }
     }
 
+    if (buyerEmail) {
+      const buyerViewLink = appUrl(
+        `/t/${updated.id}?role=buyer${updated.buyerToken ? `&token=${updated.buyerToken}` : ""}&action=awaiting-buyer-signature`
+      );
+
+      const html = `
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5">
+          <h2 style="margin:0 0 12px">It’s time to sign</h2>
+          <p>Hello ${buyerName},</p>
+          <p>You accepted the seller’s terms. Please review and sign the transfer agreement so we can notify the seller.</p>
+          <p style="margin:16px 0">
+            <a href="${signLink}" style="display:inline-block;background:#0a6b58;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">
+              Review & Sign with DocuSign
+            </a>
+          </p>
+          <p style="font-size:14px;color:#334155">If the button doesn’t work, copy and paste this link:<br/>
+            <a href="${signLink}" style="color:#0a6b58">${signLink}</a>
+          </p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+          <p>You can also view the transaction here: <a href="${buyerViewLink}">${buyerViewLink}</a></p>
+        </div>
+      `;
+
+      await sendEmail({
+        to: buyerEmail,
+        subject: "Please sign the transfer agreement",
+        html,
+        preheader: "Review and sign to keep things moving.",
+      });
+    }
+
     if (sellerEmail) {
       // Minimal, robust HTML (use your template system if you prefer)
       const priceLabel = `$${(updated.pricePerAf / 100).toLocaleString(undefined, {
@@ -162,28 +220,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       })}/AF`;
 
       const viewLinkForSeller = appUrl(
-        `/t/${updated.id}?role=seller${updated.sellerToken ? `&token=${updated.sellerToken}` : ""}&action=review`
+        `/t/${updated.id}?role=seller${updated.sellerToken ? `&token=${updated.sellerToken}` : ""}&action=awaiting-buyer-signature`
       );
 
       const html = `
         <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5">
-          <h2 style="margin:0 0 12px">Action required: sign documents</h2>
+          <h2 style="margin:0 0 12px">Buyer accepted — awaiting signature</h2>
           <p>Hello ${sellerName},</p>
-          <p>${buyerName} accepted your terms. Please review and sign the agreement to proceed.</p>
+          <p>${buyerName} accepted your terms. We asked them to sign the agreement and will email you once it’s your turn.</p>
           <ul>
             <li><strong>District:</strong> ${updated.district || "—"}</li>
             <li><strong>Water:</strong> ${updated.waterType || "—"}</li>
             <li><strong>Volume:</strong> ${updated.volumeAf} AF</li>
             <li><strong>Price:</strong> ${priceLabel}</li>
           </ul>
-          <p>
-            <a href="${signLink}" style="display:inline-block;background:#0a6b58;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">
-              Review & Sign
-            </a>
-          </p>
-          <p>If the button doesn’t work, copy and paste this URL into your browser:<br/>
-            <a href="${signLink}">${signLink}</a>
-          </p>
           <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
           <p>You can also view this offer here: <a href="${viewLinkForSeller}">${viewLinkForSeller}</a></p>
         </div>
@@ -191,19 +241,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
       await sendEmail({
         to: sellerEmail,
-        subject: "Signature requested — buyer accepted",
+        subject: "Buyer accepted — awaiting buyer signature",
         html,
-        preheader: "Please review and sign to continue.",
+        preheader: "We’ll let you know when it’s time to sign.",
       });
     }
 
     // Friendly client hint/redirect
+    const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
+    const redirectUrl = new URL(`/t/${updated.id}`, base);
+    redirectUrl.searchParams.set("role", "buyer");
+    redirectUrl.searchParams.set("action", "awaiting-buyer-signature");
+    if ((trade as any).buyerToken) {
+      redirectUrl.searchParams.set("token", (trade as any).buyerToken);
+    }
+    
     return NextResponse.json({
       ok: true,
       tradeId: updated.id,
       status: updated.status,
-      message: "Awaiting seller signature",
-      signLink, // you might redirect the buyer to a “thanks” page instead
+      message: "Awaiting buyer signature",
+      signLink,
+      redirectUrl: redirectUrl.toString(),
     });
   } catch (e: any) {
     console.error("[trades/:id/buyer/accept] error", e);
