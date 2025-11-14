@@ -158,30 +158,12 @@ export default function ListingActions({
       }
       
       if (mode === "BUY_NOW" || mode === "SELL_NOW") {
-        const res = await fetch(`/api/transactions/buy-now`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ listingId, buyerWaterAccount: accountValue || undefined }),
-        });
-
-        let data: any = null;
-        const ct = res.headers.get("content-type") || "";
-        if (ct.includes("application/json")) data = await res.json().catch(() => ({} as any));
-        else data = await res.text().catch(() => "");
-
-        if (!res.ok) {
-          const msg = (typeof data === "string" ? data : data?.error) || "Failed to start Buy Now";
-          throw new Error(msg);
+        const params = new URLSearchParams();
+        params.set("mode", mode);
+        if (accountValue) {
+          params.set("buyerWaterAccount", accountValue);
         }
-
-        const location = res.headers.get("Location");
-        if (location) router.push(location);
-        else {
-          const id = typeof data === "object" ? data?.id : undefined;
-          if (!id) throw new Error("Missing transaction id from server.");
-          router.push(`/transactions/${id}?action=review`);
-        }
+        router.push(`/listings/${listingId}/buy-now?${params.toString()}`);
         return;
       }
 
