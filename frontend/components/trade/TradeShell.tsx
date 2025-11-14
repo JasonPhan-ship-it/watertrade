@@ -220,6 +220,7 @@ export default async function TradeShell(props: Props) {
       tradeStatusRaw.startsWith("ACCEPTED") ||
       tradeStatusRaw === "FULLY_EXECUTED" ||
       sellerSignReady;
+    const sellerAwaitingBuyer = sellerHasAccepted && buyerSignRequested && !sellerSignRequested;
     
     // endpoints
     const idForActions = tradeIdLinked || tx.id;
@@ -415,7 +416,9 @@ export default async function TradeShell(props: Props) {
               {viewerRole === "seller" ? (
                 sellerHasAccepted ? (
                   <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    You accepted this offer. Use the DocuSign link above to finish signing.
+                    {sellerAwaitingBuyer
+                      ? "You accepted this offer. We invited the buyer to sign and will email you when it's your turn."
+                      : "You accepted this offer. Use the DocuSign link above to finish signing."}
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-3">
@@ -425,6 +428,7 @@ export default async function TradeShell(props: Props) {
                       className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
                       confirm
                       confirmMessage="Accept this offer?"
+                      successMessage="We invited the buyer to sign and will email you when it's your turn."
                     />
                     <CounterButton
                       postUrl={counterUrlSeller}
