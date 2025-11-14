@@ -367,11 +367,7 @@ export default function CreateListingPage() {
       };
 
       if (isAuction) {
-        payload.startingBid = Number(formData.get("startingBid") || startingBid || 0);
-        payload.reservePrice =
-          formData.get("reservePrice") !== null && String(formData.get("reservePrice")).trim() !== ""
-            ? Number(formData.get("reservePrice"))
-            : reservePrice === "" ? undefined : Number(reservePrice);
+        payload.reservePrice = Number(formData.get("reservePrice") || reservePrice || 0);
         payload.endDate = String(formData.get("endDate") || endDate || "");
       } else {
         payload.pricePerAF = Number(formData.get("pricePerAF") || pricePerAF || 0);
@@ -776,7 +772,7 @@ export default function CreateListingPage() {
                           inputMode="decimal"
                           min={0}
                           step="0.01"
-                          placeholder="e.g. 500"
+                          placeholder="e.g. 100"
                           value={startingBid}
                           onChange={(e) =>
                             setStartingBid(e.target.value === "" ? "" : Number(e.target.value))
@@ -793,14 +789,14 @@ export default function CreateListingPage() {
                           inputMode="decimal"
                           min={0}
                           step={1}
-                          placeholder="Optional"
+                          placeholder="e.g. 100"
                           value={reservePrice}
                           onChange={(e) =>
                             setReservePrice(e.target.value === "" ? "" : Number(e.target.value))
                           }
                         />
                         <p className="mt-1 text-[11px] text-slate-500">
-                          Optional minimum you’re willing to accept.
+                          Minimum you’re willing to accept.
                         </p>
                       </div>
                       <div>
@@ -919,7 +915,7 @@ export default function CreateListingPage() {
                     <div>
                       <div className="text-slate-500">Reserve</div>
                       <div className="font-medium">
-                        {reservePrice !== "" ? `$${Number(reservePrice).toFixed(2)}` : "None"}
+                        {reservePrice !== "" ? `$${Number(reservePrice).toFixed(2)}` : "—"}
                       </div>
                     </div>
                     <div className="col-span-2">
