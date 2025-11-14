@@ -243,10 +243,11 @@ export default async function TradeShell(props: Props) {
     const showPermsHint = viewerRole === "guest";
 
     // Force-hide inline Buy Now on review route
-    const isReview = action?.toLowerCase?.() === "review";
-    const hideInlineBuyNowFinal = hideInlineBuyNow || isReview;
-    
+    const isReview = action?.toLowerCase?.() === "review";    
     const actionLower = action?.toLowerCase?.() ?? "";
+    
+    const hideInlineBuyNowFinal =
+      hideInlineBuyNow || isReview || actionLower === "awaiting-buyer-signature";
     const showAwaitingSellerSignatureBanner =
       actionLower === "awaiting-seller-signature" ||
       (!actionLower && viewerRole === "seller" && sellerSignReady);
