@@ -52,7 +52,7 @@ async function resolveContact(userId?: string | null) {
   return { email, name };
 }
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+async function handle(req: NextRequest, params: { id: string }) {
   const id = (params.id || "").trim();
   if (!id) {
     return NextResponse.json({ error: "Missing trade id" }, { status: 400 });
@@ -206,4 +206,22 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (token) fallback.searchParams.set("token", token);
     return NextResponse.redirect(fallback);
   }
+}
+
+export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+  return handle(req, ctx.params);
+}
+
+export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
+  const contentType = req.headers.get("content-type") || "";
+  try {
+    if (contentType.includes("application/x-www-form-urlencoded")) {
+      await req.formData();
+    } else if (contentType.includes("application/json")) {
+      await req.json();
+    }
+  } catch {
+    // Ignore body parsing issues; DocuSign may omit a body for GET-style redirects.
+  }
+  return handle(req, ctx.params);
 }
