@@ -339,8 +339,8 @@ export default function CreateListingPage() {
         if (!startingBid || Number(startingBid) < 0) {
           throw new Error("Starting bid must be 0 or greater.");
         }
-        if (reservePrice !== "" && Number(reservePrice) < 0) {
-          throw new Error("Reserve price cannot be negative.");
+        if (reservePrice === "" || Number(reservePrice) < 0) {
+          throw new Error("Reserve price must be 0 or greater.");
         }
         if (!endDate) {
           throw new Error("Please choose an auction end date/time.");
