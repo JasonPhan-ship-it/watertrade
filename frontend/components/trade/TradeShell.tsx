@@ -221,6 +221,7 @@ export default async function TradeShell(props: Props) {
       tradeStatusRaw === "FULLY_EXECUTED" ||
       sellerSignReady;
     const sellerAwaitingBuyer = sellerHasAccepted && buyerSignRequested && !sellerSignRequested;
+    const buyerAwaitingSignature = statusUpper === "PENDING_BUYER_SIGNATURE";
     
     // endpoints
     const idForActions = tradeIdLinked || tx.id;
@@ -445,6 +446,7 @@ export default async function TradeShell(props: Props) {
                   </div>
                 )
               ) : viewerRole === "buyer" ? (
+                buyerAwaitingSignature ? null : (
                 <div className="flex flex-wrap items-center gap-3">
                   <CounterButton
                     postUrl={counterUrlBuyer}
@@ -463,6 +465,7 @@ export default async function TradeShell(props: Props) {
                     </button>
                   </form>
                 </div>
+                )
               ) : (
                 <div className="text-sm text-slate-600">
                   You’re viewing as a guest.{" "}
