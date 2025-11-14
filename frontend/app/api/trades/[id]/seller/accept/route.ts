@@ -9,26 +9,26 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { appUrl, sendEmail } from "@/lib/email";
 import { prisma } from "@/lib/prisma";
 import {
-  createSellerSignatureLink,
+  createBuyerSignatureLink,
   ensureTradeFromAnyIdOrCreate,
   findTradeByAnyId,
   getViewer,
 } from "@/lib/trade";
 
 /** Accept Trade.id OR Transaction.id and create a Trade if missing */
-function pickTxnPendingSellerSig():
+function pickTxnPendingBuyerSig():
   (typeof TransactionStatus)[keyof typeof TransactionStatus] | null {
   const TXS: any = TransactionStatus;
-  return TXS.PENDING_SELLER_SIGNATURE ?? TXS.PENDING_SIGNATURE ?? TXS.PENDING ?? TXS.ACCEPTED ?? null;
+  return TXS.PENDING_BUYER_SIGNATURE ?? TXS.PENDING_SIGNATURE ?? TXS.PENDING ?? TXS.ACCEPTED ?? null;
 }
 
-function pickAcceptedPendingSellerStatus():
+function pickAcceptedPendingBuyerStatus():
   (typeof TradeStatus)[keyof typeof TradeStatus] {
   const TS: any = TradeStatus;
   return (
-    TS.ACCEPTED_PENDING_SELLER_SIGNATURE ??
-    TS.ACCEPTED_PENDING_SIGNATURE ??
     TS.ACCEPTED_PENDING_BUYER_SIGNATURE ??
+    TS.ACCEPTED_PENDING_SIGNATURE ??
+    TS.ACCEPTED_PENDING_SELLER_SIGNATURE ??
     TS.ACCEPTED ??
     TS.PENDING ??
     TS.OFFERED
@@ -141,17 +141,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // Transition Trade -> accepted/pending buyer signature
-    const TRADE_ACCEPTED = pickAcceptedPendingSellerStatus();
+    const TRADE_ACCEPTED = pickAcceptedPendingBuyerStatus();
     const updated = await prisma.trade.update({
       where: { id: trade.id },
       data: {
         status: TRADE_ACCEPTED,
         lastActor: Party.SELLER,
         version: { increment: 1 },
-        sellerSignStatus: SignatureProgress.REQUESTED,
-        buyerSignStatus: SignatureProgress.NONE,
-        sellerSignUrl: null,
+        buyerSignStatus: SignatureProgress.REQUESTED,
+        sellerSignStatus: SignatureProgress.NONE,
         buyerSignUrl: null,
+        sellerSignUrl: null,
         events: {
           create: {
             id: randomUUID(),
@@ -180,7 +180,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Sync Transaction status (best-effort)
     if (updated.transactionId) {
       try {
-        const pending = pickTxnPendingSellerSig();
+        const pending = pickTxnPendingBuyerSig();
         if (pending) {
           await prisma.transaction.update({ where: { id: updated.transactionId }, data: { status: pending } });
         }
@@ -189,17 +189,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Create embedded sign URL for seller to sign immediately
-    let signLink: string | null = null;
+    // Create embedded sign URL for buyer to sign next
+    let signLink = "";
     try {
-      signLink = await createSellerSignatureLink(updated.id, sellerToken);
+      signLink = await createBuyerSignatureLink(updated.id, (trade as any).buyerToken, {
+        redirectTo: `/api/trades/${updated.id}/buyer/signing-complete${
+          (trade as any).buyerToken ? `?token=${encodeURIComponent((trade as any).buyerToken)}` : ""
+        }`,
+      });
       await prisma.trade.update({
         where: { id: updated.id },
-        data: { sellerSignUrl: signLink },
+        data: { buyerSignUrl: signLink },
       });
     } catch (e: any) {
       return NextResponse.json(
-        { error: "Failed to create seller sign URL", errorCode: "SIGN_URL_FAILED", details: e?.message || "Unknown error" },
+        { error: "Failed to create buyer sign URL", errorCode: "SIGN_URL_FAILED", details: e?.message || "Unknown error" },
+        { status: 502 }
+      );
+    }
+
+    if (!signLink) {
+      return NextResponse.json(
+        { error: "Buyer sign URL missing", errorCode: "SIGN_URL_MISSING" },
         { status: 502 }
       );
     }
@@ -233,18 +244,29 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const viewLinkForBuyer = appUrl(
-      `/t/${updated.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=awaiting-seller-signature`
+      `/t/${updated.id}?role=buyer${(trade as any).buyerToken ? `&token=${(trade as any).buyerToken}` : ""}&action=awaiting-buyer-signature`
     );
 
     if (buyerEmail) {
       const html = `
-        <p>Hi ${buyerName || "Buyer"},</p>
-        <p>The seller accepted your offer and is signing the transfer agreement now.</p>
-        <p>We’ll email you as soon as it’s your turn to sign.</p>
-        <p><a href="${viewLinkForBuyer}">View the transaction</a></p>
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5">
+          <h2 style="margin:0 0 12px">It’s time to sign</h2>
+          <p>Hi ${buyerName || "Buyer"},</p>
+          <p>The seller accepted your offer. Please review and sign the transfer agreement to keep things moving.</p>
+          <p style="margin:16px 0">
+            <a href="${signLink}" style="display:inline-block;background:#0a6b58;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">
+              Review & Sign with DocuSign
+            </a>
+          </p>
+          <p style="font-size:14px;color:#334155">If the button doesn’t work, copy and paste this link:<br/>
+            <a href="${signLink}" style="color:#0a6b58">${signLink}</a>
+          </p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+          <p>You can also view the transaction here: <a href="${viewLinkForBuyer}">${viewLinkForBuyer}</a></p>
+        </div>
       `;
       try {
-        await sendEmail({ to: buyerEmail, subject: "Seller accepted — awaiting seller signature", html });
+        await sendEmail({ to: buyerEmail, subject: "Seller accepted — please sign", html });
       } catch (e) {
         console.warn("[seller/accept] sendEmail (buyer status) failed:", (e as any)?.message);
       }
@@ -254,12 +276,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const sellerViewLink = appUrl(`/t/${updated.id}?role=seller${updated.sellerToken ? `&token=${updated.sellerToken}` : ""}`);
       const html = `
         <p>Hi ${sellerName || "Seller"},</p>
-        <p>You accepted the buyer’s offer. Please sign the water transfer agreement to move forward.</p>
-        <p><a href="${signLink}">Sign with DocuSign</a></p>
+        <p>You accepted the buyer’s offer. We’ve invited the buyer to sign the transfer agreement and will notify you when it’s your turn.</p>
         <p>Need to review details? <a href="${sellerViewLink}">View the transaction</a>.</p>
       `;
       try {
-        await sendEmail({ to: sellerEmail, subject: "Please sign the transfer agreement", html });
+        await sendEmail({ to: sellerEmail, subject: "Buyer invited to sign", html });
       } catch (e) {
         console.warn("[seller/accept] sendEmail (seller confirm) failed:", (e as any)?.message);
       }
@@ -272,16 +293,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const redirectUrl = new URL(`/t/${updated.id}`, base);
     redirectUrl.searchParams.set("role", "seller");
-    redirectUrl.searchParams.set("action", "awaiting-seller-signature");
+    redirectUrl.searchParams.set("action", "awaiting-buyer-signature");
     if (token) redirectUrl.searchParams.set("token", token);
 
     return NextResponse.json({
       ok: true,
       tradeId: updated.id,
       status: updated.status,
-      message: "Awaiting seller signature",
+      message: "Awaiting buyer signature",
       redirectUrl: redirectUrl.toString(),
-      signLink,
+      signLink: null,
     });
   } catch (e: any) {
     console.error("[trades/:id/seller/accept] error", e);
