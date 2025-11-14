@@ -189,6 +189,7 @@ export default async function TradeShell(props: Props) {
     const subtotalCents = (tx.totalAmount ?? qty * priceAf) || 0;
     const kind = tx.type === "OFFER" ? "Offer" : tx.type === "BUY_NOW" ? "Buy Now" : tx.type ?? "—";
     const status = tx.status ?? "—";
+    const statusUpper = status.toUpperCase();
     const isBuyNow = tx.type === "BUY_NOW";
 
     const waterTraderFeeSetting = await getSiteSetting("waterTraderFee");
@@ -211,10 +212,14 @@ export default async function TradeShell(props: Props) {
     const buyerSignStatusUpper = buyerSignStatus.toUpperCase();
     const sellerSignRequested = sellerSignStatusUpper === "REQUESTED";
     const buyerSignRequested = buyerSignStatusUpper === "REQUESTED";
+    const sellerSignReady = sellerSignRequested || statusUpper === "PENDING_SELLER_SIGNATURE";
+    const buyerSignReady = buyerSignRequested;
+    const sellerSignHref = sellerSignUrl || `/api/signing/seller?tx=${encodeURIComponent(tx.id)}`;
+    const buyerSignHref = buyerSignUrl || `/api/signing/buyer?tx=${encodeURIComponent(tx.id)}`;
     const sellerHasAccepted =
       tradeStatusRaw.startsWith("ACCEPTED") ||
       tradeStatusRaw === "FULLY_EXECUTED" ||
-      sellerSignRequested;
+      sellerSignReady;
     
     // endpoints
     const idForActions = tradeIdLinked || tx.id;
@@ -241,19 +246,17 @@ export default async function TradeShell(props: Props) {
     const isReview = action?.toLowerCase?.() === "review";
     const hideInlineBuyNowFinal = hideInlineBuyNow || isReview;
 
-    const showSellerSignCta =
-      viewerRole === "seller" && sellerSignRequested && Boolean(sellerSignUrl);
+    const showSellerSignCta = viewerRole === "seller" && sellerSignReady && Boolean(sellerSignHref);
 
-    const showBuyerSignCta =
-      viewerRole === "buyer" && buyerSignRequested && Boolean(buyerSignUrl);
+    const showBuyerSignCta = viewerRole === "buyer" && buyerSignReady && Boolean(buyerSignHref);
     
     const actionLower = action?.toLowerCase?.() ?? "";
     const showAwaitingSellerSignatureBanner =
       actionLower === "awaiting-seller-signature" ||
-      (!actionLower && viewerRole === "seller" && sellerSignRequested);
+      (!actionLower && viewerRole === "seller" && sellerSignReady);
     const showAwaitingBuyerSignatureBanner =
       actionLower === "awaiting-buyer-signature" ||
-      (!actionLower && viewerRole === "buyer" && buyerSignRequested);
+      (!actionLower && viewerRole === "buyer" && buyerSignReady);
     let banner: React.ReactNode = null;
     if (showAwaitingSellerSignatureBanner) {
       const sellerDocuSignLabel =
@@ -262,10 +265,10 @@ export default async function TradeShell(props: Props) {
         <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           <div className="font-semibold">Awaiting seller signature</div>
           <p className="mt-1 text-sm">The buyer has already signed. Complete DocuSign to move the trade forward.</p>
-          {viewerRole === "seller" && sellerSignUrl ? (
+          {viewerRole === "seller" && sellerSignHref ? (
             <div className="mt-3">
               <a
-                href={sellerSignUrl}
+                href={sellerSignHref}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
               >
                 {sellerDocuSignLabel}
@@ -286,10 +289,10 @@ export default async function TradeShell(props: Props) {
         <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           <div className="font-semibold">Awaiting buyer signature</div>
           <p className="mt-1 text-sm">The buyer has the DocuSign link and will sign next.</p>
-          {viewerRole === "buyer" && buyerSignUrl ? (
+          {viewerRole === "buyer" && buyerSignHref ? (
             <div className="mt-3">
               <a
-                href={buyerSignUrl}
+                href={buyerSignHref}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
               >
                 Open DocuSign
@@ -385,10 +388,10 @@ export default async function TradeShell(props: Props) {
                 showSellerSignCta || showBuyerSignCta ? (
                   <div className="inline-flex flex-col items-start">
                     <a
-                      href={showSellerSignCta ? sellerSignUrl : buyerSignUrl}
+                      href={showSellerSignCta ? sellerSignHref : buyerSignHref}
                       className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-semibold text-white hover:bg-[#00392f]"
                     >
-                      Review &amp; Sign
+                      Open DocuSign
                     </a>
                     <div className="mt-2 text-xs text-slate-600">
                       You’ll be taken to DocuSign to complete your paperwork.
@@ -474,15 +477,20 @@ export default async function TradeShell(props: Props) {
           </div>
           <TradeProgressTracker steps={progressSteps} />
 
-          {viewerRole === "seller" && sellerSignStatus === "REQUESTED" && sellerSignUrl ? (
+          {viewerRole === "seller" && sellerSignReady && sellerSignHref ? (
             <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-              Ready to sign? <a href={sellerSignUrl} className="font-semibold underline">Open DocuSign</a>
+              Ready to sign? <a href={sellerSignHref} className="font-semibold underline">Open DocuSign</a>
             </div>
           ) : null}
 
-          {viewerRole === "buyer" && buyerSignStatus === "REQUESTED" && buyerSignUrl ? (
+          {viewerRole === "buyer" && buyerSignRequested && buyerSignHref ? (
             <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-              It’s your turn. <a href={buyerSignUrl} className="font-semibold underline">Open DocuSign</a>
+              It’s your turn. <a href={buyerSignHref} className="font-semibold underline">Open DocuSign</a>
+            </div>
+          ) : null}
+          {viewerRole === "buyer" && buyerSignStatusUpper === "SIGNED" ? (
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+              Thanks for signing! We’ll notify the seller to finish their part.
             </div>
           ) : null}
         </div>
