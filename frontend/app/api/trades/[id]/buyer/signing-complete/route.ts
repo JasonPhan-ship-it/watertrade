@@ -52,6 +52,13 @@ async function resolveContact(userId?: string | null) {
   return { email, name };
 }
 
+type HandleOptions = {
+  respondWithJson?: boolean;
+};
+
+async function handle(req: NextRequest, params: { id: string }, opts: HandleOptions = {}) {
+  const respondWithJson = opts.respondWithJson ?? false;
+
 async function handle(req: NextRequest, params: { id: string }) {
   const id = (params.id || "").trim();
   if (!id) {
@@ -197,6 +204,10 @@ async function handle(req: NextRequest, params: { id: string }) {
       redirectUrl.searchParams.set("token", redirectToken);
     }
 
+    if (respondWithJson) {
+      return NextResponse.json({ ok: true, redirectUrl: redirectUrl.toString() });
+    }
+
     return NextResponse.redirect(redirectUrl);
   } catch (err) {
     console.error("[buyer/signing-complete] unexpected", err);
@@ -204,6 +215,9 @@ async function handle(req: NextRequest, params: { id: string }) {
     fallback.searchParams.set("action", "signing-error");
     fallback.searchParams.set("role", "buyer");
     if (token) fallback.searchParams.set("token", token);
+    if (respondWithJson) {
+      return NextResponse.json({ ok: false, redirectUrl: fallback.toString() }, { status: 500 });
+    }
     return NextResponse.redirect(fallback);
   }
 }
@@ -223,5 +237,5 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
   } catch {
     // Ignore body parsing issues; DocuSign may omit a body for GET-style redirects.
   }
-  return handle(req, ctx.params);
+  return handle(req, ctx.params, { respondWithJson: true });
 }
