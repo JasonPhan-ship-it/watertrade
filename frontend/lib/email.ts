@@ -19,6 +19,7 @@
  *  - renderBuyerPaymentRequestEmail
  *  - renderBuyerPurchasedEmail             <-- NEW For Buy Now BUYER
  *  - sendPurchaseEmails                    <-- NEW One-call helper
+ *  - renderAdminPromotionEmail
  */
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
@@ -847,6 +848,29 @@ export function renderBuyerPurchasedEmail(params: {
   });
 
   return { html, preheader: "Thanks for your purchase—details inside." };
+}
+
+export function renderAdminPromotionEmail(params: {
+  name?: string | null;
+  adminPortalUrl: string;
+  promotedByName?: string | null;
+  promotedByEmail?: string | null;
+}) {
+  const { name, adminPortalUrl, promotedByName, promotedByEmail } = params;
+  const grantedBy = [promotedByName?.trim(), promotedByEmail?.trim()].filter(Boolean).join(" · ");
+  const html = renderEmailLayout({
+    title: "Admin access enabled",
+    subtitle: name
+      ? `Hi ${name}, your Water Traders account now has admin permissions.`
+      : "Your Water Traders account now has admin permissions.",
+    intro:
+      "You can now review listings, manage users, and oversee transactions from the Water Traders admin dashboard.",
+    ctas: [{ label: "Open admin dashboard", href: adminPortalUrl, primary: true }],
+    keyValues: grantedBy ? [{ label: "Granted by", value: grantedBy }] : undefined,
+    footerNote: "If you were not expecting this change, reply to this email or contact support@watertraders.com.",
+  });
+
+  return { html, preheader: "Your Water Traders account now has admin access." };
 }
 
 /* ---------------- BUY NOW: One-call sender (NEW) ---------------- */
