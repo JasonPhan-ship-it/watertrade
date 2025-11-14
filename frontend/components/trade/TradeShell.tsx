@@ -479,12 +479,6 @@ export default async function TradeShell(props: Props) {
           </div>
           <TradeProgressTracker steps={progressSteps} />
 
-          {viewerRole === "seller" && sellerSignReady && sellerSignHref ? (
-            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-              Ready to sign? <a href={sellerSignHref} className="font-semibold underline">Open DocuSign</a>
-            </div>
-          ) : null}
-
           {viewerRole === "buyer" && buyerSignStatusUpper === "SIGNED" ? (
             <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
               Thanks for signing! We’ll notify the seller to finish their part.
