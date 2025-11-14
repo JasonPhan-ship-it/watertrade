@@ -611,13 +611,7 @@ export default function DashboardPage() {
     scope === "market" ? "Listings" : scope === "mine" ? "Your Listings" : "Your Trades";
   const totalLabel =
     scope === "market" ? "listings" : scope === "mine" ? "your listings" : "trades";
-  const priceColumnLabel =
-    normalizedFeeRate > 0 ? "$ / AF (incl. fee)" : "$ / AF";
-  const feePercentLabel = (normalizedFeeRate * 100).toLocaleString("en-US", {
-    minimumFractionDigits: normalizedFeeRate > 0 && normalizedFeeRate < 0.01 ? 2 : 0,
-    maximumFractionDigits: 2,
-  });
-  const showFeeDetails = normalizedFeeRate > 0;
+  const priceColumnLabel = "$ / AF";
   
   return (
     <div className="min-h-screen bg-slate-50">
@@ -854,11 +848,6 @@ export default function DashboardPage() {
                             </Td>
                             <Td align="right">
                               <div className="font-semibold text-slate-900">{formatCurrency(priceWithFee)}</div>
-                              {showFeeDetails ? (
-                                <div className="mt-1 text-[11px] text-slate-500">
-                                  Includes {formatCurrency(feePerAfValue)} Water Trader fee ({feePercentLabel}%)
-                                </div>
-                              ) : null}
                             </Td>
                             <Td>
                               <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
