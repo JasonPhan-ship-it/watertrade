@@ -13,7 +13,9 @@
     "db:studio": "prisma studio",
     "lint": "next lint --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "engines": {
     "node": ">=20 <21"
@@ -49,6 +51,7 @@
     "@types/react-dom": "^18.2.7",
     "prisma": "6.18.0",
     "prettier": "^3.3.3",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.4"
   }
 }
