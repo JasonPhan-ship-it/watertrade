@@ -44,3 +44,25 @@ export async function requireAdmin() {
   }
   return me;
 }
+
+export async function requireDistrictAdmin() {
+  const me = await ensureUser();
+  if (!me) {
+    const err: any = new Error("FORBIDDEN");
+    err.status = 403;
+    throw err;
+  }
+
+  if (me.role === "ADMIN") return me;
+
+  const profile = await prisma.userProfile.findUnique({
+    where: { userId: me.id },
+    select: { tradeRole: true },
+  });
+
+  if (profile?.tradeRole === "DISTRICT_ADMIN") return me;
+
+  const err: any = new Error("FORBIDDEN");
+  err.status = 403;
+  throw err;
+}
