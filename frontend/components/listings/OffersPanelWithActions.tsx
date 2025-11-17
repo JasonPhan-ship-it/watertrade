@@ -225,7 +225,7 @@ export default function OffersPanelWithActions({
 
   const targetOffer = useMemo(() => items.find((o) => o.id === targetId) || null, [items, targetId]);
 
-  function openModal(kind: ActionKind, id: string) {
+  const openModal = useCallback((kind: ActionKind, id: string) => {
     setAction(kind);
     setTargetId(id);
     if (kind === "counter") {
@@ -233,7 +233,7 @@ export default function OffersPanelWithActions({
       setVolumeAf("");
     }
     setModalOpen(true);
-  }
+  }, []);
   function closeModal() {
     setModalOpen(false);
     setAction(null);
@@ -336,9 +336,9 @@ export default function OffersPanelWithActions({
 
   /* ======================== Wire up to child panel ======================== */
 
-  const onAcceptInternal = useCallback((id: string) => openModal("accept", id), []);
-  const onDeclineInternal = useCallback((id: string) => openModal("decline", id), []);
-  const onCounterInternal = useCallback((id: string) => openModal("counter", id), []);
+  const onAcceptInternal = useCallback((id: string) => openModal("accept", id), [openModal]);
+  const onDeclineInternal = useCallback((id: string) => openModal("decline", id), [openModal]);
+  const onCounterInternal = useCallback((id: string) => openModal("counter", id), [openModal]);
 
   const mergedOnAccept = onAccept ?? onAcceptInternal;
   const mergedOnDecline = onDecline ?? onDeclineInternal;
