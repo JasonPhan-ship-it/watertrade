@@ -234,6 +234,14 @@ export default async function Page({ params, searchParams }: PageProps) {
 
     return (
       <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <div className="mb-4 flex justify-end">
+          <a
+            href="/dashboard"
+            className="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Back to dashboard
+          </a>
+        </div>
         {/* Keep TradeShell's inline area present but hide any legacy button on review */}
         <TradeShell
           tradeId={id}
