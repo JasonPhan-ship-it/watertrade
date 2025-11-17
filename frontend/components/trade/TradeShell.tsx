@@ -236,10 +236,6 @@ export default async function TradeShell(props: Props) {
       token,
       role: viewerRole === "buyer" ? "buyer" : undefined,
     });
-    const acceptUrlBuyer = buildUrl(`/api/trades/${idForActions}/buyer/accept`, {
-      token,
-      role: viewerRole === "buyer" ? "buyer" : undefined,
-    });
     const declineUrlBuyer = buildUrl(`/api/trades/${idForActions}/buyer/decline`, {
       token,
       role: viewerRole === "buyer" ? "buyer" : undefined,
