@@ -594,6 +594,9 @@ export default function DashboardPage() {
       : normalizedFeeRate > 0
         ? "Average $ / AF"
         : "Avg $/AF";
+
+  const isInitialLoad = loading && !data;
+  const isRefreshing = loading && Boolean(data);
   
   const stats =
     scope === "trades"
@@ -727,11 +730,20 @@ export default function DashboardPage() {
 
           {error ? (
             <div className="px-6 py-8 text-sm text-red-600">{error}</div>
-          ) : loading ? (
+          ) : isInitialLoad ? (
             <div className="px-6 py-8 text-sm text-slate-500">Loading…</div>
           ) : (
             <>
-              <div className="overflow-x-auto">
+            <div className="relative">
+              {isRefreshing ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-sm">
+                  <div className="flex items-center gap-2 text-sm text-slate-600">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Refreshing…</span>
+                  </div>
+                </div>
+              ) : null}
+              <div className={`overflow-x-auto ${isRefreshing ? "opacity-50" : ""}`}>
                 {scope === "trades" ? (
                   <table className="w-full text-left text-sm">
                     <thead className="bg-slate-50 text-slate-600">
