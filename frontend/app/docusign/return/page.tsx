@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -118,6 +119,11 @@ export default function Page({ searchParams }: { searchParams: SearchParams }) {
   const envelopeId = getString(searchParams, "envelopeId");
   const tradeId = getString(searchParams, "tradeId");
   const role = getString(searchParams, "role");
+
+  if (event === "signing_complete") {
+    redirect("/transactions/cmi3ecy3p0000la047mf4b6fc");
+  }
+  
   const { label, tone } = titleFor(event);
   const msg = messageFor(event);
 
