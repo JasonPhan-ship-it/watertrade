@@ -615,6 +615,239 @@ export default function DashboardPage() {
   const totalLabel =
     scope === "market" ? "listings" : scope === "mine" ? "your listings" : "trades";
   const priceColumnLabel = "$ / AF";
+
+
+  let tableContent: React.ReactNode;
+  if (error) {
+    tableContent = <div className="px-6 py-8 text-sm text-red-600">{error}</div>;
+  } else if (isInitialLoad) {
+    tableContent = <div className="px-6 py-8 text-sm text-slate-500">Loading…</div>;
+  } else {
+    tableContent = (
+      <>
+        <div className="relative">
+          {isRefreshing ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-sm">
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Refreshing…</span>
+              </div>
+            </div>
+          ) : null}
+          <div className={`overflow-x-auto ${isRefreshing ? "opacity-50" : ""}`}>
+            {scope === "trades" ? (
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">Listing</th>
+                    <th className="px-6 py-3 text-right font-medium">Acre-Feet</th>
+                    <th className="px-6 py-3 text-right font-medium">$ / AF</th>
+                    <th className="px-6 py-3 font-medium">Status</th>
+                    <th className="px-6 py-3 font-medium">Updated</th>
+                    <th className="px-6 py-3 text-center font-medium">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tradeRows.map((t) => (
+                    <tr key={`${t.tradeId}-${t.transactionId ?? "trade"}`} className="border-t border-slate-100">
+                      <Td>
+                        <div className="font-medium text-slate-900">{t.listingTitle}</div>
+                        {t.type && (
+                          <div className="mt-1 text-xs uppercase tracking-wide text-slate-400">
+                            {formatTradeType(t.type)}
+                          </div>
+                        )}
+                      </Td>
+                      <Td align="right">{formatInt(t.volumeAf)}</Td>
+                      <Td align="right">{formatCurrency(t.pricePerAf)}</Td>
+                      <Td>
+                        <TradeStatusBadge status={t.status} highlight={tradeNeedsAction(t)} viewerRole={t.viewerRole} />
+                      </Td>
+                      <Td>
+                        <div className="text-sm text-slate-700">{t.updatedAt ? formatDateTime(t.updatedAt) : "—"}</div>
+                      </Td>
+                      <Td align="center">
+                        <Link
+                          href={`/transactions/${t.transactionId ?? t.tradeId}`}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-[#004434] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#00392f]"
+                        >
+                          View trade
+                          <span aria-hidden="true">→</span>
+                        </Link>
+                      </Td>
+                    </tr>
+                  ))}
+                  {tradeRows.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-10 text-center text-slate-600">
+                        <div className="mx-auto max-w-md">
+                          <div className="text-sm">You don’t have any trades yet.</div>
+                          <div className="mt-4">
+                            <Link
+                              href="/dashboard"
+                              className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
+                            >
+                              Browse Marketplace
+                            </Link>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <Th
+                      label="District"
+                      active={sortBy === "district"}
+                      dir={sortDir}
+                      onClick={() => onSort("district")}
+                    />
+                    <Th
+                      label="Acre-Feet"
+                      align="right"
+                      active={sortBy === "acreFeet"}
+                      dir={sortDir}
+                      onClick={() => onSort("acreFeet")}
+                    />
+                    <Th
+                      label={priceColumnLabel}
+                      align="right"
+                      active={sortBy === "pricePerAf"}
+                      dir={sortDir}
+                      onClick={() => onSort("pricePerAf")}
+                    />
+                    <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
+                    <Th
+                      label={scope === "market" ? "Action" : "Manage"}
+                      align="center"
+                      active={sortBy === "createdAt"}
+                      dir={sortDir}
+                      onClick={() => onSort("createdAt")}
+                    />
+                  </tr>
+                </thead>
+                <tbody>
+                  {listingRows.map((l) => {
+                    const availableAf =
+                      l.availableAf ?? Math.max(l.acreFeet - (l.inEscrowAf ?? 0), 0);
+                    const basePrice = l.pricePerAf ?? 0;
+                    const feePerAfValue = basePrice * normalizedFeeRate;
+                    const priceWithFee = basePrice + feePerAfValue;
+
+                    return (
+                      <tr key={l.id} className="border-t border-slate-100">
+                        <Td>{l.district}</Td>
+                        <Td align="right">
+                          <div className="font-semibold text-slate-900">{formatInt(l.acreFeet)}</div>
+                          {l.inEscrowAf && l.inEscrowAf > 0 ? (
+                            <div className="mt-1 text-[11px] text-amber-700">
+                              {formatInt(availableAf)} AF available · {formatInt(l.inEscrowAf)} AF in escrow
+                            </div>
+                          ) : null}
+                        </Td>
+                        <Td align="right">
+                          <div className="font-semibold text-slate-900">{formatCurrency(priceWithFee)}</div>
+                        </Td>
+                        <Td>
+                          <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
+                            {l.waterType}
+                          </span>
+                        </Td>
+                        <Td align="center">
+                          {scope === "market" ? (
+                            <Link
+                              href={`/listings/${l.id}`}
+                              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              View Details
+                            </Link>
+                          ) : (
+                            <Link
+                              href={`/listings/${l.id}/edit`}
+                              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              Edit
+                            </Link>
+                          )}
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                  {listingRows.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
+                        <div className="mx-auto max-w-md">
+                          <div className="text-sm">
+                            {scope === "market"
+                              ? "No listings match your filters."
+                              : "You don’t have any listings yet."}
+                          </div>
+                          <div className="mt-4">
+                            <Link
+                              href="/create-listing"
+                              className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
+                            >
+                              Create Listing
+                            </Link>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Pagination */}
+          <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row">
+            <div className="text-xs text-slate-500">
+              Page <span className="font-medium text-slate-700">{page}</span> of{" "}
+              <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
+              {data?.total ?? 0} total {totalLabel}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs outline-none"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} / page
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
   
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
@@ -727,234 +960,7 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
-
-          {error ? (
-            <div className="px-6 py-8 text-sm text-red-600">{error}</div>
-          ) : isInitialLoad ? (
-            <div className="px-6 py-8 text-sm text-slate-500">Loading…</div>
-          ) : (
-            <>
-            <div className="relative">
-              {isRefreshing ? (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-sm">
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Refreshing…</span>
-                  </div>
-                </div>
-              ) : null}
-              <div className={`overflow-x-auto ${isRefreshing ? "opacity-50" : ""}`}>
-                {scope === "trades" ? (
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-600">
-                      <tr>
-                        <th className="px-6 py-3 font-medium">Listing</th>
-                        <th className="px-6 py-3 text-right font-medium">Acre-Feet</th>
-                        <th className="px-6 py-3 text-right font-medium">$ / AF</th>
-                        <th className="px-6 py-3 font-medium">Status</th>
-                        <th className="px-6 py-3 font-medium">Updated</th>
-                        <th className="px-6 py-3 text-center font-medium">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tradeRows.map((t) => (
-                        <tr key={`${t.tradeId}-${t.transactionId ?? "trade"}`} className="border-t border-slate-100">
-                          <Td>
-                            <div className="font-medium text-slate-900">{t.listingTitle}</div>
-                            {t.type && (
-                              <div className="mt-1 text-xs uppercase tracking-wide text-slate-400">
-                                {formatTradeType(t.type)}
-                              </div>
-                            )}
-                          </Td>
-                          <Td align="right">{formatInt(t.volumeAf)}</Td>
-                          <Td align="right">{formatCurrency(t.pricePerAf)}</Td>
-                          <Td>
-                            <TradeStatusBadge status={t.status} highlight={tradeNeedsAction(t)} viewerRole={t.viewerRole} />
-                          </Td>
-                          <Td>
-                            <div className="text-sm text-slate-700">{t.updatedAt ? formatDateTime(t.updatedAt) : "—"}</div>
-                          </Td>
-                          <Td align="center">
-                            <Link
-                              href={`/transactions/${t.transactionId ?? t.tradeId}`}
-                              className="inline-flex items-center gap-1.5 rounded-full bg-[#004434] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#00392f]"
-                            >
-                              View trade
-                              <span aria-hidden="true">→</span>
-                            </Link>
-                          </Td>
-                        </tr>
-                      ))}
-                      {tradeRows.length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="px-6 py-10 text-center text-slate-600">
-                            <div className="mx-auto max-w-md">
-                              <div className="text-sm">You don’t have any trades yet.</div>
-                              <div className="mt-4">
-                                <Link
-                                  href="/dashboard"
-                                  className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
-                                >
-                                  Browse Marketplace
-                                </Link>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                ) : (
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-600">
-                      <tr>
-                        <Th
-                          label="District"
-                          active={sortBy === "district"}
-                          dir={sortDir}
-                          onClick={() => onSort("district")}
-                        />
-                        <Th
-                          label="Acre-Feet"
-                          align="right"
-                          active={sortBy === "acreFeet"}
-                          dir={sortDir}
-                          onClick={() => onSort("acreFeet")}
-                        />
-                        <Th
-                          label={priceColumnLabel}
-                          align="right"
-                          active={sortBy === "pricePerAf"}
-                          dir={sortDir}
-                          onClick={() => onSort("pricePerAf")}
-                        />
-                        <Th label="Water Type" active={false} dir={"asc"} onClick={() => {}} />
-                        <Th
-                          label={scope === "market" ? "Action" : "Manage"}
-                          align="center"
-                          active={sortBy === "createdAt"}
-                          dir={sortDir}
-                          onClick={() => onSort("createdAt")}
-                        />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {listingRows.map((l) => {
-                        const availableAf =
-                          l.availableAf ?? Math.max(l.acreFeet - (l.inEscrowAf ?? 0), 0);
-                        const basePrice = l.pricePerAf ?? 0;
-                        const feePerAfValue = basePrice * normalizedFeeRate;
-                        const priceWithFee = basePrice + feePerAfValue;
-
-                        return (
-                          <tr key={l.id} className="border-t border-slate-100">
-                            <Td>{l.district}</Td>
-                            <Td align="right">
-                              <div className="font-semibold text-slate-900">{formatInt(l.acreFeet)}</div>
-                              {l.inEscrowAf && l.inEscrowAf > 0 ? (
-                                <div className="mt-1 text-[11px] text-amber-700">
-                                  {formatInt(availableAf)} AF available · {formatInt(l.inEscrowAf)} AF in escrow
-                                </div>
-                              ) : null}
-                            </Td>
-                            <Td align="right">
-                              <div className="font-semibold text-slate-900">{formatCurrency(priceWithFee)}</div>
-                            </Td>
-                            <Td>
-                              <span className="rounded-full bg-[#0A6B58] px-3 py-1 text-xs font-medium text-white">
-                                {l.waterType}
-                              </span>
-                            </Td>
-                            <Td align="center">
-                              {scope === "market" ? (
-                                <Link
-                                  href={`/listings/${l.id}`}
-                                  className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                                >
-                                  View Details
-                                </Link>
-                              ) : (
-                                <Link
-                                  href={`/listings/${l.id}/edit`}
-                                  className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                                >
-                                  Edit
-                                </Link>
-                              )}
-                            </Td>
-                          </tr>
-                        );
-                      })}
-                      {listingRows.length === 0 && (
-                        <tr>
-                          <td colSpan={5} className="px-6 py-10 text-center text-slate-600">
-                            <div className="mx-auto max-w-md">
-                              <div className="text-sm">
-                                {scope === "market"
-                                  ? "No listings match your filters."
-                                  : "You don’t have any listings yet."}
-                              </div>
-                              <div className="mt-4">
-                                <Link
-                                  href="/create-listing"
-                                  className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#00392f]"
-                                >
-                                  Create Listing
-                                </Link>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* Pagination */}
-              <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row">
-                <div className="text-xs text-slate-500">
-                  Page <span className="font-medium text-slate-700">{page}</span> of{" "}
-                  <span className="font-medium text-slate-700">{totalPages}</span> •{" "}
-                  {data?.total ?? 0} total {totalLabel}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <select
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setPage(1);
-                    }}
-                    className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs outline-none"
-                  >
-                    {PAGE_SIZES.map((n) => (
-                      <option key={n} value={n}>
-                        {n} / page
-                      </option>
-                    ))}
-                  </select>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page <= 1}
-                      className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
-                    >
-                      Prev
-                    </button>
-                    <button
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page >= totalPages}
-                      className="h-8 rounded-lg border border-slate-300 px-3 text-xs disabled:opacity-50"
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
+          {tableContent}
         </section>
       </main>
       <footer className="border-t border-slate-200 bg-white">
