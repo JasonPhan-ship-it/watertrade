@@ -229,6 +229,10 @@ export default async function TradeShell(props: Props) {
       token,
       role: viewerRole === "seller" ? "seller" : undefined,
     });
+    const acceptUrlBuyer = buildUrl(`/api/trades/${idForActions}/buyer/accept`, {
+      token,
+      role: viewerRole === "buyer" ? "buyer" : undefined,
+    });
     const declineUrlBuyer = buildUrl(`/api/trades/${idForActions}/buyer/decline`, {
       token,
       role: viewerRole === "buyer" ? "buyer" : undefined,
@@ -466,12 +470,11 @@ export default async function TradeShell(props: Props) {
 
             <div className="flex flex-wrap items-center gap-3">
               <a
-                href={signUrl || signUrlBuyer || signUrlSeller}
+                href={buyerSignHref || sellerSignHref}
                 className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-semibold text-white hover:bg-[#00392f]"
               >
                 Open DocuSign
               </a>
-              <SupportInline />
             </div>
           </div>
         ) : null}
