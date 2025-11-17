@@ -243,6 +243,12 @@ function formatUsdPerAf(cents: number) {
   return `$${dollars.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/AF`;
 }
 
+/** Format cents-per-AF and volume into a total dollars label */
+function formatUsdTotal(centsPerAf: number, volumeAf: number) {
+  const totalDollars = ((centsPerAf ?? 0) * (volumeAf ?? 0)) / 100;
+  return `$${totalDollars.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function renderEmailLayout(params: {
   title: string;
   subtitle?: string;
@@ -250,9 +256,9 @@ function renderEmailLayout(params: {
   keyValues?: KeyValue[];
   ctas?: Cta[];
   footerNote?: string;
-  logoUrl?: string; // unused in current header—kept for compatibility
+  logoUrl?: string; // optional brand logo for header
 }): string {
-  const { title, subtitle, intro, keyValues = [], ctas = [], footerNote } = params;
+  const { title, subtitle, intro, keyValues = [], ctas = [], footerNote, logoUrl } = params;
 
   const btn = (c: Cta, addRightMargin = false) => {
     const baseStyles = c.primary
@@ -284,7 +290,10 @@ function renderEmailLayout(params: {
             <table width="100%" role="presentation" cellpadding="0" cellspacing="0">
               <tr>
                 <td align="left">
-                  <span style="font-family:${BRAND.font};color:#fff;font-size:16px;font-weight:700;letter-spacing:.2px;">${BRAND.name}</span>
+                  ${
+                    logoUrl
+                      ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(BRAND.name)} logo" style="max-height:26px;max-width:180px;display:block;" />`
+                      : `<span style="font-family:${BRAND.font};color:#fff;font-size:16px;font-weight:700;letter-spacing:.2px;">${BRAND.name}</span>`
                 </td>
               </tr>
             </table>
@@ -663,17 +672,22 @@ export function renderBuyerSignatureRequestEmail(params: {
   const safeSignLink = coerceBuyerSignLink(signLink);
 
   const html = renderEmailLayout({
-    title: "Review & sign to lock in your purchase",
-    subtitle: buyerName ? `Hi ${buyerName}, please sign to continue.` : "Please sign to continue.",
-    intro: sellerName
-      ? `${sellerName} will be notified after you sign. We’ll email you at each step.`
-      : "We’ll notify the seller after you sign. We’ll email you at each step.",
+    title: "Please sign to confirm your purchase",
+    subtitle: buyerName
+      ? `Hi ${buyerName}, please review & sign to lock in your purchase.`
+      : "Please review & sign to lock in your purchase.",
     keyValues: [
-      { label: "Listing", value: offer.listingTitle },
-      { label: "District", value: offer.district },
-      ...(offer.waterType ? [{ label: "Water Type", value: offer.waterType }] : []),
-      { label: "Volume (AF)", value: fmt(offer.volumeAf) },
-      { label: "Price", value: offer.priceLabel ?? formatUsdPerAf(offer.pricePerAf) },
+      {
+        label: "District",
+        value: [
+          offer.district,
+          offer.waterType,
+          `${fmt(offer.volumeAf)} AF`,
+          formatUsdTotal(offer.pricePerAf, offer.volumeAf),
+        ]
+          .filter(Boolean)
+          .join(" • "),
+      },
       ...(offer.windowLabel ? [{ label: "Window", value: offer.windowLabel }] : []),
     ],
     ctas: [
