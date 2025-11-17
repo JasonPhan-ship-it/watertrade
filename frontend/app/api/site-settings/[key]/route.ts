@@ -214,6 +214,7 @@ function normalizeDocuSignDefaults(value: unknown): DocuSignDefaults {
   return {
     sellerLegalEntity: coerce("sellerLegalEntity"),
     buyerLegalEntity: coerce("buyerLegalEntity"),
+    sellerFarmAccountNumber: coerce("sellerFarmAccountNumber"),
     buyerWaterAccountNumber: coerce("buyerWaterAccountNumber"),
   };
 }
