@@ -1,7 +1,7 @@
 // components/trade/TradeRunner.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Props = {
   tradeId: string;
@@ -54,18 +54,7 @@ export default function TradeActionRunner(props: Props) {
     return false;
   }, [action, supportsAccept, supportsCounter, supportsDecline]);
 
-  useEffect(() => {
-    const run = async () => {
-      if (!canAuto || disabled) return;
-      if (action === "counter") await onCounter();
-      else if (action === "accept") await onAccept();
-      else if (action === "decline") await onDecline();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    run();
-  }, [canAuto, disabled]);
-
-  const onAccept = async () => {
+  const onAccept = useCallback(async () => {
     const url = endpointFor(role, "accept", tradeId, token);
     if (!url) return;
     setSubmitting(true);
@@ -80,9 +69,9 @@ export default function TradeActionRunner(props: Props) {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [role, token, tradeId]);
 
-  const onCounter = async () => {
+  const onCounter = useCallback(async () => {
     const url = endpointFor(role, "counter", tradeId, token);
     if (!url) return;
     setSubmitting(true);
@@ -101,9 +90,9 @@ export default function TradeActionRunner(props: Props) {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [pricePerAf, role, token, tradeId, volumeAf, windowLabel]);
 
-  const onDecline = async () => {
+  const onDecline = useCallback(async () => {
     const url = endpointFor(role, "decline", tradeId, token);
     if (!url) return;
     setSubmitting(true);
@@ -118,12 +107,23 @@ export default function TradeActionRunner(props: Props) {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [role, token, tradeId]);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!canAuto || disabled) return;
+      if (action === "counter") await onCounter();
+      else if (action === "accept") await onAccept();
+      else if (action === "decline") await onDecline();
+    };
+
+    void run();
+  }, [action, canAuto, disabled, onAccept, onCounter, onDecline]);
 
   if (disabled) {
     return (
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-600">
-        This secure link can’t be used. Please open the newest email or{" "}
+        This secure link cannot be used. Please open the newest email or{" "}
         <a href="/sign-in" className="underline">sign in</a>.
       </div>
     );
