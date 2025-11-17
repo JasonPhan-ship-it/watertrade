@@ -77,6 +77,7 @@ export type WaterTraderFeeSetting = {
 export type DocuSignDefaults = {
   sellerLegalEntity: string;
   buyerLegalEntity: string;
+  sellerFarmAccountNumber: string;
   buyerWaterAccountNumber: string;
 };
 
@@ -197,6 +198,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   docuSignDefaults: {
     sellerLegalEntity: "",
     buyerLegalEntity: "",
+    sellerFarmAccountNumber: "",
     buyerWaterAccountNumber: "",
   },
 };
