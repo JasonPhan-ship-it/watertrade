@@ -42,7 +42,7 @@ export default async function AdminRootLayout({ children }: { children: ReactNod
       <HardStop title="Account not provisioned">
         <p className="text-sm text-slate-600">
           No matching <code>User</code> row for your Clerk account. Ensure{" "}
-          <code>clerkId</code> matches and set <code>role='ADMIN'</code>.
+          <code>clerkId</code> matches and set <code>role=&apos;ADMIN&apos;</code>.
         </p>
         <p className="text-sm">
           See{" "}
