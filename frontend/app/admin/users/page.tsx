@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type UserRow = {
   id: string;
@@ -26,7 +26,7 @@ export default function AdminUsersPage() {
   const [tab, setTab] = useState<TabKey>("all");
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
@@ -42,11 +42,11 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [load]);
 
   async function setRole(id: string, role: "USER" | "ADMIN") {
     setBusyId(id);
