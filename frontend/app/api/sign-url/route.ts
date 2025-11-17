@@ -309,7 +309,7 @@ export async function GET(req: NextRequest) {
       : null;
     const wantsJson = format === "json" || acceptsJson || redirectPref === false;
     const wantConsent = searchParams.get("consent") === "1";
-    const useSample = searchParams.get("sample") === "1";
+    let useSample = searchParams.get("sample") === "1";
     const roleParam = (searchParams.get("role") || "").toLowerCase();
 
     // Emails should land in DocuSign immediately; default to redirect unless caller asks for JSON.
@@ -397,7 +397,13 @@ export async function GET(req: NextRequest) {
     const sampleUrl =
       process.env.DOCUSIGN_SAMPLE_PDF_URL ||
       "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
-    const effectiveFileUrl = useSample ? sampleUrl : fileUrl;
+    let effectiveFileUrl = useSample ? sampleUrl : fileUrl;
+
+    // Gracefully fall back to the sample file when DOCUSIGN_FILE_URL is not configured.
+    if (!effectiveFileUrl && sampleUrl) {
+      useSample = true;
+      effectiveFileUrl = sampleUrl;
+    }
     const ENV_SELLER = process.env.DOCUSIGN_ROLE_SELLER || "seller";
     const ENV_BUYER = process.env.DOCUSIGN_ROLE_BUYER || "buyer";
     const returnUrl = process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return";
