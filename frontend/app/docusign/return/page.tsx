@@ -121,7 +121,11 @@ export default function Page({ searchParams }: { searchParams: SearchParams }) {
   const role = getString(searchParams, "role");
 
   if (event === "signing_complete") {
-    redirect("/transactions/cmi3ecy3p0000la047mf4b6fc");
+    const targetId = tradeId?.trim();
+    if (targetId) {
+      redirect(`/transactions/${encodeURIComponent(targetId)}`);
+    }
+    redirect("/dashboard");
   }
   
   const { label, tone } = titleFor(event);
