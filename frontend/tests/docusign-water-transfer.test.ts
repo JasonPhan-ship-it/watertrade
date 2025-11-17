@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
 import { buildWaterTransferEnvelopeBody, createWaterTransferEnvelope } from "@/lib/docusign-water-transfer";
 
 const originalEnv = { ...process.env };
