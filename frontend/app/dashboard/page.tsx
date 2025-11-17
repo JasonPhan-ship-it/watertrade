@@ -592,7 +592,7 @@ export default function DashboardPage() {
     scope === "trades"
       ? "Avg $/AF"
       : normalizedFeeRate > 0
-        ? "Avg $/AF (incl. fee)"
+        ? "Average $ / AF"
         : "Avg $/AF";
   
   const stats =
