@@ -33,7 +33,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
 
-    if ([TransactionStatus.APPROVED, TransactionStatus.FUNDS_RELEASED].includes(tx.status)) {
+    if (
+      tx.status === TransactionStatus.APPROVED ||
+      tx.status === TransactionStatus.FUNDS_RELEASED
+    ) {
       return NextResponse.json({ error: "This transaction is already approved" }, { status: 409 });
     }
 
