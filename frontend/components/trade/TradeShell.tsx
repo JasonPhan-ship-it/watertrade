@@ -387,67 +387,59 @@ export default async function TradeShell(props: Props) {
           </div>
         </div>
 
+        
         {/* Actions */}
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-trade-actions>
-          {isBuyNow ? (
-            <div className="flex flex-wrap items-center gap-3" id="inline-buy-now">
-              {!hideInlineBuyNowFinal && (
-                showSellerSignCtaInline || showBuyerSignCtaInline ? (
-                  <div className="inline-flex flex-col items-start">
-                    <a
-                      href={showSellerSignCtaInline ? sellerSignHref : buyerSignHref}
-                      className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-semibold text-white hover:bg-[#00392f]"
-                    >
-                      Open DocuSign
-                    </a>
-                  </div>
-                ) : (
-                  <BuyNowConfirmButton transactionId={tx.id} />
-                )
-              )}
-            </div>
-          ) : (
-            <>
-              {showPermsHint && (
-                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
-                  You’re signed in as a guest for this transaction. Actions may return “Forbidden” unless you’re the buyer/seller or provide a valid token.
-                </div>
-              )}
+        {!isBuyNow ? (
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            {showPermsHint && (
+              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+                You’re signed in as a guest for this transaction. Actions may return “Forbidden” unless you’re the buyer/seller or provide a valid token.
+              </div>
+            )}
 
-              {viewerRole === "seller" ? (
-                sellerHasAccepted ? (
-                  <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    {sellerAwaitingBuyer
-                      ? "You accepted this offer. We invited the buyer to sign and will email you when it's your turn."
-                      : "You accepted this offer. Use the DocuSign link above to finish signing."}
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <AcceptButton
-                      postUrl={acceptUrlSeller}
-                      label="Accept"
-                      className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
-                      confirm
-                      confirmMessage="Accept this offer?"
-                      successMessage="We invited the buyer to sign and will email you when it's your turn."
-                    />
-                    <CounterButton
-                      postUrl={counterUrlSeller}
-                      role="seller"
-                      currentPriceCents={priceAf}
-                      currentQty={qty}
-                      label="Counter"
-                    />
-                    <DeclineButton
-                      transactionId={tradeIdLinked || tx.id}
-                      className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
-                      label="Decline"
-                    />
-                  </div>
-                )
-              ) : viewerRole === "buyer" ? (
-                buyerAwaitingSignature ? null : (
+            {viewerRole === "seller" ? (
+              sellerHasAccepted ? (
+                <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  {sellerAwaitingBuyer
+                    ? "You accepted this offer. We invited the buyer to sign and will email you when it's your turn."
+                    : "You accepted this offer. Use the DocuSign link above to finish signing."}
+                </div>
+              ) : (
+
                 <div className="flex flex-wrap items-center gap-3">
+                  <AcceptButton
+                    postUrl={acceptUrlSeller}
+                    label="Accept"
+                    className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
+                    confirm
+                    confirmMessage="Accept this offer?"
+                    successMessage="We invited the buyer to sign and will email you when it's your turn."
+                  />
+                  <CounterButton
+                    postUrl={counterUrlSeller}
+                    role="seller"
+                    currentPriceCents={priceAf}
+                    currentQty={qty}
+                    label="Counter"
+                  />
+                  <DeclineButton
+                    transactionId={tradeIdLinked || tx.id}
+                    className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
+                    label="Decline"
+                  />
+                </div>
+              )
+            ) : viewerRole === "buyer" ? (
+              buyerAwaitingSignature ? null : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <AcceptButton
+                    postUrl={acceptUrlBuyer}
+                    label="Accept"
+                    className="inline-flex h-9 items-center justify-center rounded-xl bg-[#004434] px-4 text-sm font-semibold text-white hover:bg-[#003a2f]"
+                    confirm
+                    confirmMessage="Accept this offer?"
+                    successMessage="We invited the seller to sign and will email you when it's their turn."
+                  />
                   <CounterButton
                     postUrl={counterUrlBuyer}
                     role="buyer"
@@ -455,31 +447,38 @@ export default async function TradeShell(props: Props) {
                     currentQty={qty}
                     label="Counter"
                   />
-                  <form action={declineUrlBuyer} method="post">
-                    {token ? <input type="hidden" name="token" value={token} /> : null}
-                    <button
-                      type="submit"
-                      className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Decline
-                    </button>
-                  </form>
+                  <DeclineButton
+                    transactionId={tradeIdLinked || tx.id}
+                    className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100"
+                    label="Decline"
+                  />
                 </div>
-                )
-              ) : (
-                <div className="text-sm text-slate-600">
-                  You’re viewing as a guest.{" "}
-                  <Link href="/sign-in" className="text-[#0E6A59] underline">
-                    Sign in
-                  </Link>{" "}
-                  to take action.
-                </div>
-              )}
-            </>
-          )}
-        </div>
+              )
+            ) : (
+              <div className="text-sm text-slate-600">
+                You’re viewing as a guest.{" "}
+                <Link href="/sign-in" className="text-[#0E6A59] underline">
+                  Sign in
+                </Link>{" "}
+                to take action.
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                href={signUrl || signUrlBuyer || signUrlSeller}
+                className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-semibold text-white hover:bg-[#00392f]"
+              >
+                Open DocuSign
+              </a>
+              <SupportInline />
+            </div>
+          </div>
+        ) : null}
+                
 
         {/* Progress Tracker */}
+        
         <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900">Progress</h2>
