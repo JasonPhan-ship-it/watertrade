@@ -374,11 +374,7 @@ function defaultClientUserId(tradeId: string, role: "seller" | "buyer") {
   return `${tradeId}:${role}`;
 }
 
-async function createDocuSignEnvelope(trade: any) {
-  const { name, email } = await getSellerNameEmail(trade as Trade);
-  const { apiClient, accountId } = await getDsClient();
-  const envelopesApi = new docusign.EnvelopesApi(apiClient);
-
+export async function buildDocuSignHtmlPayload(trade: any) {
   const listing = trade?.listing || {};
   const transaction = trade?.transaction || {};
   const sellerFarm = listing?.sellerFarm || null;
@@ -409,7 +405,10 @@ async function createDocuSignEnvelope(trade: any) {
   const buyerNameSnapshot = transaction?.buyerNameSnapshot || "";
 
   const sellerName =
-    sellerNameSnapshot || sellerProfile.fullName || (trade as any)?.seller?.name || name;
+    sellerNameSnapshot ||
+    sellerProfile.fullName ||
+    (trade as any)?.seller?.name ||
+    (await getSellerNameEmail(trade as Trade)).name;
   const buyerName =
     buyerNameSnapshot || buyerProfile.fullName || (trade as any)?.buyer?.name || buyerFallbackName;
 
@@ -434,6 +433,35 @@ async function createDocuSignEnvelope(trade: any) {
     agreementDate,
     agreementYear,
   });
+
+  return {
+    html,
+    buyerAccount,
+    sellerFarmAccountNumber,
+    sellerFarmLabel,
+    sellerName,
+    buyerName,
+    sellerEntity,
+    buyerEntity,
+    agreementDate,
+    agreementYear,
+  };
+}
+
+async function createDocuSignEnvelope(trade: any) {
+  const { name, email } = await getSellerNameEmail(trade as Trade);
+  const { apiClient, accountId } = await getDsClient();
+  const envelopesApi = new docusign.EnvelopesApi(apiClient);
+
+  const listing = trade?.listing || {};
+  const transaction = trade?.transaction || {};
+
+  const {
+    html,
+    buyerAccount,
+    sellerFarmAccountNumber,
+    sellerFarmLabel,
+  } = await buildDocuSignHtmlPayload(trade);
 
   const document = new docusign.Document();
   document.documentBase64 = Buffer.from(html, "utf8").toString("base64");
