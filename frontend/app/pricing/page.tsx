@@ -115,7 +115,7 @@ export default function PricingPage() {
     <main className="mx-auto max-w-5xl px-4 py-12">
       <div className="text-center mb-12">
         <h1 className="text-4xl font-bold text-slate-900 mb-4">Choose Your Plan</h1>
-        <p className="text-xl text-slate-600 mb-8">Start free. Upgrade when you're ready for more features.</p>
+        <p className="text-xl text-slate-600 mb-8">Start free. Upgrade when you are ready for more features.</p>
 
         {/* Billing Toggle */}
         <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 mb-6">
