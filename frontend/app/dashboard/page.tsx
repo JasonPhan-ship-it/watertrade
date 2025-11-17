@@ -614,8 +614,8 @@ export default function DashboardPage() {
   const priceColumnLabel = "$ / AF";
   
   return (
-    <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      <main className="mx-auto max-w-7xl flex-1 px-4 py-4 sm:px-6">
         {/* Tabs */}
         <div className="mb-4 flex items-center gap-2">
           <TabButton
