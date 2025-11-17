@@ -193,6 +193,15 @@ model Trade {
   buyerSignUrl       String?
   sellerSignUrl      String?
 
+  // DocuSign envelope for PDF-driven workflow
+  docusignEnvelopeId String?
+
+  // Water transfer snapshot fields
+  buyerAccountNumber  String?
+  sellerAccountNumber String?
+  waterYear           Int?
+  waterCode           String?
+
   // Final doc once fully executed
   agreementUrl       String?
 
@@ -211,6 +220,7 @@ model Trade {
   @@index([listingId, status, createdAt])
   @@index([sellerUserId, status])
   @@index([buyerUserId, status])
+  @@index([docusignEnvelopeId])
 }
 
 model TradeEvent {
