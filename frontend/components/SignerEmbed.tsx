@@ -49,6 +49,24 @@ export default function SignerEmbed({ signUrl }: Props) {
     };
   }, [provider, signUrl]);
 
+  // ----- Fallback for unknown providers: attempt top-level navigation -----
+  useEffect(() => {
+    if (provider !== "unknown") return;
+    if (!signUrl || openedRef.current) return;
+    openedRef.current = true;
+
+    try {
+      window.location.assign(signUrl);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[SignerEmbed] Fallback navigation failed", e);
+    }
+
+    return () => {
+      openedRef.current = false;
+    };
+  }, [provider, signUrl]);
+
   // ----- HelloSign: if script is already present, open immediately -----
   useEffect(() => {
     if (provider !== "hellosign") return;
@@ -92,18 +110,6 @@ export default function SignerEmbed({ signUrl }: Props) {
       />
     );
   }
-
-  // Fallback: unknown provider → attempt top-level nav
-  useEffect(() => {
-    if (!signUrl || openedRef.current) return;
-    openedRef.current = true;
-    try {
-      window.location.assign(signUrl);
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error("[SignerEmbed] Fallback navigation failed", e);
-    }
-  }, [signUrl]);
 
   return <div className="text-sm text-slate-600">Opening signer…</div>;
 }
