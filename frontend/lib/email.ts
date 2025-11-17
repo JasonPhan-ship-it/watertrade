@@ -294,6 +294,7 @@ function renderEmailLayout(params: {
                     logoUrl
                       ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(BRAND.name)} logo" style="max-height:26px;max-width:180px;display:block;" />`
                       : `<span style="font-family:${BRAND.font};color:#fff;font-size:16px;font-weight:700;letter-spacing:.2px;">${BRAND.name}</span>`
+                  }
                 </td>
               </tr>
             </table>
