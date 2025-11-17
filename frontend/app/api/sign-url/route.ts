@@ -41,6 +41,23 @@ function json(data: any, init?: ResponseInit) {
   return noCacheHeaders(NextResponse.json(data, init));
 }
 
+function toAbsoluteUrl(input: string | null | undefined, req: NextRequest) {
+  const raw = (input || "").trim();
+  if (!raw) return "";
+
+  try {
+    return new URL(raw).toString();
+  } catch {}
+
+  try {
+    const origin = new URL(req.url).origin;
+    const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+    return `${origin}${normalized}`;
+  } catch {
+    return "";
+  }
+}
+
 /* ---- DOCUSIGN OAUTH BASE NORMALIZER ---- */
 function normalizeOAuthBase(input?: string) {
   const raw = (input || "").trim() || "https://account-d.docusign.com";
@@ -393,9 +410,10 @@ export async function GET(req: NextRequest) {
     /* -------- config -------- */
     // Template-based envelopes are disabled; we always send fully generated documents
     const templateId = "";
-    const fileUrl = process.env.DOCUSIGN_FILE_URL || "";
+    const fileUrl = toAbsoluteUrl(process.env.DOCUSIGN_FILE_URL, req);
     const sampleUrl =
-      process.env.DOCUSIGN_SAMPLE_PDF_URL ||
+      toAbsoluteUrl(process.env.DOCUSIGN_SAMPLE_PDF_URL, req) ||
+      toAbsoluteUrl("/docs/sample-agreement.pdf", req) ||
       "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
     let effectiveFileUrl = useSample ? sampleUrl : fileUrl;
 
