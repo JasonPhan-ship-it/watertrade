@@ -218,27 +218,6 @@ async function getUserInfoAndRestBase(accessToken: string) {
   return { accountId: account.account_id, restBase, info, oauthBase };
 }
 
-/* -------- robust template role extraction -------- */
-async function extractTemplateRoleNames(docusign: any, apiClient: any, accountId: string, templateId: string) {
-  const templatesApi = new docusign.TemplatesApi(apiClient);
-  const resp = await templatesApi.get(accountId, templateId);
-  const buckets: any[][] = [
-    resp?.recipients?.signers,
-    resp?.envelopeTemplate?.recipients?.signers,
-    (resp as any)?.template?.recipients?.signers,
-    (resp as any)?.templateRecipients?.signers,
-    (resp as any)?.roles, // sometimes present, but not standard
-  ].filter(Boolean) as any[][];
-  const names = new Set<string>();
-  for (const arr of buckets) {
-    for (const s of arr || []) {
-      const n = s?.roleName || s?.name || s?.role;
-      if (n) names.add(String(n));
-    }
-  }
-  return Array.from(names);
-}
-
 /* ---------------- resolve signer ---------------- */
 async function resolveSigner(trade: any, role: "seller" | "buyer") {
   const isSeller = role === "seller";
@@ -330,7 +309,6 @@ export async function GET(req: NextRequest) {
       : null;
     const wantsJson = format === "json" || acceptsJson || redirectPref === false;
     const wantConsent = searchParams.get("consent") === "1";
-    const wantRolesOnly = searchParams.get("roles") === "1";
     const useSample = searchParams.get("sample") === "1";
     const roleParam = (searchParams.get("role") || "").toLowerCase();
 
@@ -413,12 +391,13 @@ export async function GET(req: NextRequest) {
     }
 
     /* -------- config -------- */
-    const templateId = process.env.DOCUSIGN_TEMPLATE_ID || "";
+    // Template-based envelopes are disabled; we always send fully generated documents
+    const templateId = "";
     const fileUrl = process.env.DOCUSIGN_FILE_URL || "";
     const sampleUrl =
       process.env.DOCUSIGN_SAMPLE_PDF_URL ||
       "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
-    const effectiveFileUrl = !templateId ? (useSample ? sampleUrl : fileUrl) : "";
+    const effectiveFileUrl = useSample ? sampleUrl : fileUrl;
     const ENV_SELLER = process.env.DOCUSIGN_ROLE_SELLER || "seller";
     const ENV_BUYER = process.env.DOCUSIGN_ROLE_BUYER || "buyer";
     const returnUrl = process.env.DOCUSIGN_RETURN_URL || "https://example.com/docusign/return";
@@ -468,41 +447,9 @@ export async function GET(req: NextRequest) {
     const buyerRoleName = ENV_BUYER;
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
-    /* -------- optional: verify template roles (robust) -------- */
-    if (templateId) {
-      PHASE = "templates.get";
-      try {
-        const tplRoles = await extractTemplateRoleNames(docusign, apiClient, accountId, templateId);
-
-        if (wantRolesOnly) {
-          return json({
-            ok: true,
-            templateId,
-            templateRoles: tplRoles,
-            hint: "Set DOCUSIGN_ROLE_SELLER / DOCUSIGN_ROLE_BUYER to exactly match one of these role names.",
-          });
-        }
-
-        const missing: string[] = [];
-        if (!tplRoles.includes(sellerRoleName)) missing.push(sellerRoleName);
-        if (!tplRoles.includes(buyerRoleName)) missing.push(buyerRoleName);
-        if (missing.length) {
-          return fail(422, "Template role mismatch", {
-            templateId,
-            templateRoles: tplRoles,
-            missing,
-            hint:
-              "Open the template (Recipients panel) and copy the exact role names. " +
-              "Update DOCUSIGN_ROLE_SELLER / DOCUSIGN_ROLE_BUYER to match (case-sensitive).",
-          });
-        }
-      } catch (e: any) {
-        const { status, text, body } = parseErr(e);
-        return fail(404, "Template not found in selected account", { status, text, body, templateId });
-      }
-    } else if (!effectiveFileUrl) {
-      return fail(422, "No template or file configured. Set DOCUSIGN_TEMPLATE_ID or DOCUSIGN_FILE_URL.", {
-        tip: "For a quick test, call this endpoint with ?sample=1 to use a public dummy PDF.",
+    if (!effectiveFileUrl) {
+      return fail(422, "No file configured. Set DOCUSIGN_FILE_URL or call this endpoint with ?sample=1.", {
+        tip: "Template-based envelopes have been disabled in favor of generated documents.",
       });
     }
 
@@ -539,37 +486,7 @@ export async function GET(req: NextRequest) {
       envelopeDefinition.customFields = cf;
     })();
 
-    if (templateId) {
-      const toTextTabs = (pairs: Record<string, string>) =>
-        Object.entries(pairs).map(([label, value]) => {
-          const t = new docusign.Text();
-          t.tabLabel = label;
-          t.value = value ?? "";
-          return t;
-        });
-
-      const sellerRole = new docusign.TemplateRole();
-      sellerRole.roleName = sellerRoleName;
-      sellerRole.name = seller.name;
-      sellerRole.email = seller.email;
-      sellerRole.clientUserId = sellerRoleName; // embedded
-      sellerRole.tabs = new docusign.Tabs();
-      sellerRole.tabs.textTabs = toTextTabs(customPairs);
-      // optional sequencing (buyer first, then seller)
-      sellerRole.routingOrder = "1";
-
-      const buyerRole = new docusign.TemplateRole();
-      buyerRole.roleName = buyerRoleName;
-      buyerRole.name = buyer.name;
-      buyerRole.email = buyer.email;
-      buyerRole.clientUserId = buyerRoleName; // embedded
-      buyerRole.tabs = new docusign.Tabs();
-      buyerRole.tabs.textTabs = toTextTabs(customPairs);
-      buyerRole.routingOrder = "1";
-
-      envelopeDefinition.templateId = templateId;
-      envelopeDefinition.templateRoles = [buyerRole, sellerRole];
-    } else if (effectiveFileUrl) {
+    if (effectiveFileUrl) {
       const { name, data } = await fetchAsBase64(effectiveFileUrl);
       const doc = new docusign.Document();
       doc.documentBase64 = data;
@@ -591,7 +508,7 @@ export async function GET(req: NextRequest) {
       sellerSigner.name = seller.name;
       sellerSigner.recipientId = "2";
       sellerSigner.clientUserId = sellerRoleName;
-      sellerSigner.routingOrder = "2";
+      sellerSigner.routingOrder = "1";
 
       envelopeDefinition.recipients = new docusign.Recipients();
       envelopeDefinition.recipients.signers = [buyerSigner, sellerSigner];
