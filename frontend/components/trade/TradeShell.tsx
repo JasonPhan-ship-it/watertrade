@@ -216,6 +216,9 @@ export default async function TradeShell(props: Props) {
     const buyerSignReady = buyerSignRequested;
     const sellerSignHref = sellerSignUrl || `/api/signing/seller?tx=${encodeURIComponent(tx.id)}`;
     const buyerSignHref = buyerSignUrl || `/api/signing/buyer?tx=${encodeURIComponent(tx.id)}`;
+    const signUrlSeller = sellerSignHref;
+    const signUrlBuyer = buyerSignHref;
+    const signUrl = viewerRole === "seller" ? signUrlSeller : viewerRole === "buyer" ? signUrlBuyer : "";
     const sellerHasAccepted =
       tradeStatusRaw.startsWith("ACCEPTED") ||
       tradeStatusRaw === "FULLY_EXECUTED" ||
@@ -228,6 +231,10 @@ export default async function TradeShell(props: Props) {
     const acceptUrlSeller = buildUrl(`/api/trades/${idForActions}/seller/accept`, {
       token,
       role: viewerRole === "seller" ? "seller" : undefined,
+    });
+    const acceptUrlBuyer = buildUrl(`/api/trades/${idForActions}/buyer/accept`, {
+      token,
+      role: viewerRole === "buyer" ? "buyer" : undefined,
     });
     const acceptUrlBuyer = buildUrl(`/api/trades/${idForActions}/buyer/accept`, {
       token,
@@ -468,14 +475,17 @@ export default async function TradeShell(props: Props) {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-3">
-              <a
-                href={buyerSignHref || sellerSignHref}
-                className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-semibold text-white hover:bg-[#00392f]"
-              >
-                Open DocuSign
-              </a>
-            </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  href={signUrl || signUrlBuyer || signUrlSeller}
+                  className="inline-flex h-10 items-center justify-center rounded-xl bg-[#004434] px-5 text-sm font-semibold text-white hover:bg-[#00392f]"
+                >
+                  Open DocuSign
+                </a>
+                <Link href="/contact" className="text-sm font-semibold text-[#0E6A59] underline">
+                  Need help?
+                </Link>
+              </div>
           </div>
         ) : null}
                 
