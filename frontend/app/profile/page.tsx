@@ -192,6 +192,7 @@ export default async function ProfilePage() {
           <div className="flex gap-3 shrink-0">
             <Link
               href="/profile/edit"
+              prefetch={false}
               className="rounded-xl bg-[#004434] px-4 py-2 text-sm font-medium text-white hover:bg-[#003a2f]"
             >
               Edit profile
