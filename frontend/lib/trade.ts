@@ -301,9 +301,10 @@ function buildDocuSignSellerHtml(args: {
   const volumeAf = Number(trade?.volumeAf ?? 0);
   const pricePerAfDollars = Number(trade?.pricePerAf ?? 0) / 100;
   const totalValue = volumeAf * pricePerAfDollars;
-  const waterCodeValue = listing?.waterCodeValue || listing?.waterCode?.code || "";
-  const waterCodeYear = listing?.waterCodeYear || listing?.waterCode?.year || "";
-  const waterCodeDescription = listing?.waterCodeDescription || listing?.waterCode?.description || "";
+  const waterCodeValue = listing?.waterCodeValue || listing?.waterCode?.code || trade?.waterCode || "";
+  const waterCodeYear = listing?.waterCodeYear || listing?.waterCode?.year || trade?.waterYear || "";
+  const waterCodeDescription =
+    listing?.waterCodeDescription || listing?.waterCode?.description || "";
 
   const partyRows = [
     { label: "Seller name", value: sellerName },
@@ -377,7 +378,7 @@ function defaultClientUserId(tradeId: string, role: "seller" | "buyer") {
 export async function buildDocuSignHtmlPayload(trade: any) {
   const listing = trade?.listing || {};
   const transaction = trade?.transaction || {};
-  const sellerFarm = listing?.sellerFarm || null;
+  const sellerFarm = listing?.sellerFarm || transaction?.sellerFarm || null;
   const docuSignDefaults = await getSiteSetting("docuSignDefaults");
   const sellerFarmAccountNumberRaw =
     (sellerFarm?.accountNumber as string | number | undefined) ??
@@ -392,7 +393,7 @@ export async function buildDocuSignHtmlPayload(trade: any) {
   const buyerAccount = (
     transaction?.buyerWaterAccount ||
     listing?.buyerWaterAccount ||
-    docuSignDefaults.buyerWaterAccountNumber ||
+    docuSignDefaults?.buyerWaterAccountNumber ||
     ""
   ).trim();
    
@@ -413,8 +414,12 @@ export async function buildDocuSignHtmlPayload(trade: any) {
     buyerNameSnapshot || buyerProfile.fullName || (trade as any)?.buyer?.name || buyerFallbackName;
 
   const sellerEntity =
-    sellerProfile.company || sellerFarm?.name || docuSignDefaults.sellerLegalEntity || "";
-  const buyerEntity = buyerProfile.company || docuSignDefaults.buyerLegalEntity || "";
+    sellerProfile.company ||
+    sellerFarm?.name ||
+    transaction?.sellerFarm?.name ||
+    docuSignDefaults?.sellerLegalEntity ||
+    "";
+  const buyerEntity = buyerProfile.company || docuSignDefaults?.buyerLegalEntity || "";
 
   const agreementBaseDate = transaction?.createdAt ? new Date(transaction.createdAt) : new Date();
   const agreementDate = formatDate(agreementBaseDate);
