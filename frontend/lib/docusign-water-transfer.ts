@@ -32,7 +32,7 @@ export type WaterTransferEnvelopeBody = {
       };
     }>;
   };
-};
+  
   prefillTabs: {
     textTabs: Array<{ anchorString: string; value: string; tabLabel: string }>;
   };
