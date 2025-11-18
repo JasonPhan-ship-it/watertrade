@@ -194,7 +194,7 @@ export default function OnboardingPage() {
 
   const openWestlandsPortal = React.useCallback(() => {
     if (typeof window !== "undefined") {
-      window.open("https://wwd.ca.gov/", "_blank", "noopener,noreferrer");
+      window.open("https://cs.westlandswater.org/cacct/login.asp", "_blank", "noopener,noreferrer");
     }
   }, []);
   
@@ -660,8 +660,7 @@ export default function OnboardingPage() {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">Connect your Westlands account</h1>
               <p className="mt-1 text-slate-600">
-                With your consent we can pull your current allocation directly from the official Westlands portal so your dashboard is always up to date.
-              </p>
+                With your consent we can pull your current allocation directly from the official Westlands portal so your dashboard is always up to date and we can flag insufficient balances during admin and district approvals.              </p>
             </div>
             <button
               type="button"
@@ -709,15 +708,15 @@ export default function OnboardingPage() {
                       onClick={openWestlandsPortal}
                       className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-900 hover:bg-emerald-100"
                     >
-                      Visit wwd.ca.gov
+                      Connect to Westlands
                     </button>
                     <button
                       type="button"
                       onClick={connectWestlands}
                       disabled={westlandsSyncing}
                       className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                    >
-                      {westlandsSyncing ? "Syncing…" : "Refresh balance"}
+                      >
+                        {westlandsSyncing ? "Syncing…" : "Refresh balance"}
                     </button>
                   </div>
                 </div>
@@ -771,8 +770,7 @@ export default function OnboardingPage() {
                   {westlandsConsentChoice === "YES" && (
                     <div className="space-y-3 rounded-xl border border-slate-200 bg-white/80 p-4">
                       <p className="text-sm text-slate-700">
-                        We&apos;ll redirect you to the official Westlands Water District website in a new tab so you can sign in. Once you finish signing in, return here and click “Sync balance” to pull your latest figures.
-                      </p>
+                        Use the button below to sign in to the official Westlands portal so we can retrieve your live balance. After you finish signing in, return here and click “Sync balance” to pull your latest figures and flag low balances during approvals.                      </p>
                       <div>
                         <label className="block text-xs font-medium text-slate-600" htmlFor="westlands-account">
                           Westlands water account number (optional)
@@ -794,7 +792,7 @@ export default function OnboardingPage() {
                           onClick={openWestlandsPortal}
                           className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
                         >
-                          Visit wwd.ca.gov
+                          Connect to Westlands
                         </button>
                         <button
                           type="button"
