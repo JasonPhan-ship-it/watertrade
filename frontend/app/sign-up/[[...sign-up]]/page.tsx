@@ -9,8 +9,8 @@ export default function SignUpPage() {
         routing="path"
         path="/sign-up"
         signInUrl="/sign-in"
-        // Brand-new accounts go straight to onboarding
-        afterSignUpUrl="/onboarding"
+        // Brand-new accounts go straight to onboarding (with a dashboard return path)
+        afterSignUpUrl="/onboarding?next=/dashboard"
         // Fallback in case Clerk routes through sign-in after verification
         afterSignInUrl="/api/auth/after-sign-in?next=/dashboard"
         appearance={{
