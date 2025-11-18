@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
     const txAny = txBase as any;
 
     const envelopeId: string | undefined =
+      txAny.sellerEnvelopeId ??
       txAny.docusignEnvelopeId ??
       txAny.envelopeId ??
       txAny.docusign_envelope_id ??

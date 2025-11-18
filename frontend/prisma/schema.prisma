@@ -229,7 +229,9 @@ model Transaction {
   agreementUrl String?
 
   // ---- DocuSign integration (used by signing routes) ----
-  docusignEnvelopeId   String?   // envelope id for this transaction
+  docusignEnvelopeId   String?   // DEPRECATED: use buyerEnvelopeId or sellerEnvelopeId
+  sellerEnvelopeId     String?   // Envelope for Seller <-> Water Traders LLC
+  buyerEnvelopeId      String?   // Envelope for Water Traders LLC <-> Buyer
   sellerClientUserId   String?   // embedded signer id for seller
   buyerClientUserId    String?   // embedded signer id for buyer
   sellerSignUrl        String?   // optional cached embedded URL
