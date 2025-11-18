@@ -84,25 +84,31 @@ export default function BuyNowConfirmClient({
   }
 
   return (
-    <div className="mt-8 space-y-4">
+    <div className="mt-10 space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <button
           type="button"
           onClick={startBuyNow}
           disabled={busy}
-          className="inline-flex w-full items-center justify-center rounded-xl bg-[#004434] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#003a2f] disabled:opacity-60 sm:w-auto"
-        >
-          {busy ? "Starting…" : confirmLabel}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-700 via-[#004434] to-[#003626] px-6 py-3 text-sm font-semibold text-white shadow-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 hover:from-emerald-800 hover:via-[#003a2f] hover:to-[#002e24] disabled:opacity-60 sm:w-auto"        >
+          {busy ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-transparent" aria-hidden />
+              Starting…
+            </>
+          ) : (
+            confirmLabel
+          )}
         </button>
         <Link
           href={backHref}
-          className="text-center text-sm font-medium text-slate-600 transition hover:text-slate-900"
+          className="text-center text-sm font-semibold text-emerald-800 transition hover:text-emerald-900"
         >
           Cancel and go back
         </Link>
       </div>
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 shadow-inner">
           {error}
         </div>
       )}
