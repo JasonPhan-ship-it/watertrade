@@ -1096,53 +1096,56 @@ function WestlandsCard({
   const breakdownId = useId();
   const showBreakdown = Boolean(display?.breakdown?.length);
   return (
-    <div className="group relative flex h-full flex-col justify-between rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-right shadow-sm">      <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Westlands balance</div>
-      {loading ? (
-        <div className="mt-2 flex items-center justify-end gap-2 text-xs font-medium text-emerald-700">
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          Syncing Westlands…
-        </div>
-      ) : display ? (
-        <div className="relative mt-1 space-y-1 text-emerald-900">
-          <div
-            className={`text-2xl font-semibold ${
-              showBreakdown
-                ? "cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-emerald-50"
-                : ""
-            }`}
-            tabIndex={showBreakdown ? 0 : -1}
-            aria-describedby={showBreakdown ? breakdownId : undefined}
-          >
-            {display.amount} AF
+    <div className="group relative flex h-full min-h-[152px] flex-col rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-right shadow-sm">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Westlands balance</div>
+      <div className="mt-2 flex flex-1 items-end justify-end">
+        {loading ? (
+          <div className="flex items-center justify-end gap-2 text-xs font-medium text-emerald-700">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            Syncing Westlands…
           </div>
-          {display.updated ? (
-            <div className="text-[11px] text-emerald-700">Updated {display.updated}</div>
-          ) : null}
-          {showBreakdown ? (
+        ) : display ? (
+          <div className="relative mt-1 w-full space-y-1 text-emerald-900">
             <div
-              id={breakdownId}
-              role="tooltip"
-              className="pointer-events-none absolute right-0 top-full z-10 mt-2 w-64 rounded-lg border border-emerald-200 bg-white/95 p-3 text-left text-sm text-emerald-900 opacity-0 shadow-lg backdrop-blur transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+              className={`text-2xl font-semibold ${
+                showBreakdown
+                  ? "cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-emerald-50"
+                  : ""
+              }`}
+              tabIndex={showBreakdown ? 0 : -1}
+              aria-describedby={showBreakdown ? breakdownId : undefined}
             >
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-                Balance breakdown
-              </div>
-              <dl className="mt-2 space-y-1">
-                {display.breakdown?.map((item) => (
-                  <div key={item.key} className="flex items-center justify-between gap-2">
-                    <dt className="text-sm text-emerald-700">{item.label}</dt>
-                    <dd className="font-medium text-emerald-900">{item.amount} AF</dd>
-                  </div>
-                ))}
-              </dl>
+              {display.amount} AF
             </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="mt-2 text-xs font-medium text-emerald-700">
-          Connect your Westlands account to see live balances.
-        </div>
-      )}
+            {display.updated ? (
+              <div className="text-[11px] text-emerald-700">Updated {display.updated}</div>
+            ) : null}
+            {showBreakdown ? (
+              <div
+                id={breakdownId}
+                role="tooltip"
+                className="pointer-events-none absolute right-0 top-full z-10 mt-2 w-64 rounded-lg border border-emerald-200 bg-white/95 p-3 text-left text-sm text-emerald-900 opacity-0 shadow-lg backdrop-blur transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                  Balance breakdown
+                </div>
+                <dl className="mt-2 space-y-1">
+                  {display.breakdown?.map((item) => (
+                    <div key={item.key} className="flex items-center justify-between gap-2">
+                      <dt className="text-sm text-emerald-700">{item.label}</dt>
+                      <dd className="font-medium text-emerald-900">{item.amount} AF</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="text-xs font-medium text-emerald-700">
+            Connect your Westlands account to see live balances.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
