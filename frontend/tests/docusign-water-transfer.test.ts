@@ -30,8 +30,15 @@ describe("buildWaterTransferEnvelopeBody", () => {
     expect(body.documents[0].documentUrl.url).toBe(process.env.DOCUSIGN_FILE_URL);
     expect(body.recipients.signers).toHaveLength(2);
     expect(body.recipients.signers[0].tabs.textTabs).toContainEqual({ anchorString: "{{BUYER_NAME}}", value: "Alice Buyer" });
-    expect(body.recipients.signers[1].tabs.textTabs).toContainEqual({ anchorString: "{{SELLER_ACCOUNT}}", value: "S-456" });
-    expect(body.recipients.signers[0].tabs.dateSignedTabs[0]).toMatchObject({ anchorString: "Date:" });
+    expect(body.prefillTabs.textTabs).toEqual(
+      expect.arrayContaining([
+        { tabLabel: "buyer_name", anchorString: "{{BUYER_NAME}}", value: "Alice Buyer" },
+        { tabLabel: "seller_account", anchorString: "{{SELLER_ACCOUNT}}", value: "S-456" },
+        { tabLabel: "af_amount", anchorString: "{{AF_AMOUNT}}", value: "25" },
+        { tabLabel: "water_year", anchorString: "{{WATER_YEAR}}", value: "2025" },
+        { tabLabel: "water_code", anchorString: "{{WATER_CODE}}", value: "WTR-1" },
+      ])
+    );
   });
 });
 
