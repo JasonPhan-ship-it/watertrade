@@ -27,13 +27,15 @@ export type WaterTransferEnvelopeBody = {
       email: string;
       roleName: string;
       tabs: {
-        textTabs: Array<{ anchorString: string; value: string }>;
         dateSignedTabs: Array<{ anchorString: string; anchorXOffset: string; anchorYOffset: string }>;
       };
     }>;
   };
   status: "sent";
 };
+  prefillTabs: {
+    textTabs: Array<{ anchorString: string; value: string; tabLabel: string }>;
+  };
 
 function resolveTemplateUrl() {
   const envUrl = process.env.DOCUSIGN_FILE_URL;
@@ -76,13 +78,6 @@ export function buildWaterTransferEnvelopeBody(input: WaterTransferEnvelopeInput
           email: buyerEmail,
           roleName: "Buyer",
           tabs: {
-            textTabs: [
-              { anchorString: "{{BUYER_NAME}}", value: buyerName },
-              { anchorString: "{{BUYER_ACCOUNT}}", value: buyerAccountNumber },
-              { anchorString: "{{AF_AMOUNT}}", value: String(afAmount) },
-              { anchorString: "{{WATER_YEAR}}", value: String(waterYear) },
-              { anchorString: "{{WATER_CODE}}", value: waterCode },
-            ],
             dateSignedTabs: [{ anchorString: "Date:", anchorXOffset: "50", anchorYOffset: "0" }],
           },
         },
@@ -92,13 +87,20 @@ export function buildWaterTransferEnvelopeBody(input: WaterTransferEnvelopeInput
           email: sellerEmail,
           roleName: "Seller",
           tabs: {
-            textTabs: [
-              { anchorString: "{{SELLER_NAME}}", value: sellerName },
-              { anchorString: "{{SELLER_ACCOUNT}}", value: sellerAccountNumber },
-            ],
             dateSignedTabs: [{ anchorString: "Date:", anchorXOffset: "50", anchorYOffset: "40" }],
           },
         },
+      ],
+    },
+    prefillTabs: {
+      textTabs: [
+        { tabLabel: "buyer_name", anchorString: "{{BUYER_NAME}}", value: buyerName },
+        { tabLabel: "buyer_account", anchorString: "{{BUYER_ACCOUNT}}", value: buyerAccountNumber },
+        { tabLabel: "seller_name", anchorString: "{{SELLER_NAME}}", value: sellerName },
+        { tabLabel: "seller_account", anchorString: "{{SELLER_ACCOUNT}}", value: sellerAccountNumber },
+        { tabLabel: "af_amount", anchorString: "{{AF_AMOUNT}}", value: String(afAmount) },
+        { tabLabel: "water_year", anchorString: "{{WATER_YEAR}}", value: String(waterYear) },
+        { tabLabel: "water_code", anchorString: "{{WATER_CODE}}", value: waterCode },
       ],
     },
     status: "sent",
