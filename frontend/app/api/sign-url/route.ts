@@ -408,8 +408,8 @@ export async function GET(req: NextRequest) {
     }
 
     /* -------- config -------- */
-    // Template-based envelopes are disabled; we always send fully generated documents
-    const templateId = "";
+    const envTemplateId = (process.env.DOCUSIGN_TEMPLATE_ID || "").trim();
+    const templateId = (searchParams.get("templateId") || envTemplateId || "").trim();
     const fileUrl = toAbsoluteUrl(process.env.DOCUSIGN_FILE_URL, req);
     const sampleUrl =
       toAbsoluteUrl(process.env.DOCUSIGN_SAMPLE_PDF_URL, req) ||
@@ -471,9 +471,9 @@ export async function GET(req: NextRequest) {
     const buyerRoleName = ENV_BUYER;
     const targetRole = effectiveRole === "seller" ? sellerRoleName : buyerRoleName;
 
-    if (!effectiveFileUrl) {
-      return fail(422, "No file configured. Set DOCUSIGN_FILE_URL or call this endpoint with ?sample=1.", {
-        tip: "Template-based envelopes have been disabled in favor of generated documents.",
+    if (!templateId && !effectiveFileUrl) {
+      return fail(422, "No template/file configured. Set DOCUSIGN_TEMPLATE_ID or DOCUSIGN_FILE_URL.", {
+        tip: "Provide DOCUSIGN_TEMPLATE_ID for template-based envelopes or pass ?sample=1 to use the sample document.",
       });
     }
 
@@ -510,7 +510,37 @@ export async function GET(req: NextRequest) {
       envelopeDefinition.customFields = cf;
     })();
 
-    if (effectiveFileUrl) {
+    if (templateId) {
+      envelopeDefinition.templateId = templateId;
+
+      const tabsForRole = (() => {
+        const textTabs = Object.entries(customPairs).map(([name, value]) => {
+          const tab = new docusign.Text();
+          tab.tabLabel = name;
+          tab.value = value;
+          return tab;
+        });
+        return textTabs.length ? { textTabs } : undefined;
+      })();
+
+      const buyerRole = new docusign.TemplateRole();
+      buyerRole.email = buyer.email;
+      buyerRole.name = buyer.name;
+      buyerRole.roleName = buyerRoleName;
+      buyerRole.clientUserId = buyerRoleName;
+      buyerRole.tabs = tabsForRole;
+
+      const sellerRole = new docusign.TemplateRole();
+      sellerRole.email = seller.email;
+      sellerRole.name = seller.name;
+      sellerRole.roleName = sellerRoleName;
+      sellerRole.clientUserId = sellerRoleName;
+      sellerRole.tabs = tabsForRole;
+
+      envelopeDefinition.templateRoles = [buyerRole, sellerRole];
+    }
+
+    if (effectiveFileUrl && !templateId) {
       const { name, data } = await fetchAsBase64(effectiveFileUrl);
       const doc = new docusign.Document();
       doc.documentBase64 = data;
