@@ -408,8 +408,12 @@ export async function GET(req: NextRequest) {
     }
 
     /* -------- config -------- */
+    const preferFileEnv = (process.env.DOCUSIGN_PREFER_FILE || "").trim().toLowerCase();
+    const preferFile =
+      preferFileEnv === "1" || preferFileEnv === "true" || preferFileEnv === "yes" || searchParams.get("preferFile") === "1";
+    
     const envTemplateId = (process.env.DOCUSIGN_TEMPLATE_ID || "").trim();
-    const templateId = (searchParams.get("templateId") || envTemplateId || "").trim();
+    const templateId = preferFile ? "" : (searchParams.get("templateId") || envTemplateId || "").trim();
     const fileUrl = toAbsoluteUrl(process.env.DOCUSIGN_FILE_URL, req);
     const sampleUrl =
       toAbsoluteUrl(process.env.DOCUSIGN_SAMPLE_PDF_URL, req) ||
@@ -685,6 +689,7 @@ export async function GET(req: NextRequest) {
           requestedRole,
           effectiveRole,
           targetRole,
+          preferFile: preferFile || undefined,
           envRoles: { seller: ENV_SELLER, buyer: ENV_BUYER },
           seller,
           buyer,
