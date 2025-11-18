@@ -1,6 +1,6 @@
 # DocuSign Water Transfer Flow
 
-This project sends the Water Transfer Agreement PDF through DocuSign using the anchor strings embedded in the template.
+This project sends the Water Transfer Agreement PDF through DocuSign using the anchor strings embedded in the template and pre-fills the data before recipients open the envelope.
 
 ## Template location
 - The PDF template is stored at `public/docs/Water-Transfer-Agreement.pdf` and is served by Next.js at `/docs/Water-Transfer-Agreement.pdf`.
@@ -24,7 +24,7 @@ The PDF expects these anchor strings:
 - The template URL defaults to `DOCUSIGN_FILE_URL` when set; otherwise it falls back to `/docs/Water-Transfer-Agreement.pdf` on the current app URL.
 
 ### Prefilled fields
-`createWaterTransferEnvelope` expects:
+`createWaterTransferEnvelope` now writes the water-trade metadata as **prefill tabs** so that the PDF opens with values already placed on the document. It expects:
 - `buyerName`, `buyerEmail`, `buyerAccountNumber`
 - `sellerName`, `sellerEmail`, `sellerAccountNumber`
 - `afAmount`, `waterYear`, `waterCode`
