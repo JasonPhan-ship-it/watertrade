@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       where: { id: trade.id },
       include: {
         listing: { include: { waterCode: true, sellerFarm: true } },
-        transaction: true,
+        transaction: { include: { sellerFarm: true } },
         buyer: { include: { profile: true } },
         seller: { include: { profile: true } },
       },
