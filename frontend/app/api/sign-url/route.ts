@@ -408,13 +408,14 @@ export async function GET(req: NextRequest) {
     }
 
     /* -------- config -------- */
-    const preferFileEnv = (process.env.DOCUSIGN_PREFER_FILE || "").trim().toLowerCase();
+    const preferFileEnv = (process.env.DOCUSIGN_PREFER_FILE || "1").trim().toLowerCase();
     const preferFile =
-      preferFileEnv === "1" || preferFileEnv === "true" || preferFileEnv === "yes" || searchParams.get("preferFile") === "1";
+      preferFileEnv === "1" || preferFileEnv === "true" || preferFileEnv === "yes" || searchParams.get("preferFile") !== "0";
     
     const envTemplateId = (process.env.DOCUSIGN_TEMPLATE_ID || "").trim();
     const templateId = preferFile ? "" : (searchParams.get("templateId") || envTemplateId || "").trim();
-    const fileUrl = toAbsoluteUrl(process.env.DOCUSIGN_FILE_URL, req);
+    const defaultAgreementUrl = "https://www.watertraders.com/docs/Water-Transfer-Agreement.pdf";
+    const fileUrl = toAbsoluteUrl(process.env.DOCUSIGN_FILE_URL || defaultAgreementUrl, req);
     const sampleUrl =
       toAbsoluteUrl(process.env.DOCUSIGN_SAMPLE_PDF_URL, req) ||
       toAbsoluteUrl("/docs/sample-agreement.pdf", req) ||
@@ -554,12 +555,43 @@ export async function GET(req: NextRequest) {
 
       envelopeDefinition.documents = [doc];
 
+      const anchorPairs = [
+        { anchorString: "{{BUYER_NAME}}", value: buyer.name || "" },
+        { anchorString: "{{SELLER_NAME}}", value: seller.name || "" },
+        {
+          anchorString: "{{AF_AMOUNT}}",
+          value: typeof trade.volumeAf === "number" ? String(trade.volumeAf) : "",
+        },
+        {
+          anchorString: "{{WATER_YEAR}}",
+          value: String((trade as any).waterYear || new Date().getFullYear()),
+        },
+        { anchorString: "{{WATER_CODE}}", value: trade.waterType || "" },
+      ];
+
+      const anchorTextTabs = anchorPairs.map(({ anchorString, value }) => {
+        const tab = new docusign.Text();
+        tab.anchorString = anchorString;
+        tab.anchorUnits = "pixels";
+        tab.anchorXOffset = "0";
+        tab.anchorYOffset = "0";
+        tab.tabLabel = anchorString.replace(/[{}]/g, "").toLowerCase();
+        tab.value = value;
+        return tab;
+      });
+
       const buyerSigner = new docusign.Signer();
       buyerSigner.email = buyer.email;
       buyerSigner.name = buyer.name;
       buyerSigner.recipientId = "1";
       buyerSigner.clientUserId = buyerRoleName;
       buyerSigner.routingOrder = "1";
+      const buyerDate = new docusign.DateSigned();
+      buyerDate.anchorString = "Date:";
+      buyerDate.anchorUnits = "pixels";
+      buyerDate.anchorXOffset = "50";
+      buyerDate.anchorYOffset = "0";
+      buyerSigner.tabs = { textTabs: anchorTextTabs, dateSignedTabs: [buyerDate] } as any;
 
       const sellerSigner = new docusign.Signer();
       sellerSigner.email = seller.email;
@@ -567,9 +599,20 @@ export async function GET(req: NextRequest) {
       sellerSigner.recipientId = "2";
       sellerSigner.clientUserId = sellerRoleName;
       sellerSigner.routingOrder = "1";
+      const sellerDate = new docusign.DateSigned();
+      sellerDate.anchorString = "Date:";
+      sellerDate.anchorUnits = "pixels";
+      sellerDate.anchorXOffset = "50";
+      sellerDate.anchorYOffset = "40";
+      sellerSigner.tabs = { textTabs: anchorTextTabs, dateSignedTabs: [sellerDate] } as any;
 
       envelopeDefinition.recipients = new docusign.Recipients();
       envelopeDefinition.recipients.signers = [buyerSigner, sellerSigner];
+
+
+      const prefillTabs = new docusign.PrefillTabs();
+      prefillTabs.textTabs = anchorTextTabs;
+      envelopeDefinition.prefillTabs = prefillTabs;
     }
 
     // 🔔 Event Notification → your webhook
