@@ -771,21 +771,6 @@ export default function OnboardingPage() {
                     <div className="space-y-3 rounded-xl border border-slate-200 bg-white/80 p-4">
                       <p className="text-sm text-slate-700">
                         Use the button below to sign in to the official Westlands portal so we can retrieve your live balance. After you finish signing in, return here and click “Sync balance” to pull your latest figures and flag low balances during approvals.                      </p>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600" htmlFor="westlands-account">
-                          Westlands water account number (optional)
-                        </label>
-                        <input
-                          id="westlands-account"
-                          value={westlandsAccountNumber}
-                          onChange={(e) => setWestlandsAccountNumber(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                          placeholder="Enter your account number"
-                        />
-                        <p className="mt-1 text-xs text-slate-500">
-                          Sharing your account number helps us confirm we&apos;re capturing the correct balance.
-                        </p>
-                      </div>
                       <div className="flex flex-wrap gap-3">
                         <button
                           type="button"
