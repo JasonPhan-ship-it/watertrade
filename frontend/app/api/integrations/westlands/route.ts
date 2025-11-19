@@ -10,6 +10,7 @@ import {
   WaterIntegrationStatus,
   WaterProvider,
 } from "@prisma/client";
+import { loginAndFetchBalance } from "./balance/route";
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL?.trim());
 
@@ -167,24 +168,45 @@ async function upsertMemoryIntegration(
     return NextResponse.json({ integration });
   }
 
-  const scrapeResult = await simulateWestlandsScrape(options.accountNumber);
-  const integrationId = store.get(userId)?.id ?? randomUUID();
-  const integration: SerializedIntegration = {
-    id: integrationId,
-    status: WaterIntegrationStatus.CONNECTED,
-    provider: WaterProvider.WESTLANDS,
-    consentedAt: nowIso,
-    lastSyncedAt: nowIso,
-    balanceAf: scrapeResult.balanceAf,
-    balanceUpdatedAt: scrapeResult.fetchedAt.toISOString(),
-    balanceBreakdown: deriveWestlandsBalanceBreakdown(
-      scrapeResult.balanceAf,
-      integrationId
-    ),
-    errorMessage: null,
-  };
-  store.set(userId, integration);
-  return NextResponse.json({ integration });
+  try {
+    const scrapeResult = await fetchWestlandsBalance(options.accountNumber);
+    const integrationId = store.get(userId)?.id ?? randomUUID();
+    const integration: SerializedIntegration = {
+      id: integrationId,
+      status: WaterIntegrationStatus.CONNECTED,
+      provider: WaterProvider.WESTLANDS,
+      consentedAt: nowIso,
+      lastSyncedAt: nowIso,
+      balanceAf: scrapeResult.balanceAf,
+      balanceUpdatedAt: scrapeResult.fetchedAt.toISOString(),
+      balanceBreakdown: deriveWestlandsBalanceBreakdown(
+        scrapeResult.balanceAf,
+        integrationId
+      ),
+      errorMessage: null,
+    };
+    store.set(userId, integration);
+    return NextResponse.json({ integration });
+  } catch (error: any) {
+    const integrationId = store.get(userId)?.id ?? randomUUID();
+    const message = error?.message || "Failed to sync Westlands balance";
+    const integration: SerializedIntegration = {
+      id: integrationId,
+      status: WaterIntegrationStatus.ERROR,
+      provider: WaterProvider.WESTLANDS,
+      consentedAt: nowIso,
+      lastSyncedAt: nowIso,
+      balanceAf: null,
+      balanceUpdatedAt: null,
+      balanceBreakdown: null,
+      errorMessage: message,
+    };
+    store.set(userId, integration);
+    return NextResponse.json(
+      { error: message, integration },
+      { status: resolveWestlandsErrorStatus(error) }
+    );
+  }
 }
 
 async function getOrCreateLocalUser(clerkUserId: string) {
@@ -262,15 +284,48 @@ type ScrapeResult = {
   fetchedAt: Date;
 };
 
-async function simulateWestlandsScrape(accountNumber?: string | null): Promise<ScrapeResult> {
-  const numericAccount = Number(String(accountNumber ?? "").replace(/\D+/g, ""));
-  const seed = Number.isFinite(numericAccount) && numericAccount > 0 ? numericAccount : Date.now();
-  const pseudoBalance = (seed % 5000) / 10 + 250; // deterministic-ish but stable per account
+function getWestlandsCredentials(accountNumber?: string | null) {
+  const envUsername = (process.env.WESTLANDS_USERNAME ?? "").trim();
+  const username = (accountNumber ?? "").trim() || envUsername;
+  const password = (process.env.WESTLANDS_PASSWORD ?? "").trim();
+
+  if (!username) {
+    throw new Error(
+      "Missing Westlands username. Provide an account number or set WESTLANDS_USERNAME."
+    );
+  }
+
+  if (!password) {
+    throw new Error("Missing Westlands password. Set WESTLANDS_PASSWORD to continue.");
+  }
+
+  return { username, password };
+}
+
+async function fetchWestlandsBalance(accountNumber?: string | null): Promise<ScrapeResult> {
+  const { username, password } = getWestlandsCredentials(accountNumber);
+  const balance = await loginAndFetchBalance(username, password);
+
+  if (typeof balance.balanceValue !== "number") {
+    const context = balance.balanceText
+      ? `Unable to parse balance from statement text: "${balance.balanceText}"`
+      : "Westlands account statement did not include a balance.";
+    throw new Error(context);
+  }
 
   return {
-    balanceAf: Math.round(pseudoBalance * 100) / 100,
-    fetchedAt: new Date(),
+    balanceAf: Math.round(balance.balanceValue * 100) / 100,
+    fetchedAt: new Date(balance.fetchedAt),
   };
+}
+
+function resolveWestlandsErrorStatus(error: any): number {
+  const message = String(error?.message ?? "").toLowerCase();
+  if (!message) return 500;
+  if (message.includes("missing westlands")) return 400;
+  if (message.includes("authentication with westlands")) return 401;
+  if (message.includes("balance")) return 422;
+  return 502;
 }
 
 export async function GET() {
@@ -370,7 +425,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ integration: serializeIntegration(integration) });
       }
 
-      const scrapeResult = await simulateWestlandsScrape(accountNumber);
+      const scrapeResult = await fetchWestlandsBalance(accountNumber);
 
       const integration = await prisma.waterIntegration.upsert({
         where: {
@@ -417,6 +472,9 @@ export async function POST(req: Request) {
     console.error("[POST /api/integrations/westlands]", error);
 
     const message = error?.message || "Failed to connect to Westlands";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: message },
+      { status: resolveWestlandsErrorStatus(error) }
+    );
   }
 }
