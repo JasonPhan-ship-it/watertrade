@@ -10,7 +10,7 @@ import {
   WaterIntegrationStatus,
   WaterProvider,
 } from "@prisma/client";
-import { loginAndFetchBalance } from "./balance/route";
+import { loginAndFetchBalance } from "./balance/login-and-fetch-balance";
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL?.trim());
 
