@@ -76,24 +76,6 @@ export default function WestlandsConnectPage() {
     window.location.href = callbackUrl;
   };
 
-  const persistCredentials = () => {
-    if (!username || !password) {
-      setFormError("Enter your Westlands username and password to continue.");
-      return false;
-    }
-
-    try {
-      const payload = { username, password, savedAt: Date.now() };
-      sessionStorage.setItem("westlandsCredentials", JSON.stringify(payload));
-      setFormError(null);
-      return true;
-    } catch (error) {
-      console.error("Unable to store Westlands credentials", error);
-      setFormError("We couldn't save your credentials locally. Try again.");
-      return false;
-    }
-  };
-
   const handleFinish = () => {
     const ok = persistCredentials();
     if (!ok) return;
