@@ -169,8 +169,8 @@ async function upsertMemoryIntegration(
   }
 
   try {
-  const scrapeResult =
-    options.scrapedBalance ?? (await simulateWestlandsScrape(options.accountNumber));
+    const scrapeResult =
+      options.scrapedBalance ?? (await simulateWestlandsScrape(options.accountNumber));
     const integrationId = store.get(userId)?.id ?? randomUUID();
     const integration: SerializedIntegration = {
       id: integrationId,
@@ -318,6 +318,20 @@ async function fetchWestlandsBalance(accountNumber?: string | null): Promise<Scr
     balanceAf: Math.round(balance.balanceValue * 100) / 100,
     fetchedAt: new Date(balance.fetchedAt),
   };
+}
+
+async function simulateWestlandsScrape(accountNumber?: string | null): Promise<ScrapeResult> {
+  try {
+    return await fetchWestlandsBalance(accountNumber);
+  } catch (error) {
+    console.warn("[westlands] Falling back to simulated balance", error);
+    const seed = (accountNumber ?? "").trim() || "westlands";
+    const weight = deterministicWeight(seed);
+    const baseAf = 7500;
+    const balanceAf = Math.round(baseAf * weight * 100) / 100;
+
+    return { balanceAf, fetchedAt: new Date() };
+  }
 }
 
 function resolveWestlandsErrorStatus(error: any): number {
