@@ -110,20 +110,6 @@ export async function GET() {
 
     const onboarded = clerkOnboarded || dbOnboarded;
 
-    // If we discovered the user is onboarded, update Clerk metadata
-    if (onboarded && !clerkOnboarded) {
-      clerkClient.users
-        .updateUser(userId, {
-          publicMetadata: {
-            ...cu?.publicMetadata,
-            onboarded: true,
-          },
-        })
-        .catch((err) => {
-          console.warn("Failed to update Clerk onboarding status:", err);
-        });
-    }
-
     const res = NextResponse.json({ onboarded });
     if (onboarded) {
       res.headers.append("Set-Cookie", onboardedCookie(userId));
