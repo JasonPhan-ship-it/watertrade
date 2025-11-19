@@ -197,7 +197,7 @@ export default function OnboardingPage() {
       const fallbackNext = nextPath || "/dashboard";
       const currentPath = `${window.location.pathname}${window.location.search}` || fallbackNext;
       const connectUrl = `/westlands/connect?next=${encodeURIComponent(currentPath)}`;
-      window.open(connectUrl, "_blank", "noopener,noreferrer");
+      window.location.assign(connectUrl);
     }
   }, [nextPath]);
   
