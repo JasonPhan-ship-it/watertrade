@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+const DEFAULT_RETURN_PATH = "/onboarding?next=/dashboard";
+
 export default function WestlandsCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams?.get("next") ?? "/dashboard";
+  const next = searchParams?.get("next") ?? DEFAULT_RETURN_PATH;
   const [error, setError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(true);
 
