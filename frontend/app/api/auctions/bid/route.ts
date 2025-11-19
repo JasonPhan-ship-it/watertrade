@@ -1,9 +1,9 @@
 // app/api/auctions/bid/route.ts
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
 import { sendEmail, appUrl } from "@/lib/email";
 import { getOrCreateUserFromClerk } from "@/lib/clerk";
+import { dollarsToCents, placeAuctionBid } from "@/lib/bids";
 
 export const runtime = "nodejs";
 
@@ -14,58 +14,53 @@ export async function POST(req: Request) {
 
     const me = await getOrCreateUserFromClerk(clerkId);
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const listingId: string = body?.listingId;
-    const pricePerAF: number = Number(body?.pricePerAF); // cents/AF if your UI sends cents
-
-    if (!listingId || !Number.isFinite(pricePerAF)) {
+    const pricePerAFCents =
+      typeof body.pricePerAFCents === "number" && Number.isFinite(body.pricePerAFCents)
+        ? Math.round(body.pricePerAFCents)
+        : dollarsToCents(body.pricePerAF);
+    
+    if (!listingId || pricePerAFCents == null || pricePerAFCents <= 0) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const listing = await prisma.listing.findUnique({
-      where: { id: listingId },
-      select: {
-        id: true,
-        title: true,
-        acreFeet: true,
-        pricePerAF: true, // <- capital AF per your schema
-        sellerId: true,
-        seller: { select: { id: true, email: true, name: true } },
-      },
+    const result = await placeAuctionBid({
+      listingId,
+      bidderId: me.id,
+      pricePerAFCents,
+      includeSeller: true,
     });
-    if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
-    if (!listing.seller) {
-      return NextResponse.json({ error: "Listing has no seller assigned" }, { status: 400 });
+    if ("error" in result) {
+      const { error, status, minCents } = result;
+      return NextResponse.json({ error, ...(minCents ? { minCents } : {}) }, { status });
     }
 
-    await prisma.bid.create({
-      data: {
-        listingId,
-        bidderId: me.id,
-        pricePerAF: Math.round(pricePerAF),
-      },
-    });
-
-    if (listing.seller.email) {
+    if (result.listing.seller?.email) {
       await sendEmail({
-        to: listing.seller.email,
+        to: result.listing.seller.email,
         subject: "New bid on your listing",
         html: `
           <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;">
             <h2>New Bid Received</h2>
-            <p>A buyer placed a bid on your listing${listing.title ? ` “${listing.title}”` : ""}.</p>
+            <p>A buyer placed a bid on your listing${result.listing.title ? ` “${result.listing.title}”` : ""}.</p>
             <ul>
-              <li>Listing ID: ${listing.id}</li>
-              <li>Bid $/AF: <strong>$${(pricePerAF / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></li>
-              <li>Qty (AF): ${listing.acreFeet.toLocaleString()}</li>
+              <li>Listing ID: ${result.listing.id}</li>
+              <li>Bid $/AF: <strong>$${(pricePerAFCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></li>
+              <li>Qty (AF): ${(result.listing.acreFeet ?? 0).toLocaleString()}</li>
             </ul>
-            <p><a href="${appUrl(`/listings/${listing.id}`)}" target="_blank">Review the bid</a></p>
+            <p><a href="${appUrl(`/listings/${result.listing.id}`)}" target="_blank">Review the bid</a></p>
           </div>
         `,
       });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      bid: result.bid,
+      highestBidCents: result.highestBidCents,
+      meetsReserve: result.meetsReserve,
+    });
   } catch (err: any) {
     console.error(err);
     return NextResponse.json({ error: "Failed to place bid" }, { status: 500 });
