@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import { dollarsToCents, placeAuctionBid } from "@/lib/bids";
 
 // ---- helpers -----------------------------------------------------
 
@@ -27,16 +28,6 @@ async function getOrCreateLocalUser(clerkUserId: string) {
     },
   });
   return user;
-}
-
-function dollarsToCents(v: unknown): number | null {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100);
-}
-
-function nowUtc() {
-  return new Date();
 }
 
 // ---- GET: list bids for listing ----------------------------------
@@ -109,36 +100,7 @@ export async function POST(
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const me = await getOrCreateLocalUser(userId);
     const { id } = params;
-
-    const listing = await prisma.listing.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        isAuction: true,
-        status: true,
-        sellerId: true,
-        reservePrice: true,  // cents
-        auctionEndsAt: true,
-        pricePerAF: true,    // cents (treat as starting price)
-      },
-    });
-
-    if (!listing) {
-      return NextResponse.json({ error: "Listing not found" }, { status: 404 });
-    }
-    if (!listing.isAuction) {
-      return NextResponse.json({ error: "Listing is not an auction" }, { status: 400 });
-    }
-    if (listing.status !== "ACTIVE") {
-      return NextResponse.json({ error: "Listing is not active" }, { status: 400 });
-    }
-    if (listing.auctionEndsAt && nowUtc() > listing.auctionEndsAt) {
-      return NextResponse.json({ error: "Auction has ended" }, { status: 400 });
-    }
-    if (listing.sellerId && listing.sellerId === me.id) {
-      return NextResponse.json({ error: "Seller cannot bid on own listing" }, { status: 400 });
-    }
-
+    
     const body = await req.json().catch(() => ({}));
     // Allow either pricePerAF ($) or pricePerAFCents
     const pricePerAFCents =
@@ -150,50 +112,22 @@ export async function POST(
       return NextResponse.json({ error: "Invalid price" }, { status: 400 });
     }
 
-    // get current highest bid (if any)
-    const top = await prisma.bid.findFirst({
-      where: { listingId: id },
-      orderBy: { createdAt: "desc" },
-      select: { pricePerAF: true },
+    const result = await placeAuctionBid({
+      listingId: id,
+      bidderId: me.id,
+      pricePerAFCents,
     });
 
-    const highest = top?.pricePerAF ?? listing.pricePerAF ?? 0;
-
-    // enforce a simple minimum increment of 1 cent
-    const minRequired = highest + 1;
-    if (pricePerAFCents < minRequired) {
-      return NextResponse.json(
-        {
-          error: "Bid must be at least the current highest + $0.01/AF",
-          minCents: minRequired,
-        },
-        { status: 400 }
-      );
+    if ("error" in result) {
+      const { error, status, minCents } = result;
+      return NextResponse.json({ error, ...(minCents ? { minCents } : {}) }, { status });
     }
-
-    const created = await prisma.bid.create({
-      data: {
-        listingId: id,
-        bidderId: me.id,
-        pricePerAF: pricePerAFCents,
-      },
-      select: {
-        id: true,
-        pricePerAF: true,
-        createdAt: true,
-      },
-    });
-
-    const meetsReserve =
-      typeof listing.reservePrice === "number"
-        ? created.pricePerAF >= listing.reservePrice
-        : true;
 
     return NextResponse.json({
       ok: true,
-      bid: created,
-      highestBidCents: created.pricePerAF,
-      meetsReserve,
+      bid: result.bid,
+      highestBidCents: result.highestBidCents,
+      meetsReserve: result.meetsReserve,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
