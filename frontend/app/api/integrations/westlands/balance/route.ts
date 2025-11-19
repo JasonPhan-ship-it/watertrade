@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { BalanceResponse, loginAndFetchBalance } from "./login-and-fetch-balance";
+import type { BalanceResponse } from "./login-and-fetch-balance";
+import { loginAndFetchBalance } from "./login-and-fetch-balance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
