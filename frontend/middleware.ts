@@ -136,10 +136,9 @@ const baseMiddleware: NextMiddleware = (req) => {
     // Auth gate for protected routes
     if (isProtected(pathname) && !userId) {
       const signInUrl = new URL("/sign-in", req.url);
-      signInUrl.searchParams.set(
-        "redirect_url",
-        `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`
-      );
+      const originalPath = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
+      const afterSignInUrl = `/api/auth/after-sign-in?next=${encodeURIComponent(originalPath)}`;
+      signInUrl.searchParams.set("redirect_url", afterSignInUrl);
       return NextResponse.redirect(signInUrl);
     }
 
@@ -160,10 +159,9 @@ const baseMiddleware: NextMiddleware = (req) => {
 
     if (isProtected(pathname)) {
       const signInUrl = new URL("/sign-in", req.url);
-      signInUrl.searchParams.set(
-        "redirect_url",
-        `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`
-      );
+      const originalPath = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
+      const afterSignInUrl = `/api/auth/after-sign-in?next=${encodeURIComponent(originalPath)}`;
+      signInUrl.searchParams.set("redirect_url", afterSignInUrl);
       return NextResponse.redirect(signInUrl);
     }
 
