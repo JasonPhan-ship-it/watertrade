@@ -4,10 +4,11 @@ import { useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 
 const WESTLANDS_LOGIN_URL = "https://cs.westlandswater.org/cacct/login.asp";
+const DEFAULT_RETURN_PATH = "/onboarding?next=/dashboard";
 
 export default function WestlandsConnectPage() {
   const searchParams = useSearchParams();
-  const next = searchParams?.get("next") ?? "/dashboard";
+  const next = searchParams?.get("next") ?? DEFAULT_RETURN_PATH;
 
   const callbackUrl = useMemo(() => {
     if (typeof window === "undefined") return null;
