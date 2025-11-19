@@ -147,7 +147,7 @@ function respondWithMemoryIntegration(userId: string) {
 
 async function upsertMemoryIntegration(
   userId: string,
-  options: { consent: boolean; accountNumber: string | null }
+  options: { consent: boolean; accountNumber: string | null; scrapedBalance?: ScrapeResult | null }
 ) {
   const store = getWestlandsStore();
   const nowIso = new Date().toISOString();
@@ -169,7 +169,8 @@ async function upsertMemoryIntegration(
   }
 
   try {
-    const scrapeResult = await fetchWestlandsBalance(options.accountNumber);
+  const scrapeResult =
+    options.scrapedBalance ?? (await simulateWestlandsScrape(options.accountNumber));
     const integrationId = store.get(userId)?.id ?? randomUUID();
     const integration: SerializedIntegration = {
       id: integrationId,
@@ -386,9 +387,20 @@ export async function POST(req: Request) {
 
     const consent = Boolean(body?.consent);
     const accountNumber = typeof body?.accountNumber === "string" ? body.accountNumber : null;
+    const username = typeof body?.username === "string" ? body.username.trim() : "";
+    const password = typeof body?.password === "string" ? body.password.trim() : "";
+
+    let scrapedBalance: ScrapeResult | null = null;
+    if (consent && username && password) {
+      const balance = await loginAndFetchBalance(username, password);
+      scrapedBalance = {
+        balanceAf: balance.balanceValue ?? 0,
+        fetchedAt: new Date(balance.fetchedAt),
+      };
+    }
 
     if (!hasDatabaseUrl) {
-      return upsertMemoryIntegration(userId, { consent, accountNumber });
+      return upsertMemoryIntegration(userId, { consent, accountNumber, scrapedBalance });
     }
 
     try {
@@ -425,7 +437,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ integration: serializeIntegration(integration) });
       }
 
-      const scrapeResult = await fetchWestlandsBalance(accountNumber);
+      const scrapeResult = scrapedBalance ?? (await simulateWestlandsScrape(accountNumber));
 
       const integration = await prisma.waterIntegration.upsert({
         where: {
