@@ -95,6 +95,11 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
       trade.listing?.waterCode?.code
     );
 
+    await prisma.trade.update({
+      where: { id: trade.id },
+      data: { buyerAccountNumber, sellerAccountNumber, waterYear, waterCode },
+    });
+    
     const envelope = await createWaterTransferEnvelope({
       buyerName,
       buyerEmail,
@@ -116,10 +121,6 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
       where: { id: trade.id },
       data: {
         docusignEnvelopeId: envelopeId,
-        buyerAccountNumber,
-        sellerAccountNumber,
-        waterYear,
-        waterCode,
       },
     });
 
