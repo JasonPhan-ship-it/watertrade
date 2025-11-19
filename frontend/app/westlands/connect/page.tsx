@@ -28,7 +28,10 @@ export default function WestlandsConnectPage() {
     if (!callbackUrl) return;
 
     const westlandsUrl = buildWestlandsLoginUrl(callbackUrl);
-    window.location.replace(westlandsUrl);
+    const redirect = () => window.location.replace(westlandsUrl);
+
+    const timer = window.setTimeout(redirect, 400);
+    return () => window.clearTimeout(timer);
   }, [callbackUrl]);
 
   if (!callbackUrl) {
@@ -39,7 +42,7 @@ export default function WestlandsConnectPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-emerald-50 px-6">
-      <div className="max-w-lg space-y-3 rounded-2xl bg-white p-6 text-center shadow-lg">
+      <div className="max-w-lg space-y-4 rounded-2xl bg-white p-6 text-center shadow-lg">
         <p className="text-lg font-semibold text-emerald-900">Redirecting to Westlands…</p>
         <p className="text-sm text-slate-600">
           If you&apos;re not redirected automatically, use the link below to continue to the official
@@ -51,6 +54,19 @@ export default function WestlandsConnectPage() {
         >
           Continue to Westlands
         </a>
+        <div className="rounded-lg bg-emerald-50 p-4 text-left text-sm text-emerald-900">
+          <p className="font-semibold">Stuck on the Westlands welcome page?</p>
+          <p className="text-emerald-800">
+            If Westlands leaves you on <code>LoginWelcome.asp</code> after signing in, return here using the
+            link below to finish connecting your account.
+          </p>
+          <a
+            href={callbackUrl}
+            className="mt-2 inline-flex items-center justify-center rounded-md bg-emerald-600 px-3 py-2 font-semibold text-white transition hover:bg-emerald-700"
+          >
+            Finish connection
+          </a>
+        </div>
       </div>
     </main>
   );
