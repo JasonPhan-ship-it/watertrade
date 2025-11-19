@@ -6,6 +6,13 @@ import type { NextMiddleware, NextRequest } from "next/server";
 const WESTLANDS_LOGIN_URL = "https://cs.westlandswater.org/cacct/login.asp";
 const DEFAULT_WESTLANDS_RETURN = "/onboarding?next=/dashboard";
 
+function buildWestlandsLoginUrl(callbackUrl: string) {
+  const westlandsUrl = new URL(WESTLANDS_LOGIN_URL);
+  westlandsUrl.searchParams.set("ReturnUrl", callbackUrl);
+  westlandsUrl.searchParams.set("ReturnURL", callbackUrl);
+  return westlandsUrl.toString();
+}
+
 // ---------- Helpers ----------
 const isStatic = (pathname: string) =>
   pathname.startsWith("/_next") ||
@@ -121,7 +128,7 @@ const baseMiddleware: NextMiddleware = (req) => {
     const nextParam = searchParams.get("next") ?? DEFAULT_WESTLANDS_RETURN;
     callbackUrl.searchParams.set("next", nextParam);
 
-    const westlandsUrl = `${WESTLANDS_LOGIN_URL}?ReturnUrl=${encodeURIComponent(callbackUrl.toString())}`;
+    const westlandsUrl = buildWestlandsLoginUrl(callbackUrl.toString());
     return NextResponse.redirect(westlandsUrl);
   }
   
