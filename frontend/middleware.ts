@@ -3,6 +3,8 @@ import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextMiddleware, NextRequest } from "next/server";
 
+const WESTLANDS_LOGIN_URL = "https://cs.westlandswater.org/cacct/login.asp";
+
 // ---------- Helpers ----------
 const isStatic = (pathname: string) =>
   pathname.startsWith("/_next") ||
@@ -112,6 +114,16 @@ const baseMiddleware: NextMiddleware = (req) => {
     return res;
   }
 
+  // Server-side redirect to the official Westlands portal
+  if (pathname === "/westlands/connect") {
+    const callbackUrl = new URL("/westlands/callback", req.url);
+    const nextParam = searchParams.get("next") ?? "/dashboard";
+    callbackUrl.searchParams.set("next", nextParam);
+
+    const westlandsUrl = `${WESTLANDS_LOGIN_URL}?ReturnUrl=${encodeURIComponent(callbackUrl.toString())}`;
+    return NextResponse.redirect(westlandsUrl);
+  }
+  
   if (!clerkMiddlewareEnabled) {
     logMissingClerkConfig();
     return NextResponse.next();
