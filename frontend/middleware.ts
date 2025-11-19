@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import type { NextMiddleware, NextRequest } from "next/server";
 
 const WESTLANDS_LOGIN_URL = "https://cs.westlandswater.org/cacct/login.asp";
+const DEFAULT_WESTLANDS_RETURN = "/onboarding?next=/dashboard";
 
 // ---------- Helpers ----------
 const isStatic = (pathname: string) =>
@@ -117,7 +118,7 @@ const baseMiddleware: NextMiddleware = (req) => {
   // Server-side redirect to the official Westlands portal
   if (pathname === "/westlands/connect") {
     const callbackUrl = new URL("/westlands/callback", req.url);
-    const nextParam = searchParams.get("next") ?? "/dashboard";
+    const nextParam = searchParams.get("next") ?? DEFAULT_WESTLANDS_RETURN;
     callbackUrl.searchParams.set("next", nextParam);
 
     const westlandsUrl = `${WESTLANDS_LOGIN_URL}?ReturnUrl=${encodeURIComponent(callbackUrl.toString())}`;
