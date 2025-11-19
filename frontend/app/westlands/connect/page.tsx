@@ -60,6 +60,13 @@ export default function WestlandsConnectPage() {
             If Westlands leaves you on <code>LoginWelcome.asp</code> after signing in, return here using the
             link below to finish connecting your account.
           </p>
+          <p className="mt-3 text-emerald-800">
+            You can also paste the callback link below directly into the browser bar of the Westlands tab to force the
+            return to our app:
+          </p>
+          <code className="mt-2 block break-all rounded-md bg-white px-3 py-2 font-mono text-xs text-emerald-900 shadow-inner">
+            {callbackUrl}
+          </code>
           <a
             href={callbackUrl}
             className="mt-2 inline-flex items-center justify-center rounded-md bg-emerald-600 px-3 py-2 font-semibold text-white transition hover:bg-emerald-700"
