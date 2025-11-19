@@ -113,15 +113,11 @@ export default async function BuyNowConfirmationPage({ params, searchParams }: P
             >
               Return to listing
             </Link>
-            <span className="text-slate-400">•</span>
-            <span className="rounded-full bg-emerald-100/80 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-900">
-              {heading}
-            </span>
           </div>
         </div>
 
-        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="rounded-3xl border border-emerald-100/70 bg-white/90 p-8 shadow-xl backdrop-blur lg:col-span-2">
+        <div className="mt-8 grid grid-cols-1 gap-6">
+          <div className="rounded-3xl border border-emerald-100/70 bg-white/90 p-8 shadow-xl backdrop-blur">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Secure transaction</p>
@@ -130,10 +126,6 @@ export default async function BuyNowConfirmationPage({ params, searchParams }: P
                   You&apos;re about to {actionVerb} <span className="font-semibold text-slate-900">{listing.title || "this listing"}</span>.
                   We&apos;ve prepared a concierge-style summary so you can breeze through DocuSign with confidence.
                 </p>
-              </div>
-              <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900 shadow-inner">
-                <p className="font-semibold">Executive-grade assurance</p>
-                <p className="mt-1 text-emerald-900/80">Live compliance monitoring, instant DocuSign handoff, and concierge support on standby.</p>
               </div>
             </div>
 
@@ -189,7 +181,6 @@ export default async function BuyNowConfirmationPage({ params, searchParams }: P
                 </div>
                 <div className="rounded-xl bg-[#003a2f] px-4 py-4 text-white shadow-lg sm:col-span-2 lg:col-span-3">
                   <dt className="flex items-center gap-2 text-xs uppercase tracking-wide text-emerald-100">
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-[10px] font-bold">VIP</span>
                     Total due (incl. fee)
                   </dt>
                   <dd className="mt-2 text-2xl font-semibold">{formatCurrency(marketplaceTotal)}</dd>
@@ -205,89 +196,12 @@ export default async function BuyNowConfirmationPage({ params, searchParams }: P
               </dl>
             </div>
 
-            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Path to signature</p>
-                <ol className="mt-3 space-y-3 text-sm text-slate-700">
-                  <li className="flex items-start gap-3">
-                    <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-900">
-                      1
-                    </span>
-                    Review the concierge summary and confirm your numbers.
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-900">
-                      2
-                    </span>
-                    We instantly open DocuSign with your transaction pre-loaded.
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-900">
-                      3
-                    </span>
-                    Sign and finish—our team handles routing, notifications, and archival.
-                  </li>
-                </ol>
-              </div>
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">White-glove confidence</p>
-                <ul className="mt-3 space-y-2 text-sm text-emerald-900/80">
-                  <li className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" aria-hidden />
-                    Real-time compliance monitoring while you sign.
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" aria-hidden />
-                    Secure audit trail with immutable event history.
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" aria-hidden />
-                    Concierge team ready to co-sign or answer questions live.
-                  </li>
-                </ul>
-              </div>
-            </div>
-
             <BuyNowConfirmClient
               listingId={listing.id}
               buyerWaterAccount={buyerWaterAccount || undefined}
               mode={normalizedMode}
               backHref={listingHref}
             />
-          </div>
-
-          <div className="flex flex-col gap-4 rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-xl backdrop-blur">
-            <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-[#003a2f] px-5 py-4 text-white shadow-lg">
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-100">DocuSign concierge</p>
-              <p className="mt-2 text-lg font-semibold">Your secure signing capsule</p>
-              <p className="mt-1 text-sm text-emerald-50">
-                Confirm below to launch DocuSign in a hardened, single-task flow. We keep the tab focused and recoverable.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4 text-sm text-slate-700 shadow-inner">
-              <p className="font-semibold text-slate-900">What happens when you confirm?</p>
-              <ul className="mt-3 space-y-2">
-                <li className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-                  Listing is locked and reserved for your transaction.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-                  DocuSign opens immediately with your details applied.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-                  We guide signatures, then return you to a transaction summary.
-                </li>
-              </ul>
-            </div>
-
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-900 shadow-sm">
-              <p className="font-semibold">Need to adjust something?</p>
-              <p className="mt-1 text-emerald-900/80">
-                Use the concierge bar below to go back, or confirm now and our team will help finalize any tweaks inside DocuSign.
-              </p>
-            </div>
           </div>
         </div>
       </div>
