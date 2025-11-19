@@ -6,6 +6,13 @@ import { useSearchParams } from "next/navigation";
 const WESTLANDS_LOGIN_URL = "https://cs.westlandswater.org/cacct/login.asp";
 const DEFAULT_RETURN_PATH = "/onboarding?next=/dashboard";
 
+function buildWestlandsLoginUrl(callbackUrl: string) {
+  const westlandsUrl = new URL(WESTLANDS_LOGIN_URL);
+  westlandsUrl.searchParams.set("ReturnUrl", callbackUrl);
+  westlandsUrl.searchParams.set("ReturnURL", callbackUrl);
+  return westlandsUrl.toString();
+}
+
 export default function WestlandsConnectPage() {
   const searchParams = useSearchParams();
   const next = searchParams?.get("next") ?? DEFAULT_RETURN_PATH;
@@ -20,7 +27,7 @@ export default function WestlandsConnectPage() {
   useEffect(() => {
     if (!callbackUrl) return;
 
-    const westlandsUrl = `${WESTLANDS_LOGIN_URL}?ReturnUrl=${encodeURIComponent(callbackUrl)}`;
+    const westlandsUrl = buildWestlandsLoginUrl(callbackUrl);
     window.location.replace(westlandsUrl);
   }, [callbackUrl]);
 
@@ -28,7 +35,7 @@ export default function WestlandsConnectPage() {
     return null;
   }
 
-  const westlandsUrl = `${WESTLANDS_LOGIN_URL}?ReturnUrl=${encodeURIComponent(callbackUrl)}`;
+  const westlandsUrl = buildWestlandsLoginUrl(callbackUrl);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-emerald-50 px-6">
