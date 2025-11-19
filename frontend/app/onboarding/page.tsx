@@ -194,9 +194,12 @@ export default function OnboardingPage() {
 
   const openWestlandsPortal = React.useCallback(() => {
     if (typeof window !== "undefined") {
-      window.open("https://cs.westlandswater.org/cacct/login.asp", "_blank", "noopener,noreferrer");
+      const fallbackNext = nextPath || "/dashboard";
+      const currentPath = `${window.location.pathname}${window.location.search}` || fallbackNext;
+      const connectUrl = `/westlands/connect?next=${encodeURIComponent(currentPath)}`;
+      window.open(connectUrl, "_blank", "noopener,noreferrer");
     }
-  }, []);
+  }, [nextPath]);
   
   // Debug helper
   const addDebug = (msg: string) => {
