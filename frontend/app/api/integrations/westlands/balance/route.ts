@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 type CookieJar = Map<string, string>;
 
-type BalanceResponse = {
+export type BalanceResponse = {
   balanceText: string | null;
   balanceValue: number | null;
   fetchedAt: string;
@@ -134,7 +134,7 @@ function extractHiddenFields(fields: InputField[]): Record<string, string> {
     }, {});
 }
 
-async function loginAndFetchBalance(
+export async function loginAndFetchBalance(
   username: string,
   password: string
 ): Promise<BalanceResponse> {
