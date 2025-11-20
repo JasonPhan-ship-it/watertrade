@@ -146,13 +146,24 @@ async function fetchCombinedPdfBase64(
 /* ---------------- Connect security: HMAC ---------------- */
 async function verifyHmacFromBody(body: Buffer, headers: Headers) {
   const secret = (process.env.DOCUSIGN_CONNECT_HMAC_SECRET || "").trim();
-  if (!secret) return true; // not configured → skip
+  if (!secret) return { ok: true, reason: "no-secret" }; // not configured → skip
   const sig = headers.get("x-docusign-signature-1");
-  if (!sig) return false;
+  if (!sig) return { ok: false, reason: "missing-signature" };
   const { createHmac } = await import("crypto");
-  const key = Buffer.from(secret, "base64"); // DocuSign gives base64 key
-  const h = createHmac("sha256", key).update(body).digest("base64");
-  return h === sig;
+
+  // DocuSign provides the secret in base64, but some environments store it as hex or raw text.
+  // Try base64 → hex → utf8 in that order so we can validate even if the operator pasted
+  // the secret in the wrong format.
+  const asBase64 = Buffer.from(secret, "base64");
+  const asHex = secret.match(/^[0-9a-fA-F]+$/) ? Buffer.from(secret, "hex") : null;
+  const candidates = [asBase64, asHex, Buffer.from(secret, "utf8")].filter(Boolean) as Buffer[];
+
+  const matched = candidates.some((key) => {
+    const h = createHmac("sha256", key).update(body).digest("base64");
+    return h === sig;
+  });
+
+  return { ok: matched, reason: matched ? "ok" : "mismatch" };
 }
 
 /* ---------------- Payload helpers ---------------- */
@@ -229,10 +240,30 @@ export async function POST(req: NextRequest) {
   try {
     // Read once (for HMAC + parsing)
     const bodyBuf = Buffer.from(await req.arrayBuffer());
-    if (!(await verifyHmacFromBody(bodyBuf, req.headers))) {
+    const hmac = await verifyHmacFromBody(bodyBuf, req.headers);
+    if (!hmac.ok) {
+      const msg = `[docsign webhook] invalid HMAC (${hmac.reason}); check DOCUSIGN_CONNECT_HMAC_SECRET and Connect config`;
+      console.warn(msg);
       return NextResponse.json({ ok: false, error: "invalid signature" }, { status: 401 });
     }
     const rawText = bodyBuf.toString("utf8");
+
+    const configuredWebhook = (process.env.DOCUSIGN_WEBHOOK_URL || "").trim();
+    if (configuredWebhook) {
+      try {
+        const configuredHost = new URL(configuredWebhook).host;
+        const incomingHost = req.nextUrl.host;
+        if (configuredHost && incomingHost && configuredHost !== incomingHost) {
+          console.warn("[docsign webhook] host mismatch", {
+            configuredHost,
+            incomingHost,
+          });
+        }
+      } catch {
+        // ignore invalid URLs; handled elsewhere
+      }
+    }
+    
     let payload: any = {};
     try { payload = rawText ? JSON.parse(rawText) : {}; } catch {}
 
@@ -605,5 +636,7 @@ export async function POST(req: NextRequest) {
 
 // DocuSign availability checks
 export async function GET() {
-  return NextResponse.json({ ok: true });
+  const configuredWebhook = (process.env.DOCUSIGN_WEBHOOK_URL || "").trim() || null;
+  const hasHmac = !!(process.env.DOCUSIGN_CONNECT_HMAC_SECRET || "").trim();
+  return NextResponse.json({ ok: true, configuredWebhook, hmacRequired: hasHmac });
 }
