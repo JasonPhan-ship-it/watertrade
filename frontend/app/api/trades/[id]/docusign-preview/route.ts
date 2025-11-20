@@ -45,9 +45,26 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: "Trade not found" }, { status: 404 });
     }
 
-    const { html } = await buildDocuSignHtmlPayload(hydrated as any);
+    const { sellerHtml, buyerHtml } = await buildDocuSignHtmlPayload(hydrated as any);
 
-    return new NextResponse(html, {
+    const escapeSrcdoc = (html: string) =>
+      html
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    const preview = `<!DOCTYPE html>
+      <html>
+        <body style="font-family:Arial,sans-serif;padding:24px;">
+          <h2 style="margin-top:0;">Seller contract preview</h2>
+          <iframe srcdoc="${escapeSrcdoc(sellerHtml)}" style="width:100%;height:600px;border:1px solid #e2e8f0;"></iframe>
+          <h2 style="margin-top:32px;">Buyer contract preview</h2>
+          <iframe srcdoc="${escapeSrcdoc(buyerHtml)}" style="width:100%;height:600px;border:1px solid #e2e8f0;"></iframe>
+        </body>
+      </html>`;
+
+    return new NextResponse(preview, {
       status: 200,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
