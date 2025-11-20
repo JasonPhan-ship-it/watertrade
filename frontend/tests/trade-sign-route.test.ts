@@ -48,7 +48,9 @@ describe("POST /api/trades/:id/sign", () => {
     };
 
     (prisma.trade.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(mockTrade);
-    (prisma.trade.update as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ...mockTrade, docusignEnvelopeId: mockEnvelopeId });
+    (prisma.trade.update as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ...mockTrade })
+      .mockResolvedValueOnce({ ...mockTrade, docusignEnvelopeId: mockEnvelopeId });
 
     const res = await POST(new Request("http://localhost/api/trades/trade-1/sign"), { params: { id: "trade-1" } });
     const json = await res.json();
@@ -62,12 +64,19 @@ describe("POST /api/trades/:id/sign", () => {
         afAmount: 50,
       })
     );
-    expect(prisma.trade.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "trade-1" },
-        data: expect.objectContaining({ docusignEnvelopeId: mockEnvelopeId }),
-      })
-    );
+    expect(prisma.trade.update).toHaveBeenNthCalledWith(1, {
+      where: { id: "trade-1" },
+      data: {
+        buyerAccountNumber: "B-ACC-TX",
+        sellerAccountNumber: "SF-001",
+        waterYear: 2024,
+        waterCode: "CODE-25",
+      },
+    });
+    expect(prisma.trade.update).toHaveBeenNthCalledWith(2, {
+      where: { id: "trade-1" },
+      data: expect.objectContaining({ docusignEnvelopeId: mockEnvelopeId }),
+    });
     expect(json).toEqual({ envelopeId: mockEnvelopeId, status: "sent" });
   });
 
