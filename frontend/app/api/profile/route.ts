@@ -141,7 +141,7 @@ export async function GET() {
       prisma.userProfile.findUnique({ where: { userId: localUser.id } }),
       prisma.farm.findMany({
         where: { userId: localUser.id },
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: { id: true, name: true, accountNumber: true, district: true },
       }),
     ]);
