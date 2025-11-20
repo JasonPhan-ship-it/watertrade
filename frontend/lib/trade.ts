@@ -270,7 +270,7 @@ function escapeHtml(input: string | null | undefined) {
     .replace(/'/g, "&#39;");
 }
 
-function buildDocuSignSellerHtml(args: {
+function buildDocuSignContractHtml(args: {
   trade: any;
   listing: any;
   buyerAccount: string;
@@ -282,6 +282,7 @@ function buildDocuSignSellerHtml(args: {
   buyerEntity: string;
   agreementDate: string;
   agreementYear: string;
+  contractType: "seller" | "buyer";
 }) {
   const {
     trade,
@@ -295,6 +296,7 @@ function buildDocuSignSellerHtml(args: {
     buyerEntity,
     agreementDate,
     agreementYear,
+    contractType,
   } = args;
   const district = trade?.district || listing?.district || "";
   const waterType = trade?.waterType || listing?.waterType || "";
@@ -306,14 +308,24 @@ function buildDocuSignSellerHtml(args: {
   const waterCodeDescription =
     listing?.waterCodeDescription || listing?.waterCode?.description || "";
 
-  const partyRows = [
-    { label: "Seller name", value: sellerName },
-    { label: "Seller farm account #", value: sellerFarmAccountNumber },
-    { label: "Seller entity", value: sellerEntity },
-    { label: "Buyer name", value: buyerName },
-    { label: "Buyer water account #", value: buyerAccount },
-    { label: "Buyer entity", value: buyerEntity },
-  ];
+  const waterTraders = "Water Traders LLC";
+
+  const partyRows =
+    contractType === "seller"
+      ? [
+          { label: "Transferor (seller)", value: sellerName },
+          { label: "Transferor entity", value: sellerEntity },
+          { label: "Transferor farm account #", value: sellerFarmAccountNumber },
+          { label: "Transferee", value: waterTraders },
+          { label: "Transferee entity", value: waterTraders },
+        ]
+      : [
+          { label: "Transferor", value: waterTraders },
+          { label: "Transferor entity", value: waterTraders },
+          { label: "Transferee (buyer)", value: buyerName },
+          { label: "Transferee water account #", value: buyerAccount },
+          { label: "Transferee entity", value: buyerEntity },
+        ];
 
   const detailRows = [
     { label: "Agreement year", value: agreementYear },
@@ -346,6 +358,9 @@ function buildDocuSignSellerHtml(args: {
   const partyTableRows = buildTableRows(partyRows);
   const detailTableRows = buildTableRows(detailRows);
 
+  const signatureLabel = contractType === "seller" ? "Seller signature" : "Buyer signature";
+  const signatureAnchor = contractType === "seller" ? "/sn_seller/" : "/sn_buyer/";
+
   return `<!DOCTYPE html>
   <html>
     <body style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;padding:24px;">
@@ -364,8 +379,7 @@ function buildDocuSignSellerHtml(args: {
         </tbody>
       </table>
       <div style="margin-top:24px;font-size:13px;color:#1e293b;">
-        <p style="margin:0 0 8px;">Seller signature: /sn_seller/</p>
-        <p style="margin:0;">Buyer signature: /sn_buyer/</p>
+        <p style="margin:0 0 8px;">${signatureLabel}: ${signatureAnchor}</p>
       </div>
     </body>
   </html>`;
@@ -425,7 +439,7 @@ export async function buildDocuSignHtmlPayload(trade: any) {
   const agreementDate = formatDate(agreementBaseDate);
   const agreementYear = String(agreementBaseDate.getFullYear());
 
-  const html = buildDocuSignSellerHtml({
+  const sellerHtml = buildDocuSignContractHtml({
     trade,
     listing,
     buyerAccount,
@@ -437,10 +451,27 @@ export async function buildDocuSignHtmlPayload(trade: any) {
     buyerEntity,
     agreementDate,
     agreementYear,
+    contractType: "seller",
+  });
+
+  const buyerHtml = buildDocuSignContractHtml({
+    trade,
+    listing,
+    buyerAccount,
+    sellerFarmLabel,
+    sellerFarmAccountNumber,
+    sellerName,
+    sellerEntity,
+    buyerName,
+    buyerEntity,
+    agreementDate,
+    agreementYear,
+    contractType: "buyer",
   });
 
   return {
-    html,
+    sellerHtml,
+    buyerHtml,
     buyerAccount,
     sellerFarmAccountNumber,
     sellerFarmLabel,
@@ -461,18 +492,19 @@ async function createDocuSignEnvelope(trade: any) {
   const listing = trade?.listing || {};
   const transaction = trade?.transaction || {};
 
-  const {
-    html,
-    buyerAccount,
-    sellerFarmAccountNumber,
-    sellerFarmLabel,
-  } = await buildDocuSignHtmlPayload(trade);
+  const { sellerHtml, buyerHtml, buyerAccount, sellerFarmAccountNumber, sellerFarmLabel } = await buildDocuSignHtmlPayload(trade);
 
-  const document = new docusign.Document();
-  document.documentBase64 = Buffer.from(html, "utf8").toString("base64");
-  document.name = `Trade-${trade.id}.html`;
-  document.fileExtension = "html";
-  document.documentId = "1";
+  const sellerDocument = new docusign.Document();
+  sellerDocument.documentBase64 = Buffer.from(sellerHtml, "utf8").toString("base64");
+  sellerDocument.name = `Trade-${trade.id}-Seller.html`;
+  sellerDocument.fileExtension = "html";
+  sellerDocument.documentId = "1";
+
+  const buyerDocument = new docusign.Document();
+  buyerDocument.documentBase64 = Buffer.from(buyerHtml, "utf8").toString("base64");
+  buyerDocument.name = `Trade-${trade.id}-Buyer.html`;
+  buyerDocument.fileExtension = "html";
+  buyerDocument.documentId = "2";
 
   const sellerClientUserId = defaultClientUserId(trade.id, "seller");
   const buyerClientUserId = defaultClientUserId(trade.id, "buyer");
@@ -486,7 +518,7 @@ async function createDocuSignEnvelope(trade: any) {
   sellerSignHere.anchorYOffset = "0";
 
   const buyerSignHere = new docusign.SignHere();
-  buyerSignHere.documentId = "1";
+  buyerSignHere.documentId = "2";
   buyerSignHere.recipientId = "2";
   buyerSignHere.anchorString = "/sn_buyer/";
   buyerSignHere.anchorUnits = "pixels";
@@ -521,7 +553,7 @@ async function createDocuSignEnvelope(trade: any) {
 
   const env = new docusign.EnvelopeDefinition();
   env.emailSubject = `Sign water transfer for ${listing?.title || trade?.district || "Water trade"}`;
-  env.documents = [document];
+  env.documents = [sellerDocument, buyerDocument];
   env.recipients = recipients;
   env.status = "sent";
 
