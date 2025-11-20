@@ -1,5 +1,7 @@
 import "server-only";
 
+import { getDsClient, refreshJwt } from "./docusign";
+
 export type WaterTransferEnvelopeInput = {
   buyerName: string;
   buyerEmail: string;
@@ -118,22 +120,37 @@ export function buildWaterTransferEnvelopeBody(input: WaterTransferEnvelopeInput
 export async function createWaterTransferEnvelope(input: WaterTransferEnvelopeInput) {
   const body = buildWaterTransferEnvelopeBody(input);
 
-  const baseUrl = process.env.DOCUSIGN_BASE_URL || process.env.DOCUSIGN_BASE_PATH || "https://demo.docusign.net/restapi";
-  const accountId = process.env.DOCUSIGN_ACCOUNT_ID;
-  const accessToken = process.env.DOCUSIGN_ACCESS_TOKEN;
+  const { accountId, basePath, apiClient } = await getDsClient();
+  const baseUrl = basePath || process.env.DOCUSIGN_BASE_URL || process.env.DOCUSIGN_BASE_PATH || "https://demo.docusign.net/restapi";
 
-  if (!accountId || !accessToken) {
-    throw new Error("Missing DOCUSIGN_ACCOUNT_ID or DOCUSIGN_ACCESS_TOKEN environment variables");
+  const getAccessTokenFromClient = () => {
+    const header = (apiClient as any)?.defaultHeaders?.Authorization || (apiClient as any)?.defaultHeaders?.authorization;
+    if (!header) return null;
+    const match = /^Bearer\s+(.+)/i.exec(header);
+    return match ? match[1] : header;
+  };
+
+  const postEnvelope = async (accessToken: string) =>
+    fetch(`${baseUrl}/v2.1/accounts/${accountId}/envelopes`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+  let accessToken = getAccessTokenFromClient();
+  if (!accessToken) {
+    accessToken = await refreshJwt();
   }
 
-  const res = await fetch(`${baseUrl}/v2.1/accounts/${accountId}/envelopes`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  let res = await postEnvelope(accessToken);
+
+  if (res.status === 401) {
+    const freshToken = await refreshJwt();
+    res = await postEnvelope(freshToken);
+  }
 
   if (!res.ok) {
     const text = await res.text();
