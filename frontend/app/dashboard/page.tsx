@@ -1183,9 +1183,14 @@ function TradeStatusBadge({
 
   return (
     <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${tone}`}>
-      {label}
+      <span className="whitespace-nowrap">{label}</span>
       {highlight && viewerRole !== "unknown" && (
-        <span className="ml-1 text-[10px] uppercase tracking-wide">Action needed</span>
+        <>
+          <span aria-hidden="true" className="mx-1 opacity-50">
+            •
+          </span>
+          <span className="text-[10px] uppercase tracking-wide">Action needed</span>
+        </>
       )}
     </span>
   );
