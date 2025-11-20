@@ -142,7 +142,7 @@ export async function GET() {
       prisma.farm.findMany({
         where: { userId: localUser.id },
         orderBy: { createdAt: "asc" },
-        select: { name: true, accountNumber: true, district: true },
+        select: { id: true, name: true, accountNumber: true, district: true },
       }),
     ]);
 
