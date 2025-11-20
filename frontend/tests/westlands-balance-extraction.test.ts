@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractBalance } from "@/app/api/integrations/westlands/balance/route";
+import { extractBalance } from "@/app/api/integrations/westlands/balance/extract-balance";
 
 describe("extractBalance", () => {
   it("parses basic table markup", () => {
