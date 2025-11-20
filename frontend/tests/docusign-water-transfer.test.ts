@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+vi.mock("@/lib/docusign", () => ({
+  getDsClient: vi.fn(),
+  refreshJwt: vi.fn(),
+}));
+
 import { buildWaterTransferEnvelopeBody, createWaterTransferEnvelope } from "@/lib/docusign-water-transfer";
+import { getDsClient, refreshJwt } from "@/lib/docusign";
 
 const originalEnv = { ...process.env };
 
@@ -44,9 +50,13 @@ describe("buildWaterTransferEnvelopeBody", () => {
 
 describe("createWaterTransferEnvelope", () => {
   it("posts to DocuSign and returns JSON", async () => {
-    process.env.DOCUSIGN_ACCOUNT_ID = "123";
-    process.env.DOCUSIGN_ACCESS_TOKEN = "token";
-    process.env.DOCUSIGN_BASE_URL = "https://demo.docusign.net/restapi";
+    (getDsClient as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accountId: "123",
+      basePath: "https://demo.docusign.net/restapi",
+      apiClient: { defaultHeaders: { Authorization: "Bearer token" } },
+    });
+
+    (refreshJwt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue("fresh-token");
 
     const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue({
       ok: true,
@@ -67,8 +77,46 @@ describe("createWaterTransferEnvelope", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://demo.docusign.net/restapi/v2.1/accounts/123/envelopes",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      })
     );
     expect(result).toEqual({ envelopeId: "env-1", status: "sent" });
+  });
+
+  it("refreshes the token on 401 and retries", async () => {
+    (getDsClient as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accountId: "123",
+      basePath: "https://demo.docusign.net/restapi",
+      apiClient: { defaultHeaders: { Authorization: "Bearer expired" } },
+    });
+
+    (refreshJwt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue("new-token");
+
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce({ ok: false, status: 401 } as any)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ envelopeId: "env-2", status: "sent" }) } as any);
+
+    const result = await createWaterTransferEnvelope({
+      buyerName: "Alice Buyer",
+      buyerEmail: "alice@example.com",
+      buyerAccountNumber: "B-123",
+      sellerName: "Sam Seller",
+      sellerEmail: "sam@example.com",
+      sellerAccountNumber: "S-456",
+      afAmount: 25,
+      waterYear: 2025,
+      waterCode: "WTR-1",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://demo.docusign.net/restapi/v2.1/accounts/123/envelopes",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer new-token" }) })
+    );
+    expect(result).toEqual({ envelopeId: "env-2", status: "sent" });
   });
 });
