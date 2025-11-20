@@ -158,8 +158,8 @@ export default async function ProfilePage() {
     debug = "prisma.farm.findMany";
     const farms = await prisma.farm.findMany({
       where: { userId: user.id },
-      orderBy: { createdAt: "asc" },
-      select: { name: true, accountNumber: true, district: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, name: true, accountNumber: true, district: true },
     });
 
     // 6) Render
@@ -279,7 +279,7 @@ export default async function ProfilePage() {
           ) : (
             <div className="mt-3 space-y-3">
               {farms.map((f, i) => (
-                <div key={i} className="rounded-xl border border-slate-200 p-4">
+                <div key={f.id ?? i} className="rounded-xl border border-slate-200 p-4">
                   <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div>
                       <dt className="text-xs text-slate-500">Name</dt>
