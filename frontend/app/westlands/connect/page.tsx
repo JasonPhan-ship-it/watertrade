@@ -152,6 +152,12 @@ export default function WestlandsConnectPage() {
           <code className="mt-2 block break-all rounded-md bg-white px-3 py-2 font-mono text-xs text-emerald-900 shadow-inner">
             {callbackUrl}
           </code>
+          <p className="mt-3 text-emerald-800">
+            If Westlands strips the <code>ReturnUrl</code>, paste the full login link below into the same tab so the callback is preserved:
+          </p>
+          <code className="mt-2 block break-all rounded-md bg-white px-3 py-2 font-mono text-xs text-emerald-900 shadow-inner">
+            {westlandsUrl}
+          </code>
           {popupStatus === "blocked" && (
             <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-amber-900">
               Your browser blocked the pop-up. Use <span className="font-semibold">Open Westlands login</span> above to launch the page manually.
