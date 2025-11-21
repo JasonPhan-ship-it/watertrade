@@ -315,7 +315,7 @@ export default async function TradeShell(props: Props) {
       banner = (
         <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           <div className="font-semibold">Awaiting buyer signature</div>
-          <p className="mt-1 text-sm">The buyer has the DocuSign link and will sign next.</p>
+          <p className="mt-1 text-sm">{buyerSignatureMessage}</p>
           {viewerRole === "buyer" && buyerSignHref ? (
             <div className="mt-3">
               <a
