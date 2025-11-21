@@ -338,6 +338,7 @@ function resolveWestlandsErrorStatus(error: any): number {
   const message = String(error?.message ?? "").toLowerCase();
   if (!message) return 500;
   if (message.includes("missing westlands")) return 400;
+  if (message.includes("westlands username") || message.includes("westlands password")) return 400;
   if (message.includes("authentication with westlands")) return 401;
   if (message.includes("balance")) return 422;
   return 502;
@@ -405,7 +406,12 @@ export async function POST(req: Request) {
     const password = typeof body?.password === "string" ? body.password.trim() : "";
 
     let scrapedBalance: ScrapeResult | null = null;
-    if (consent && username && password) {
+    if (consent) {
+      if (!username || !password) {
+        throw new Error(
+          "Enter your Westlands username and password so we can retrieve your balance."
+        );
+      }
       const balance = await loginAndFetchBalance(username, password);
       scrapedBalance = {
         balanceAf: balance.balanceValue ?? 0,
