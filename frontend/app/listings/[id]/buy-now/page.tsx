@@ -148,16 +148,6 @@ export default async function BuyNowConfirmationPage({ params, searchParams }: P
             </div>
 
             <div className="mt-8 rounded-2xl border border-slate-100 bg-slate-50/80 p-6 shadow-sm">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Financials</p>
-                  <p className="text-base text-slate-700">Crystal clear pricing so you can sign with confidence.</p>
-                </div>
-                <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
-                  Audit-ready ledger
-                </span>
-              </div>
               <dl className="mt-5 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-xl bg-white px-4 py-3 shadow-inner">
                   <dt className="text-xs uppercase tracking-wide text-slate-500">Listing price per AF</dt>
