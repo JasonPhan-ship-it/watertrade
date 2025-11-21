@@ -271,6 +271,19 @@ export default async function TradeShell(props: Props) {
     const showSellerSignCtaInline = showSellerSignCta && !showAwaitingSellerSignatureBanner;
 
     const showBuyerSignCtaInline = showBuyerSignCta && !showAwaitingBuyerSignatureBanner;
+    const buyerHasSigned = buyerSignStatusUpper === "SIGNED";
+    const buyerSignatureMessage = (() => {
+      if (buyerHasSigned && viewerRole === "buyer") {
+        return "You already finished DocuSign. We’ll update you once the seller completes their part.";
+      }
+      if (buyerHasSigned) {
+        return "The buyer already finished DocuSign. We’ll update everyone once the seller completes their part.";
+      }
+      if (viewerRole === "buyer") {
+        return "You have the DocuSign link—sign now to keep the trade moving.";
+      }
+      return "The buyer has the DocuSign link and will sign next.";
+    })();
     let banner: React.ReactNode = null;
     if (showAwaitingSellerSignatureBanner) {
       const sellerDocuSignLabel =
