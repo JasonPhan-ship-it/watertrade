@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import Navigation from "@/components/Navigation";
+import { PwaUpdater } from "@/components/PwaUpdater";
 import "./globals.css";
 
 const fallbackFontFamily =
@@ -11,6 +12,16 @@ const fallbackFontFamily =
 export const metadata: Metadata = {
   title: "Water Traders",
   description: "A platform for farmers to buy and sell water and water credits",
+  applicationName: "Water Traders",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#004434",
+  icons: {
+    icon: [
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/icons/icon-192x192.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -40,7 +51,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       }}
     >
       <html lang="en">
-          <body className="font-sans">
+        <body className="font-sans">
+          <PwaUpdater />
           <div className="min-h-screen bg-gradient-to-br from-water-50 to-earth-50">
             <Navigation />
             <main>{children}</main>
