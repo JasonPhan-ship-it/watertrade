@@ -1,5 +1,5 @@
 // middleware.ts
-import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
+import { authMiddleware } from "@clerk/nextjs";
 import { NextResponse } from "next/server";
 import type { NextMiddleware, NextRequest } from "next/server";
 
@@ -20,9 +20,19 @@ const isStatic = (pathname: string) =>
   pathname.startsWith("/api") ||
   /\.(?:png|jpg|jpeg|gif|svg|ico|css|js|txt|woff2?)$/i.test(pathname);
 
+const publicRoutes = [
+  "/",
+  "/sign/:path*",
+  "/sign-in",
+  "/sign-up",
+  "/privacy",
+  "/terms",
+  "/pricing",
+];
+
 const isPublic = (pathname: string) =>
   pathname === "/" ||
-  pathname.startsWith("/sign/") ||             // ensure /sign/* remains public
+  pathname.startsWith("/sign/") || // ensure /sign/* remains public
   pathname.startsWith("/sign-in") ||
   pathname.startsWith("/sign-up") ||
   pathname.startsWith("/privacy") ||
@@ -105,7 +115,11 @@ const logMissingClerkConfig = () => {
   );
 };
 
-const baseMiddleware: NextMiddleware = (req) => {
+type AuthContext = {
+  userId?: string | null;
+};
+
+const handleRequest = (req: NextRequest, auth: AuthContext) => {
   const { pathname, searchParams } = req.nextUrl;
 
   // Always allow static files and public routes
@@ -131,54 +145,46 @@ const baseMiddleware: NextMiddleware = (req) => {
     const westlandsUrl = buildWestlandsLoginUrl(callbackUrl.toString());
     return NextResponse.redirect(westlandsUrl);
   }
-  
+
+  // Skip Clerk enforcement entirely when not configured
   if (!clerkMiddlewareEnabled) {
     logMissingClerkConfig();
     return NextResponse.next();
   }
-  
-  try {
-    const { userId } = getAuth(req);
 
-    // Auth gate for protected routes
-    if (isProtected(pathname) && !userId) {
-      const signInUrl = new URL("/sign-in", req.url);
-      const originalPath = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
-      const afterSignInUrl = `/api/auth/after-sign-in?next=${encodeURIComponent(originalPath)}`;
-      signInUrl.searchParams.set("redirect_url", afterSignInUrl);
-      return NextResponse.redirect(signInUrl);
-    }
+  const { userId } = auth;
 
-    // ---- Cancel bypass & deterministic listings tab ----
-    if (pathname === "/dashboard" && hasNoCreateBypass(req)) {
-      const url = new URL("/dashboard/listings", req.url);
-      url.searchParams.set("nocreate", "1");
-      return NextResponse.redirect(url);
-    }
+  // Auth gate for protected routes
+  if (isProtected(pathname) && !userId) {
+    const signInUrl = new URL("/sign-in", req.url);
+    const originalPath = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
+    const afterSignInUrl = `/api/auth/after-sign-in?next=${encodeURIComponent(originalPath)}`;
+    signInUrl.searchParams.set("redirect_url", afterSignInUrl);
+    return NextResponse.redirect(signInUrl);
+  }
 
-    if (pathname.startsWith("/dashboard/listings") && hasNoCreateBypass(req)) {
-      return NextResponse.next();
-    }
+  // ---- Cancel bypass & deterministic listings tab ----
+  if (pathname === "/dashboard" && hasNoCreateBypass(req)) {
+    const url = new URL("/dashboard/listings", req.url);
+    url.searchParams.set("nocreate", "1");
+    return NextResponse.redirect(url);
+  }  
 
-    return NextResponse.next();
-  } catch (error) {
-    console.error("Middleware error:", error);
-
-    if (isProtected(pathname)) {
-      const signInUrl = new URL("/sign-in", req.url);
-      const originalPath = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
-      const afterSignInUrl = `/api/auth/after-sign-in?next=${encodeURIComponent(originalPath)}`;
-      signInUrl.searchParams.set("redirect_url", afterSignInUrl);
-      return NextResponse.redirect(signInUrl);
-    }
-
+  if (pathname.startsWith("/dashboard/listings") && hasNoCreateBypass(req)) {
     return NextResponse.next();
   }
 };
 
-export default clerkMiddlewareEnabled
-  ? withClerkMiddleware(baseMiddleware)
-  : baseMiddleware;
+const clerkMiddleware: NextMiddleware = clerkMiddlewareEnabled
+  ? authMiddleware({
+      publicRoutes,
+      async afterAuth(auth, req) {
+        return handleRequest(req, auth);
+      },
+    })
+  : (req) => handleRequest(req, {});
+
+export default clerkMiddleware;
 
 export const config = {
   // Run on all pages except next internals & files
