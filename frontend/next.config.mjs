@@ -1,3 +1,6 @@
+import withPWAInit from "next-pwa";
+import runtimeCaching from "next-pwa/cache.js";
+
 // next.config.mjs
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -82,4 +85,15 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+const withPWA = withPWAInit({
+  dest: "public",
+  disable: process.env.NODE_ENV === "development",
+  register: true,
+  skipWaiting: true,
+  runtimeCaching,
+  fallbacks: {
+    document: "/offline.html",
+  },
+});
+
+export default withPWA(nextConfig);
