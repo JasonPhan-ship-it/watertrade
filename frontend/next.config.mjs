@@ -85,9 +85,11 @@ const nextConfig = {
   },
 };
 
+const enablePWAInDev = process.env.ENABLE_PWA_IN_DEV === "true";
+
 const withPWA = withPWAInit({
   dest: "public",
-  disable: process.env.NODE_ENV === "development",
+  disable: process.env.NODE_ENV === "development" && !enablePWAInDev,
   register: true,
   skipWaiting: true,
   runtimeCaching,
